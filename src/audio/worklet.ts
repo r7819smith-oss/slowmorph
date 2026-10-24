@@ -38,6 +38,7 @@ class SlowMorphProcessor extends AudioWorkletProcessor {
       case 'seek': c.seek(msg.position); break;
       case 'engine': c.setEngine(msg.engine); break;
       case 'granular': c.setGranularParams(msg.params); break;
+      case 'spectral': c.setSpectralParams(msg.params); break;
       case 'loopCrossfade': c.loopCrossfadeSeconds = msg.seconds; break;
       case 'transport':
         if (msg.command === 'play') c.play();

@@ -6,6 +6,7 @@ import type { TimelineModel } from '../dsp/timeline';
 import type { SlotSettings } from '../dsp/slot';
 import type { EngineId, TransportState } from '../dsp/core';
 import type { GranularParams } from '../dsp/engines/granular';
+import type { SpectralParams } from '../dsp/engines/spectral';
 
 export type ToWorklet =
   | { type: 'sample'; slot: number; channels: Float32Array[] | null; settings: SlotSettings }
@@ -21,6 +22,7 @@ export type ToWorklet =
   | { type: 'loopCrossfade'; seconds: number }
   | { type: 'engine'; engine: EngineId }
   | { type: 'granular'; params: Partial<GranularParams> }
+  | { type: 'spectral'; params: Partial<SpectralParams> }
   | { type: 'transport'; command: 'play' | 'pause' | 'stop' | 'restart' };
 
 export interface WorkletStatus {

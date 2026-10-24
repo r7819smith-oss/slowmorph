@@ -15,9 +15,10 @@ import { SlotRuntime, type SlotSettings } from './slot';
 import { SafetyLimiter } from './limiter';
 import { CrossfadeEngine } from './engines/crossfade';
 import { GranularEngine, type GranularParams } from './engines/granular';
+import { SpectralEngine, type SpectralParams } from './engines/spectral';
 import type { EngineBlock, MorphEngine } from './engines/types';
 
-export type EngineId = 'crossfade' | 'granular';
+export type EngineId = 'crossfade' | 'granular' | 'spectral';
 
 export const MAX_SLOTS = 8;
 
@@ -49,6 +50,7 @@ export class MorphCore {
 
   readonly crossfade = new CrossfadeEngine();
   readonly granular: GranularEngine;
+  readonly spectral: SpectralEngine;
   private engine: MorphEngine;
   /** Engine being faded out after a switch, or null. */
   private prevEngine: MorphEngine | null = null;
@@ -76,6 +78,7 @@ export class MorphCore {
     this.sampleRate = sampleRate;
     this.limiter = new SafetyLimiter(sampleRate);
     this.granular = new GranularEngine(sampleRate);
+    this.spectral = new SpectralEngine(sampleRate);
     this.engine = this.crossfade;
     for (let i = 0; i < MAX_SLOTS; i++) this.slots.push(new SlotRuntime());
     this.block = {
@@ -145,8 +148,12 @@ export class MorphCore {
     this.granular.setParams(p);
   }
 
+  setSpectralParams(p: Partial<SpectralParams>): void {
+    this.spectral.setParams(p);
+  }
+
   private engineById(id: EngineId): MorphEngine {
-    return id === 'granular' ? this.granular : this.crossfade;
+    return id === 'granular' ? this.granular : id === 'spectral' ? this.spectral : this.crossfade;
   }
 
   setGainLaw(law: GainLaw): void {
@@ -357,6 +364,7 @@ export class MorphCore {
     for (const slot of this.slots) slot.player.rewind();
     this.crossfade.reset();
     this.granular.reset();
+    this.spectral.reset();
     this.prevEngine = null;
     this.engineMix = 1;
     this.snapFractions();

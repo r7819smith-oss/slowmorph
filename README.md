@@ -28,8 +28,8 @@ Finder will not work.)
 |---|---|---|
 | 1 | Sample slots, seamless looping, timeline, duration, crossfade engine, transport | **Done and tested** |
 | 2 | Granular engine | **Done and tested** |
-| 3 | Spectral engine | Next |
-| 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | Planned |
+| 3 | Spectral engine | **Done and tested** |
+| 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | Next |
 | 5 | Projects, presets, WAV recording, offline render | Planned (recorder tap already in place) |
 | 6 | M-VAVE FM1 feasibility study (no flashing) | Planned |
 
@@ -65,6 +65,25 @@ point between A and B roughly half the grains are A and half are B.
   (regular pulse ↔ asynchronous cloud), **Grain envelope** and **Seed**
   (same seed and settings give the same texture).
 * Double-click any slider to reset it.
+
+## Spectral mode (Phase 3)
+
+Choose **Spectral**. The samples are analysed with an FFT and turned into a
+single in-between spectrum, so the sound changes timbre instead of two
+sounds overlapping.
+
+* **FFT size**: small = sharper in time, large = smoother, more detailed
+  tones (8k is the heaviest). **Quality**: Standard (4×) or High (8×).
+* **Interpolation**: *linear* blends magnitudes; *hybrid* morphs the
+  spectral envelope and the partials separately, which makes stranger,
+  genuinely hybrid timbres.
+* **Timbre lead**: with hybrid interpolation, move the next sample's
+  "colour" ahead of (+) or behind (−) its pitches.
+* **Spectral blur** (smear over time), **Smoothing** (over frequency),
+  **Phase random** (diffuse/whispering), **Scan speed**, **Stereo width**.
+* **Freeze** holds the current hybrid spectrum as a sustained sound.
+
+See ARCHITECTURE.md for exactly how it works and its limitations.
 
 ## Development
 

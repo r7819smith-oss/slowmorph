@@ -11,6 +11,7 @@ import { defaultSegment, equalSpacing, type Segment, type TimelineModel } from '
 import type { SlotSettings } from '../dsp/slot';
 import { dbToGain } from '../dsp/curves';
 import { defaultGranularParams, type GranularParams } from '../dsp/engines/granular';
+import { defaultSpectralParams, type SpectralParams } from '../dsp/engines/spectral';
 
 export const MIN_SLOTS = 2;
 export const MAX_SLOTS = 8;
@@ -66,6 +67,7 @@ export interface ProjectState {
   loopCrossfadeMs: number;
   engine: EngineId;
   granular: GranularParams;
+  spectral: SpectralParams;
   timeline: TimelineState;
 }
 
@@ -106,6 +108,7 @@ export function defaultProject(): ProjectState {
     loopCrossfadeMs: 60,
     engine: 'crossfade',
     granular: defaultGranularParams(),
+    spectral: defaultSpectralParams(),
     timeline: { autoSpace: true, positions: {}, segments: {}, defaultCurve: 'linear' },
   };
 }

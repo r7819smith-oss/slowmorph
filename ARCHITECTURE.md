@@ -103,34 +103,71 @@ phases occasionally line up; the safety limiter catches those peaks and the
 LIM light shows it. If this proves distracting in practice, a slow automatic
 gain stage on the granular bus is the next step.
 
-## Mode C: Spectral (Phase 3, planned design)
+## Mode C: Spectral (Phase 3, done)
 
-A phase-vocoder style STFT engine, running in the worklet:
+A phase-vocoder style STFT engine (`src/dsp/engines/spectral.ts`), running
+in the worklet in plain TypeScript:
 
-* Each active source (the two or three with the largest fractions) is
-  analysed in real time at its own scan position: Hann window, FFT size
-  512–8192, 4× overlap. Two analysis frames one hop apart give each bin's
-  **instantaneous frequency**.
-* **Magnitude interpolation in two layers.** Each spectrum is split into a
-  smooth **spectral envelope** (cepstral smoothing) and a **fine structure**
-  (magnitude ÷ envelope). Envelopes and fine structures are interpolated
-  separately, in the log domain, so formants/resonances morph independently
-  of partials. This is a timbre transformation, not a mix: a 50 % point is
-  one spectrum, not two layered sounds.
-* **Phase.** Mixing source phases cancels. Instead the engine keeps one
-  running phase per output bin and advances it by an interpolated
-  instantaneous frequency (classic phase-vocoder accumulation), so there is
-  no cancellation and no frame-to-frame discontinuity. Optional phase
-  randomisation adds diffuse smearing at the hybrid end.
-* Spectral blur (temporal smoothing of magnitudes) and spectral smoothing
-  (across frequency), overlap-add resynthesis with output normalisation.
-* Freeze holds the current hybrid frame and keeps advancing phases, with a
-  small phase jitter to avoid a static buzz.
-* Cost at FFT 2048: about 5 FFTs per 512-sample hop, well within a worklet
-  budget in plain JS. WebAssembly is kept as an option if profiling shows a
-  need at the largest FFT sizes.
-* Known limitation to be documented with the implementation: transients are
-  smeared by any STFT method, more so at large FFT sizes.
+1. **Analysis.** Each audible sample is read at its own scan head (moving
+   through the loop at Scan Speed) as a seamless loop (same equal-power seam
+   as the crossfade engine), mixed to mono, Hann-windowed and transformed
+   (FFT 512–8192, overlap 4× or 8×). Two frames one hop apart give each
+   bin's magnitude and **instantaneous frequency**. At speed 1 the second
+   frame of one hop is reused as the first frame of the next.
+2. **Envelope / fine structure.** Each log-magnitude spectrum is smoothed
+   twice over a band of ±20 % of frequency (at least ±120 Hz) to give a
+   **spectral envelope**; the remainder is the **fine structure**
+   (partials, noise texture).
+3. **Interpolation** (weights from the timeline):
+   * *Linear layer*: Σ wᵢ·Mᵢ, transparent magnitude interpolation.
+   * *Hybrid layer*: exp(Σ wᵢᴱ·log Envᵢ + Σ wᵢᶠ·log Fineᵢ), geometric
+     interpolation of envelope and fine structure with separate weights.
+     **Timbre lead** bends the envelope weights ahead of (or behind) the
+     fine-structure weights, so one sound's resonances can be imposed on the
+     other's partials. Tested: half-way between a 300 Hz and a 520 Hz
+     harmonic tone, lead +1 keeps >80 % of the energy on the 300 Hz series,
+     lead −1 on the 520 Hz series.
+   * The **Interpolation** control blends the two layers.
+4. **Loudness.** The frame's energy is normalised to Σ wᵢ·(energy of
+   source i), smoothed over frames and limited to ±12 dB. Tested: morphing
+   dark noise into bright noise stays within ±2 dB.
+5. **Smoothing** across frequency, **blur** across time (one-pole on
+   magnitudes).
+6. **Phase.** Source phases are never summed. Each output bin keeps a
+   running phase advanced by the magnitude-weighted instantaneous
+   frequency; with **identity phase locking**, bins around each spectral
+   peak take their phase offsets from the dominant source, which keeps
+   partials coherent. Tested: morphing a sound into its own phase-inverted
+   copy, a linear crossfade cancels to silence at the midpoint; the
+   spectral engine holds the level within 1.5 dB.
+7. **Phase random** adds per-frame random phase (diffuse/whispering).
+   **Stereo width** resynthesises L and R with opposite, fixed per-bin
+   phase offsets above 200 Hz.
+8. Inverse FFT, Hann synthesis window, overlap-add.
+
+**Freeze** stops analysis entirely and keeps resynthesising the last hybrid
+spectrum with advancing phases: a steady, sustained version of that moment
+(tested: spectra 3 s apart correlate > 0.95, level within 1 dB).
+
+**Real-time safety.** A frame's work is split into stages (one FFT each)
+spread over the render blocks of the preceding hop, so no 128-frame block
+carries a whole frame. Changing FFT size while playing fades out over 20 ms,
+reallocates outside the audio path, and fades back in. Measured in Node
+(V8, same engine as Chrome) with 3 sources: 2048/4× ≈ 6 %, 4096/8× ≈ 15 %,
+8192/8× ≈ 16 % of real time on one core; worst single block at 8192 ≈ 2.3 ms
+of a 2.67 ms budget, so 8192 is labelled as the heavy setting.
+WebAssembly was not needed.
+
+**Limitations (honest list):**
+* Partials are interpolated **in place**: a partial of A fades while a
+  partial of B grows; it does not glide from A's frequency to B's. True
+  frequency morphing needs sinusoidal tracking (partial matching), a
+  possible later addition.
+* The spectral envelope is interpolated by level, not warped along the
+  frequency axis, so formants cross-fade rather than slide.
+* Like any STFT method it smears transients, more at large FFT sizes; the
+  engine adds latency of one window plus one hop (≈ 53 ms at 2048/4×).
+* Stereo sources are analysed as mono; width is recreated by decorrelation.
 
 ## Testing
 

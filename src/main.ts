@@ -12,7 +12,7 @@ import { activeSlots, getSegment, slotLetter } from './state/project';
 import { h, segmented, slider } from './ui/dom';
 import { SlotsView } from './ui/slot-view';
 import { TimelineView } from './ui/timeline-view';
-import { crossfadePanel, granularPanel } from './ui/engine-panels';
+import { crossfadePanel, granularPanel, spectralPanel } from './ui/engine-panels';
 
 const app = new App();
 (window as unknown as { slowmorph: App }).slowmorph = app;
@@ -117,7 +117,7 @@ const modes = segmented(
   [
     { value: 'crossfade', label: 'Crossfade', title: 'Mode A: amplitude crossfading between independently looping samples' },
     { value: 'granular', label: 'Granular', title: 'Mode B: grains drawn from the samples with timeline probabilities' },
-    { value: 'spectral', label: 'Spectral', title: 'Mode C: arrives in Phase 3', disabled: true },
+    { value: 'spectral', label: 'Spectral', title: 'Mode C: STFT spectral interpolation and resynthesis' },
   ],
   app.state.engine,
   (v) => app.setEngine(v),
@@ -138,7 +138,7 @@ const modeSection = h(
 
 // ---- engine parameters -----------------------------------------------------------
 
-const panels = { crossfade: crossfadePanel(app), granular: granularPanel(app) };
+const panels = { crossfade: crossfadePanel(app), granular: granularPanel(app), spectral: spectralPanel(app) };
 const enginePanel = h('div', { class: 'engine-panel' });
 
 const segTitle = h('span');
@@ -201,7 +201,7 @@ function refreshSettings(): void {
   totalEl.textContent = formatTime(s.durationSec);
   playMode.set(s.playMode);
   modes.set(s.engine);
-  const panel = s.engine === 'granular' ? panels.granular : panels.crossfade;
+  const panel = panels[s.engine];
   if (enginePanel.firstChild !== panel.root) enginePanel.replaceChildren(panel.root);
   panel.refresh();
   master.set(s.masterDb);

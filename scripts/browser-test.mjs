@@ -237,6 +237,35 @@ try {
   const gsize = await page.evaluate(() => window.slowmorph.state.granular.sizeMs);
   check('granular controls update the engine', gsize < 40, `size ${gsize} ms`);
 
+  // ---- spectral engine -----------------------------------------------------------
+  await page.click('.modes button[data-value="spectral"]');
+  await page.evaluate(() => window.slowmorph.seek(0.4));
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.slowmorph.engine.recorder.start());
+  await page.waitForTimeout(1500);
+  await page.click('.spectral-panel button[data-value="4096"]');
+  await page.waitForTimeout(1500);
+  const sstats = await page.evaluate(async () => {
+    const [L] = await window.slowmorph.engine.recorder.stop();
+    const sr = window.slowmorph.engine.sampleRate;
+    let peak = 0, nan = false, minRms = Infinity, maxD2 = 0;
+    const w = Math.round(0.05 * sr);
+    for (let a = Math.round(0.2 * sr); a + w < L.length; a += w) {
+      let s = 0;
+      for (let i = a; i < a + w; i++) {
+        if (!Number.isFinite(L[i])) nan = true;
+        s += L[i] * L[i];
+        peak = Math.max(peak, Math.abs(L[i]));
+        maxD2 = Math.max(maxD2, Math.abs(L[i] - 2 * L[i - 1] + L[i - 2]));
+      }
+      minRms = Math.min(minRms, Math.sqrt(s / w));
+    }
+    return { peak, nan, minRms, maxD2, engine: window.slowmorph.state.engine, fft: window.slowmorph.state.spectral.fftSize };
+  });
+  check('spectral engine selected', sstats.engine === 'spectral' && sstats.fft === 4096, JSON.stringify({ e: sstats.engine, fft: sstats.fft }));
+  check('spectral output is continuous and finite (incl. FFT size change)', !sstats.nan && sstats.minRms > 0.01, `min 50ms RMS ${sstats.minRms.toFixed(3)}`);
+  check('spectral output does not clip or click', sstats.peak < 0.9 && sstats.maxD2 < ref * 4, `peak ${sstats.peak.toFixed(3)}, max 2nd diff ${sstats.maxD2.toExponential(2)}`);
+
   // set up a nicer view for the screenshot: 10 minute morph, a third in
   await page.click('.duration-row button[data-value="600"]');
   await page.click('button.small:has-text("Equal spacing")');

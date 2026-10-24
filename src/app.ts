@@ -9,6 +9,7 @@ import { decodeFile } from './audio/decode';
 import type { WorkletStatus } from './audio/messages';
 import type { GainLaw } from './dsp/curves';
 import type { GranularParams } from './dsp/engines/granular';
+import type { SpectralParams } from './dsp/engines/spectral';
 import type { PlayMode } from './dsp/clock';
 import { moveNode as moveNodePos, type Segment } from './dsp/timeline';
 import {
@@ -117,7 +118,8 @@ export class App {
     post({ type: 'master', gain: dbToGain(s.masterDb) });
     post({ type: 'loopCrossfade', seconds: s.loopCrossfadeMs / 1000 });
     post({ type: 'granular', params: s.granular });
-    post({ type: 'engine', engine: s.engine === 'spectral' ? 'crossfade' : s.engine });
+    post({ type: 'spectral', params: s.spectral });
+    post({ type: 'engine', engine: s.engine });
     this.syncTimeline();
   }
 
@@ -289,7 +291,6 @@ export class App {
   }
 
   setEngine(engine: EngineId): void {
-    if (engine === 'spectral') return; // Phase 3
     this.state.engine = engine;
     this.engine.post({ type: 'engine', engine });
     this.emit('settings');
@@ -298,6 +299,12 @@ export class App {
   setGranular(patch: Partial<GranularParams>): void {
     Object.assign(this.state.granular, patch);
     this.engine.post({ type: 'granular', params: patch });
+    this.emit('settings');
+  }
+
+  setSpectral(patch: Partial<SpectralParams>): void {
+    Object.assign(this.state.spectral, patch);
+    this.engine.post({ type: 'spectral', params: patch });
     this.emit('settings');
   }
 

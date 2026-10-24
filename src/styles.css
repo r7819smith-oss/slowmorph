@@ -122,7 +122,7 @@ button.icon { padding: 5px 9px; border-radius: 6px; border: 1px solid var(--line
 @media (max-width: 760px) { .params { grid-template-columns: minmax(0, 1fr); } }
 .param-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 6px 24px; width: 100%; }
 .grain-count { margin-left: 8px; color: var(--accent); text-transform: none; letter-spacing: 0; font-weight: 400; }
-.seed-row { display: flex; gap: 10px; align-items: center; }
+.seed-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .seed { width: 90px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); }
 .param-group, .seg-editor { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .param-group .slider, .seg-editor .slider { width: 100%; }

@@ -82,3 +82,57 @@ export function hasNonFinite(x: Float32Array): boolean {
   for (let i = 0; i < x.length; i++) if (!Number.isFinite(x[i])) return true;
   return false;
 }
+
+import { FFT } from '../src/dsp/fft';
+
+/** Hann-windowed magnitude spectrum of x[from .. from+n). */
+export function spectrum(x: Float32Array, from: number, n = 8192): Float64Array {
+  const fft = new FFT(n);
+  const re = new Float64Array(n);
+  const im = new Float64Array(n);
+  for (let i = 0; i < n; i++) re[i] = (x[from + i] ?? 0) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / n));
+  fft.transform(re, im);
+  const out = new Float64Array(n / 2);
+  for (let k = 0; k < n / 2; k++) out[k] = Math.hypot(re[k], im[k]);
+  return out;
+}
+
+/** Frequency (Hz) of the strongest bin. */
+export function peakFrequency(x: Float32Array, from: number, sr = SR, n = 8192): number {
+  const s = spectrum(x, from, n);
+  let best = 1;
+  for (let k = 2; k < s.length; k++) if (s[k] > s[best]) best = k;
+  return (best * sr) / n;
+}
+
+/** Share of spectral energy within ±bw Hz of the given frequencies. */
+export function energyNear(x: Float32Array, from: number, freqs: number[], bw = 25, sr = SR, n = 8192): number {
+  const s = spectrum(x, from, n);
+  let near = 0;
+  let total = 0;
+  for (let k = 1; k < s.length; k++) {
+    const e = s[k] * s[k];
+    total += e;
+    const f = (k * sr) / n;
+    if (freqs.some((c) => Math.abs(f - c) <= bw)) near += e;
+  }
+  return near / total;
+}
+
+/** One-pole filtered noise: lowpass (coef > 0) or highpass (coef < 0). */
+export function colouredNoise(seconds: number, coef: number, amp = 0.3, seed = 1): Float32Array {
+  const w = noise(seconds, amp, seed);
+  const out = new Float32Array(w.length);
+  let y = 0;
+  let prev = 0;
+  for (let i = 0; i < w.length; i++) {
+    if (coef >= 0) y = y * coef + w[i] * (1 - coef);
+    else {
+      y = -coef * (y + w[i] - prev);
+      prev = w[i];
+    }
+    out[i] = y;
+  }
+  const r = Math.sqrt(out.reduce((a, b) => a + b * b, 0) / out.length);
+  return out.map((v) => (v / r) * amp * 0.5);
+}

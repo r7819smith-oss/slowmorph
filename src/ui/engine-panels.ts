@@ -5,6 +5,7 @@
 
 import type { App } from '../app';
 import { WINDOW_TYPES, type WindowType } from '../dsp/windows';
+import { FFT_SIZES, type FftSize } from '../dsp/engines/spectral';
 import { h, segmented, slider } from './dom';
 
 export interface Panel {
@@ -90,6 +91,54 @@ export function granularPanel(app: App): Panel {
       jitter.set(p.jitter);
       win.set(p.window);
       if (document.activeElement !== seed) seed.value = String(p.seed);
+    },
+  };
+}
+
+export function spectralPanel(app: App): Panel {
+  const sp = () => app.state.spectral;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const fft = segmented(
+    FFT_SIZES.map((n) => ({ value: String(n), label: n >= 1024 ? `${n / 1024}k` : String(n), title: `${n}-point FFT (${((n / app.engine.sampleRate) * 1000).toFixed(0)} ms window)` })),
+    String(sp().fftSize),
+    (v) => app.setSpectral({ fftSize: Number(v) as FftSize }),
+    'FFT window size',
+  );
+  const overlap = segmented(
+    [
+      { value: '4', label: 'Standard', title: '4× overlap: lighter on the CPU' },
+      { value: '8', label: 'High', title: '8× overlap: smoother, about twice the CPU' },
+    ],
+    String(sp().overlap),
+    (v) => app.setSpectral({ overlap: Number(v) as 4 | 8 }),
+    'Quality',
+  );
+  const interp = slider({ label: 'Interpolation', min: 0, max: 1, step: 0.01, value: sp().interp, format: (v) => (v < 0.05 ? 'linear' : v > 0.95 ? 'hybrid' : pct(v)), onInput: (v) => app.setSpectral({ interp: v }), title: 'Linear magnitude blend ↔ envelope/fine-structure hybrid' });
+  const lead = slider({ label: 'Timbre lead', min: -1, max: 1, step: 0.01, value: sp().envelopeLead, format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`, onInput: (v) => app.setSpectral({ envelopeLead: v }), title: 'Positive: the next sample\'s spectral envelope (timbre) arrives before its partials. Negative: after. Hybrid interpolation only.' });
+  const blur = slider({ label: 'Spectral blur', min: 0, max: 1, step: 0.01, value: sp().blur, format: pct, onInput: (v) => app.setSpectral({ blur: v }), title: 'Smears the spectrum over time' });
+  const smooth = slider({ label: 'Smoothing', min: 0, max: 1, step: 0.01, value: sp().smoothing, format: pct, onInput: (v) => app.setSpectral({ smoothing: v }), title: 'Smooths the spectrum across frequency' });
+  const phase = slider({ label: 'Phase random', min: 0, max: 1, step: 0.01, value: sp().phaseRandom, format: pct, onInput: (v) => app.setSpectral({ phaseRandom: v }), title: 'Adds random phase each frame: diffuse, whispering textures' });
+  const speed = slider({ label: 'Scan speed', min: -2, max: 2, step: 0.01, value: sp().speed, format: (v) => `${v.toFixed(2)}×`, onInput: (v) => app.setSpectral({ speed: v }), title: 'Speed at which each sample is scanned (0 = hold, negative = backwards)' });
+  const width = slider({ label: 'Stereo width', min: 0, max: 1, step: 0.01, value: sp().width, format: pct, onInput: (v) => app.setSpectral({ width: v }) });
+  return {
+    root: h(
+      'div',
+      { class: 'param-group spectral-panel' },
+      h('h3', {}, 'Spectral engine'),
+      h('div', { class: 'seed-row' }, h('small', {}, 'FFT size'), fft.root, h('small', {}, 'Quality'), overlap.root),
+      h('div', { class: 'param-grid' }, interp.root, lead.root, blur.root, smooth.root, phase.root, speed.root, width.root),
+    ),
+    refresh() {
+      const p = sp();
+      fft.set(String(p.fftSize));
+      overlap.set(String(p.overlap));
+      interp.set(p.interp);
+      lead.set(p.envelopeLead);
+      blur.set(p.blur);
+      smooth.set(p.smoothing);
+      phase.set(p.phaseRandom);
+      speed.set(p.speed);
+      width.set(p.width);
     },
   };
 }
