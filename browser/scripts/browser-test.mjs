@@ -70,9 +70,15 @@ writeFileSync(files.c, wav16(tone(495, 1.53, 48000), 48000));
 writeFileSync(files.bad, Buffer.concat([Buffer.from('RIFF\x00\x00\x00\x00WAVEfmt '), Buffer.alloc(200, 7)]));
 
 // ---- serve -------------------------------------------------------------------------
-execSync('npx vite build', { stdio: 'ignore' });
-const server = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { stdio: 'ignore' });
-await new Promise((r) => setTimeout(r, 1500));
+// --url tests an already-served copy (for example the published site) instead of a fresh build.
+const urlArg = process.argv.indexOf('--url');
+const appUrl = urlArg > 0 ? process.argv[urlArg + 1] : 'http://localhost:4173/';
+let server = null;
+if (urlArg < 0) {
+  execSync('npx vite build', { stdio: 'ignore' });
+  server = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 1500));
+}
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -115,7 +121,7 @@ try {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('http://localhost:4173/');
+  await page.goto(appUrl);
   await page.waitForFunction(() => window.slowmorph?.engine.recorder);
   const sr = await page.evaluate(() => window.slowmorph.engine.sampleRate);
   check('audio engine starts', true, `context ${sr} Hz`);
@@ -415,7 +421,7 @@ try {
   check('no page errors', errors.length === 0, errors.join(' | '));
 } finally {
   await browser.close();
-  server.kill();
+  server?.kill();
 }
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} browser checks passed`);
