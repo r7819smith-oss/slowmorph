@@ -55,15 +55,36 @@ jobs:
           foreach ($marker in 'Nullsoft', 'Inno Setup', '7-Zip', 'WiX') {
             if ($text.Contains($marker)) { Write-Host "Installer looks like: $marker" }
           }
-          # 7-Zip unpacks NSIS and plain self-extracting archives without running them.
-          & 7z x $installer -oC:\jl\unpacked -y | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host '7-Zip could not unpack it; trying silent installer switches.'
-            Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/DIR=C:\jl\installed' -Wait
-            if (!(Get-ChildItem C:\jl -Recurse -Filter clang.exe -ErrorAction SilentlyContinue)) {
-              Start-Process $installer -ArgumentList '/S', '/D=C:\jl\installed' -Wait
+          # The download is an Inno Setup installer. Install it silently, then
+          # copy the toolchain folder under C:\jl so later runs can cache it.
+          $log = 'C:\jl-download\install.log'
+          $p = Start-Process $installer -PassThru -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/DIR=C:\jl\installed', "/LOG=$log"
+          Write-Host "Installer exit code: $($p.ExitCode)"
+          $places = 'C:\jl', 'C:\JL', 'C:\Program Files', 'C:\Program Files (x86)', $env:LOCALAPPDATA, $env:APPDATA, 'C:\ProgramData'
+          $found = $places | Where-Object { $_ -and (Test-Path $_) } | ForEach-Object {
+            Get-ChildItem $_ -Recurse -Filter pi32v2-ld.exe -ErrorAction SilentlyContinue }
+          if (!$found) {
+            Write-Host 'Installer did not leave pi32v2-ld.exe; unpacking with innoextract instead.'
+            choco install innoextract -y --no-progress | Out-Null
+            innoextract -s -d C:\jl\unpacked $installer
+            $found = Get-ChildItem C:\jl\unpacked -Recurse -Filter pi32v2-ld.exe -ErrorAction SilentlyContinue
+          }
+          $found | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+          $i = 0
+          foreach ($f in $found) {
+            $root = $f.Directory.Parent.FullName
+            if (!$root.StartsWith('C:\jl\', [StringComparison]::OrdinalIgnoreCase)) {
+              Copy-Item $root "C:\jl\copy$i" -Recurse; $i++
             }
           }
+
+      - name: Save installer log
+        if: always() && env.KIT_PRESENT == 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jieli-install-log
+          path: C:\jl-download\install.log
+          if-no-files-found: ignore
 
       - name: Find the toolchain that matches the SDK
         if: env.KIT_PRESENT == 'true'
