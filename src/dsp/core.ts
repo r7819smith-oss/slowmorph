@@ -14,7 +14,10 @@ import { computeFractions, type TimelineModel } from './timeline';
 import { SlotRuntime, type SlotSettings } from './slot';
 import { SafetyLimiter } from './limiter';
 import { CrossfadeEngine } from './engines/crossfade';
+import { GranularEngine, type GranularParams } from './engines/granular';
 import type { EngineBlock, MorphEngine } from './engines/types';
+
+export type EngineId = 'crossfade' | 'granular';
 
 export const MAX_SLOTS = 8;
 
@@ -30,6 +33,8 @@ const GAIN_TAU = 0.02;
 const TRANSPORT_FADE = 0.03;
 /** Declick fade time for buffer and region swaps (s). */
 const DECLICK_TIME = 0.008;
+/** Crossfade time when switching engines (s). */
+const ENGINE_XFADE = 0.15;
 
 export class MorphCore {
   readonly sampleRate: number;
@@ -42,7 +47,14 @@ export class MorphCore {
   loopCrossfadeSeconds = 0.05;
   transport: TransportState = 'stopped';
 
-  private engine: MorphEngine = new CrossfadeEngine();
+  readonly crossfade = new CrossfadeEngine();
+  readonly granular: GranularEngine;
+  private engine: MorphEngine;
+  /** Engine being faded out after a switch, or null. */
+  private prevEngine: MorphEngine | null = null;
+  private engineMix = 1;
+  private scratchL = new Float32Array(128);
+  private scratchR = new Float32Array(128);
   private readonly limiter: SafetyLimiter;
   private masterTarget = 1;
   private masterGain = 1;
@@ -63,6 +75,8 @@ export class MorphCore {
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate;
     this.limiter = new SafetyLimiter(sampleRate);
+    this.granular = new GranularEngine(sampleRate);
+    this.engine = this.crossfade;
     for (let i = 0; i < MAX_SLOTS; i++) this.slots.push(new SlotRuntime());
     this.block = {
       sampleRate,
@@ -70,6 +84,7 @@ export class MorphCore {
       fractionStart: this.fractionStart,
       fractionEnd: this.fractions,
       gainLaw: this.gainLaw,
+      frozen: false,
     };
   }
 
@@ -96,6 +111,42 @@ export class MorphCore {
 
   setTimeline(model: TimelineModel): void {
     this.timeline = model;
+  }
+
+  get engineId(): EngineId {
+    return this.engine.id as EngineId;
+  }
+
+  /** Switch engine with a short equal-power crossfade. */
+  setEngine(id: EngineId): void {
+    const next = this.engineById(id);
+    if (next === this.engine) return;
+    if (this.transportGain === 0) {
+      this.engine = next;
+      this.prevEngine = null;
+      this.engineMix = 1;
+      return;
+    }
+    if (this.prevEngine === next) {
+      // switching back mid-fade: reverse the fade
+      this.prevEngine = this.engine;
+      this.engine = next;
+      this.engineMix = 1 - this.engineMix;
+      return;
+    }
+    this.prevEngine?.reset();
+    next.reset();
+    this.prevEngine = this.engine;
+    this.engine = next;
+    this.engineMix = 0;
+  }
+
+  setGranularParams(p: Partial<GranularParams>): void {
+    this.granular.setParams(p);
+  }
+
+  private engineById(id: EngineId): MorphEngine {
+    return id === 'granular' ? this.granular : this.crossfade;
   }
 
   setGainLaw(law: GainLaw): void {
@@ -226,7 +277,9 @@ export class MorphCore {
       slot.blockGainEnd = slot.smoothGain * slot.declick;
     }
 
-    this.engine.process(this.block, outL, outR, frames);
+    this.block.frozen = this.clock.held;
+    if (this.prevEngine) this.renderEngineCrossfade(outL, outR, frames);
+    else this.engine.process(this.block, outL, outR, frames);
 
     for (let s = 0; s < MAX_SLOTS; s++) {
       const slot = this.slots[s];
@@ -261,6 +314,33 @@ export class MorphCore {
 
   // ---- internals -------------------------------------------------------------
 
+  private renderEngineCrossfade(outL: Float32Array, outR: Float32Array, frames: number): void {
+    if (this.scratchL.length < frames) {
+      this.scratchL = new Float32Array(frames);
+      this.scratchR = new Float32Array(frames);
+    }
+    const sl = this.scratchL;
+    const sr = this.scratchR;
+    sl.fill(0, 0, frames);
+    sr.fill(0, 0, frames);
+    this.prevEngine!.process(this.block, sl, sr, frames);
+    this.engine.process(this.block, outL, outR, frames);
+    const step = 1 / (ENGINE_XFADE * this.sampleRate);
+    let m = this.engineMix;
+    for (let i = 0; i < frames; i++) {
+      const a = Math.sin(m * Math.PI * 0.5);
+      const b = Math.cos(m * Math.PI * 0.5);
+      outL[i] = outL[i] * a + sl[i] * b;
+      outR[i] = outR[i] * a + sr[i] * b;
+      m = Math.min(1, m + step);
+    }
+    this.engineMix = m;
+    if (m >= 1) {
+      this.prevEngine!.reset();
+      this.prevEngine = null;
+    }
+  }
+
   private startGlide(tauSeconds: number): void {
     this.fractionTau = Math.max(FRACTION_TAU, tauSeconds);
     this.glideFrames = Math.ceil(this.fractionTau * 5 * this.sampleRate);
@@ -275,7 +355,10 @@ export class MorphCore {
     this.stopPending = false;
     this.clock.seek(this.clock.direction === 1 ? 0 : 1);
     for (const slot of this.slots) slot.player.rewind();
-    this.engine.reset();
+    this.crossfade.reset();
+    this.granular.reset();
+    this.prevEngine = null;
+    this.engineMix = 1;
     this.snapFractions();
   }
 }

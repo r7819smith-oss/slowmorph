@@ -60,26 +60,34 @@ export function slider(opts: {
   onInput: (v: number) => void;
   title?: string;
   disabled?: boolean;
+  /** Exponential mapping (min and max must be > 0): even steps per octave. */
+  log?: boolean;
 }): { root: HTMLElement; input: HTMLInputElement; set: (v: number) => void } {
   const fmt = opts.format ?? ((v: number) => String(v));
   const out = h('output', {}, fmt(opts.value));
+  const toPos = (v: number) => (opts.log ? Math.log(v / opts.min) / Math.log(opts.max / opts.min) : v);
+  const fromPos = (p: number) => {
+    if (!opts.log) return p;
+    const v = opts.min * Math.pow(opts.max / opts.min, p);
+    return Math.round(v / opts.step) * opts.step;
+  };
   const input = h('input', {
     type: 'range',
-    min: String(opts.min),
-    max: String(opts.max),
-    step: String(opts.step),
-    value: String(opts.value),
+    min: String(opts.log ? 0 : opts.min),
+    max: String(opts.log ? 1 : opts.max),
+    step: opts.log ? '0.001' : String(opts.step),
+    value: String(toPos(opts.value)),
     disabled: opts.disabled,
     'aria-label': opts.label,
   });
   input.addEventListener('input', () => {
-    const v = parseFloat(input.value);
+    const v = fromPos(parseFloat(input.value));
     out.textContent = fmt(v);
     opts.onInput(v);
   });
   input.addEventListener('dblclick', () => {
     // double-click resets to the initial value
-    input.value = String(opts.value);
+    input.value = String(toPos(opts.value));
     input.dispatchEvent(new Event('input'));
   });
   const root = h('label', { class: 'slider', title: opts.title }, h('span', { class: 'slider-label' }, opts.label), input, out);
@@ -88,7 +96,7 @@ export function slider(opts: {
     input,
     set: (v: number) => {
       if (document.activeElement === input) return;
-      input.value = String(v);
+      input.value = String(toPos(v));
       out.textContent = fmt(v);
     },
   };

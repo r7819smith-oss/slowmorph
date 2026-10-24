@@ -12,6 +12,7 @@ import { activeSlots, getSegment, slotLetter } from './state/project';
 import { h, segmented, slider } from './ui/dom';
 import { SlotsView } from './ui/slot-view';
 import { TimelineView } from './ui/timeline-view';
+import { crossfadePanel, granularPanel } from './ui/engine-panels';
 
 const app = new App();
 (window as unknown as { slowmorph: App }).slowmorph = app;
@@ -115,11 +116,11 @@ const timelineSection = h(
 const modes = segmented(
   [
     { value: 'crossfade', label: 'Crossfade', title: 'Mode A: amplitude crossfading between independently looping samples' },
-    { value: 'granular', label: 'Granular', title: 'Mode B: arrives in Phase 2', disabled: true },
+    { value: 'granular', label: 'Granular', title: 'Mode B: grains drawn from the samples with timeline probabilities' },
     { value: 'spectral', label: 'Spectral', title: 'Mode C: arrives in Phase 3', disabled: true },
   ],
   app.state.engine,
-  () => {},
+  (v) => app.setEngine(v),
   'Morph engine',
 );
 const modeSection = h(
@@ -135,27 +136,10 @@ const modeSection = h(
   ),
 );
 
-// ---- engine parameters (crossfade) ---------------------------------------------
+// ---- engine parameters -----------------------------------------------------------
 
-const gainLaw = segmented(
-  [
-    { value: 'equalPower', label: 'Equal power', title: 'Constant loudness for unrelated sounds (recommended)' },
-    { value: 'linear', label: 'Linear', title: 'Constant amplitude; suits very similar sounds' },
-  ],
-  app.state.gainLaw,
-  (v) => app.setGainLaw(v),
-  'Crossfade law',
-);
-const loopXf = slider({
-  label: 'Loop crossfade',
-  min: 0,
-  max: 500,
-  step: 5,
-  value: app.state.loopCrossfadeMs,
-  format: (v) => `${v} ms`,
-  onInput: (v) => app.setLoopCrossfadeMs(v),
-  title: 'Length of the crossfade that hides each loop seam',
-});
+const panels = { crossfade: crossfadePanel(app), granular: granularPanel(app) };
+const enginePanel = h('div', { class: 'engine-panel' });
 
 const segTitle = h('span');
 const curveSel = segmented(
@@ -173,7 +157,7 @@ const segPanel = h('div', { class: 'seg-editor' }, h('h3', {}, 'Transition ', se
 const paramsSection = h(
   'section',
   { class: 'panel params' },
-  h('div', { class: 'param-group' }, h('h3', {}, 'Crossfade engine'), h('small', {}, 'Crossfade law'), gainLaw.root, loopXf.root),
+  enginePanel,
   segPanel,
   h(
     'div',
@@ -216,8 +200,10 @@ function refreshSettings(): void {
   if (document.activeElement !== durationInput) durationInput.value = formatTime(s.durationSec);
   totalEl.textContent = formatTime(s.durationSec);
   playMode.set(s.playMode);
-  gainLaw.set(s.gainLaw);
-  loopXf.set(s.loopCrossfadeMs);
+  modes.set(s.engine);
+  const panel = s.engine === 'granular' ? panels.granular : panels.crossfade;
+  if (enginePanel.firstChild !== panel.root) enginePanel.replaceChildren(panel.root);
+  panel.refresh();
   master.set(s.masterDb);
   equalBtn.classList.toggle('on', s.timeline.autoSpace);
   engineLabel.textContent = `Mode: ${s.engine[0].toUpperCase()}${s.engine.slice(1)}`;

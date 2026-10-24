@@ -4,7 +4,8 @@ import type { GainLaw } from '../dsp/curves';
 import type { PlayMode } from '../dsp/clock';
 import type { TimelineModel } from '../dsp/timeline';
 import type { SlotSettings } from '../dsp/slot';
-import type { TransportState } from '../dsp/core';
+import type { EngineId, TransportState } from '../dsp/core';
+import type { GranularParams } from '../dsp/engines/granular';
 
 export type ToWorklet =
   | { type: 'sample'; slot: number; channels: Float32Array[] | null; settings: SlotSettings }
@@ -18,6 +19,8 @@ export type ToWorklet =
   | { type: 'hold'; held: boolean }
   | { type: 'seek'; position: number }
   | { type: 'loopCrossfade'; seconds: number }
+  | { type: 'engine'; engine: EngineId }
+  | { type: 'granular'; params: Partial<GranularParams> }
   | { type: 'transport'; command: 'play' | 'pause' | 'stop' | 'restart' };
 
 export interface WorkletStatus {
@@ -30,6 +33,8 @@ export interface WorkletStatus {
   peakL: number;
   peakR: number;
   limiterGain: number;
+  /** Number of sounding grains (granular engine). */
+  grains: number;
 }
 
 export type FromWorklet = WorkletStatus;

@@ -207,6 +207,36 @@ try {
   });
   check('dragging a node moves it on the timeline', Math.abs(pos[1] - 0.8) < 0.02, JSON.stringify(pos.map((p) => p?.toFixed(3))));
 
+  // ---- granular engine -----------------------------------------------------------
+  await page.click('.modes button[data-value="granular"]');
+  await page.click('.duration-row button[data-value="30"]');
+  await page.evaluate(() => window.slowmorph.seek(0));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.slowmorph.engine.recorder.start());
+  await page.waitForTimeout(4000);
+  const gstats = await page.evaluate(async () => {
+    const [L] = await window.slowmorph.engine.recorder.stop();
+    const sr = window.slowmorph.engine.sampleRate;
+    let peak = 0, nan = false, minRms = Infinity;
+    const w = Math.round(0.05 * sr);
+    for (let a = Math.round(0.3 * sr); a + w < L.length; a += w) {
+      let s = 0;
+      for (let i = a; i < a + w; i++) {
+        if (!Number.isFinite(L[i])) nan = true;
+        s += L[i] * L[i];
+        peak = Math.max(peak, Math.abs(L[i]));
+      }
+      minRms = Math.min(minRms, Math.sqrt(s / w));
+    }
+    return { peak, nan, minRms, grains: window.slowmorph.live.grains, engine: window.slowmorph.state.engine };
+  });
+  check('granular engine selected and producing grains', gstats.engine === 'granular' && gstats.grains > 0, `${gstats.grains} grains sounding`);
+  check('granular output is continuous (no gaps) and finite', !gstats.nan && gstats.minRms > 0.01, `min 50ms RMS ${gstats.minRms.toFixed(3)}`);
+  check('granular output does not clip', gstats.peak < 0.9, `peak ${gstats.peak.toFixed(3)}`);
+  await page.locator('.granular-panel input[aria-label="Grain size"]').fill('0.2');
+  const gsize = await page.evaluate(() => window.slowmorph.state.granular.sizeMs);
+  check('granular controls update the engine', gsize < 40, `size ${gsize} ms`);
+
   // set up a nicer view for the screenshot: 10 minute morph, a third in
   await page.click('.duration-row button[data-value="600"]');
   await page.click('button.small:has-text("Equal spacing")');

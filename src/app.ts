@@ -8,6 +8,7 @@ import { AudioEngine, type ContextState } from './audio/audio-engine';
 import { decodeFile } from './audio/decode';
 import type { WorkletStatus } from './audio/messages';
 import type { GainLaw } from './dsp/curves';
+import type { GranularParams } from './dsp/engines/granular';
 import type { PlayMode } from './dsp/clock';
 import { moveNode as moveNodePos, type Segment } from './dsp/timeline';
 import {
@@ -21,6 +22,7 @@ import {
   sanitizeMarkers,
   slotSettings,
   timelineModel,
+  type EngineId,
   type ProjectState,
   type SlotState,
 } from './state/project';
@@ -38,6 +40,7 @@ export interface LiveStatus {
   peakR: number;
   limiting: boolean;
   frozen: boolean;
+  grains: number;
   contextState: ContextState;
   contextMessage: string | null;
 }
@@ -55,6 +58,7 @@ export class App {
     peakR: 0,
     limiting: false,
     frozen: false,
+    grains: 0,
     contextState: 'suspended',
     contextMessage: null,
   };
@@ -72,6 +76,7 @@ export class App {
       this.live.peakL = s.peakL;
       this.live.peakR = s.peakR;
       this.live.limiting = s.limiterGain < 0.98;
+      this.live.grains = s.grains;
       if (this.state.direction !== s.direction) this.state.direction = s.direction;
       if (transportChanged) this.emit('transport');
       for (const l of this.statusListeners) l();
@@ -111,6 +116,8 @@ export class App {
     post({ type: 'gainLaw', law: s.gainLaw });
     post({ type: 'master', gain: dbToGain(s.masterDb) });
     post({ type: 'loopCrossfade', seconds: s.loopCrossfadeMs / 1000 });
+    post({ type: 'granular', params: s.granular });
+    post({ type: 'engine', engine: s.engine === 'spectral' ? 'crossfade' : s.engine });
     this.syncTimeline();
   }
 
@@ -279,6 +286,19 @@ export class App {
     this.live.direction = direction;
     this.engine.post({ type: 'direction', direction });
     this.emit('transport');
+  }
+
+  setEngine(engine: EngineId): void {
+    if (engine === 'spectral') return; // Phase 3
+    this.state.engine = engine;
+    this.engine.post({ type: 'engine', engine });
+    this.emit('settings');
+  }
+
+  setGranular(patch: Partial<GranularParams>): void {
+    Object.assign(this.state.granular, patch);
+    this.engine.post({ type: 'granular', params: patch });
+    this.emit('settings');
   }
 
   setGainLaw(law: GainLaw): void {

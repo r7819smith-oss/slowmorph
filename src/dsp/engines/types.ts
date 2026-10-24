@@ -17,6 +17,8 @@ export interface EngineBlock {
   /** Smoothed mix fraction of each slot at the end of the block. */
   fractionEnd: Float32Array;
   gainLaw: GainLaw;
+  /** True while the morph is frozen: engines hold their sonic state. */
+  frozen: boolean;
 }
 
 export interface MorphEngine {

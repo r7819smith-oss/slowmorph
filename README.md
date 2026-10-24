@@ -27,8 +27,8 @@ Finder will not work.)
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Sample slots, seamless looping, timeline, duration, crossfade engine, transport | **Done and tested** |
-| 2 | Granular engine | Next |
-| 3 | Spectral engine | Planned |
+| 2 | Granular engine | **Done and tested** |
+| 3 | Spectral engine | Next |
 | 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | Planned |
 | 5 | Projects, presets, WAV recording, offline render | Planned (recorder tap already in place) |
 | 6 | M-VAVE FM1 feasibility study (no flashing) | Planned |
@@ -50,6 +50,21 @@ Finder will not work.)
   position while the sound keeps going), and Once / Loop / Ping-pong.
 * **Keys**: Space play/pause, Esc stop, Home restart, R reverse, F freeze,
   ←/→ nudge the position when the timeline is focused (Shift for bigger steps).
+
+## Granular mode (Phase 2)
+
+Choose **Granular** under Morph engine. The timeline now sets the
+*probability* that each grain comes from each sample, so at the half-way
+point between A and B roughly half the grains are A and half are B.
+
+* **Grain size** 10–500 ms, **Overlap** (grains sounding at once),
+  **Density** (sparse ↔ continuous), **Position random** (how far grains
+  wander from the scan head), **Pitch variation** (± cents per grain),
+  **Transpose**, **Playback speed** (how fast each sample is scanned; 0 holds
+  still, negative goes backwards), **Stereo spread**, **Onset jitter**
+  (regular pulse ↔ asynchronous cloud), **Grain envelope** and **Seed**
+  (same seed and settings give the same texture).
+* Double-click any slider to reset it.
 
 ## Development
 

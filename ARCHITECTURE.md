@@ -71,7 +71,7 @@ seams use an equal-power crossfade between the loop tail and the loop head,
 so loops can start at frame 0. Reverse playback reads through a mirrored
 index (no reversed copy).
 
-## Mode B: Granular (Phase 2, planned design)
+## Mode B: Granular (Phase 2, done)
 
 * A fixed pool of grain voices (no allocation while playing), scheduled
   sample-accurately inside the worklet.
@@ -90,6 +90,18 @@ index (no reversed copy).
 * Output is normalised by the expected grain overlap energy so changing
   size, overlap or density does not change loudness much.
 * Freeze stops the scan heads; grains keep spawning, so the cloud continues.
+* Grains are always placed so they do not cross the loop seam when they
+  fit inside the loop; muted/soloed-out slots are removed from the
+  selection probabilities (the remaining samples fill in).
+* Switching engines while playing crossfades the two engines over 150 ms.
+
+**Limitation (loudness):** the normaliser estimates how coherent the grains
+are from position and pitch randomness. Across the tested settings the
+level stays within ±4.5 dB of Crossfade mode. Pure tones and very hot
+material can still peak higher, because grains of the same tone with random
+phases occasionally line up; the safety limiter catches those peaks and the
+LIM light shows it. If this proves distracting in practice, a slow automatic
+gain stage on the granular bus is the next step.
 
 ## Mode C: Spectral (Phase 3, planned design)
 
