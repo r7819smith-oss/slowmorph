@@ -10,7 +10,12 @@ into the next, with crossfade, granular and spectral morph engines.
 | [`browser/`](browser/) | The instrument as a local web app for Chrome or Edge on macOS (TypeScript, Web Audio, AudioWorklet). No cloud services. | Working and tested |
 | [`firmware/`](firmware/) | A future port to the M-VAVE FM1 pocket synth. | Feasibility study only |
 
-## Quick start
+## Play it
+
+Open **https://r7819smith-oss.github.io/slowmorph/** in Chrome or Edge.
+Nothing to install; your samples stay on your computer.
+
+## Run it locally
 
 Requires Node.js 18 or newer.
 
