@@ -4,7 +4,8 @@ import type { GainLaw } from '../dsp/curves';
 import type { PlayMode } from '../dsp/clock';
 import type { TimelineModel } from '../dsp/timeline';
 import type { SlotSettings } from '../dsp/slot';
-import type { EngineId, TransportState } from '../dsp/core';
+import type { DriftParams, EngineId, TransportState } from '../dsp/core';
+import type { EffectsParams } from '../dsp/effects';
 import type { GranularParams } from '../dsp/engines/granular';
 import type { SpectralParams } from '../dsp/engines/spectral';
 
@@ -23,6 +24,9 @@ export type ToWorklet =
   | { type: 'engine'; engine: EngineId }
   | { type: 'granular'; params: Partial<GranularParams> }
   | { type: 'spectral'; params: Partial<SpectralParams> }
+  | { type: 'character'; value: number }
+  | { type: 'drift'; params: Partial<DriftParams> }
+  | { type: 'effects'; params: Partial<EffectsParams> }
   | { type: 'transport'; command: 'play' | 'pause' | 'stop' | 'restart' };
 
 export interface WorkletStatus {
@@ -37,6 +41,8 @@ export interface WorkletStatus {
   limiterGain: number;
   /** Number of sounding grains (granular engine). */
   grains: number;
+  /** Position actually heard, including drift. */
+  effectivePosition: number;
 }
 
 export type FromWorklet = WorkletStatus;

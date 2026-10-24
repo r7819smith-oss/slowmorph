@@ -39,6 +39,9 @@ class SlowMorphProcessor extends AudioWorkletProcessor {
       case 'engine': c.setEngine(msg.engine); break;
       case 'granular': c.setGranularParams(msg.params); break;
       case 'spectral': c.setSpectralParams(msg.params); break;
+      case 'character': c.setCharacter(msg.value); break;
+      case 'drift': c.setDrift(msg.params); break;
+      case 'effects': c.setEffects(msg.params); break;
       case 'loopCrossfade': c.loopCrossfadeSeconds = msg.seconds; break;
       case 'transport':
         if (msg.command === 'play') c.play();
@@ -79,6 +82,7 @@ class SlowMorphProcessor extends AudioWorkletProcessor {
         peakR: this.peakR,
         limiterGain: this.limiterGain,
         grains: c.granular.activeCount,
+        effectivePosition: c.effectivePosition,
       };
       this.port.postMessage(status);
       this.peakL = this.peakR = 0;

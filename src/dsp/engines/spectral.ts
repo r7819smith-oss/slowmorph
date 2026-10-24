@@ -65,10 +65,12 @@ export interface SpectralParams {
   speed: number;
   /** 0..1 stereo decorrelation of the resynthesis. */
   width: number;
+  /** −1..1 inharmonic frequency warp (stretch/compress partials around 500 Hz). */
+  warp: number;
 }
 
 export function defaultSpectralParams(): SpectralParams {
-  return { fftSize: 2048, overlap: 4, interp: 0.5, envelopeLead: 0, blur: 0.2, smoothing: 0, phaseRandom: 0, speed: 1, width: 0.3 };
+  return { fftSize: 2048, overlap: 4, interp: 0.5, envelopeLead: 0, blur: 0.2, smoothing: 0, phaseRandom: 0, speed: 1, width: 0.3, warp: 0 };
 }
 
 const MAX_SLOTS = 8;
@@ -118,6 +120,9 @@ export class SpectralEngine implements MorphEngine {
   private sources: SourceState[] = [];
   private magOut!: Float32Array;
   private magBlur!: Float32Array;
+  private warpMag!: Float32Array;
+  private warpFreq!: Float32Array;
+  private warpDom!: Uint8Array;
   private freqOut!: Float32Array;
   private outPhase!: Float64Array;
   private dominant!: Uint8Array;
@@ -198,6 +203,9 @@ export class SpectralEngine implements MorphEngine {
     }
     this.magOut = new Float32Array(b);
     this.magBlur = new Float32Array(b);
+    this.warpMag = new Float32Array(b);
+    this.warpFreq = new Float32Array(b);
+    this.warpDom = new Uint8Array(b);
     this.freqOut = new Float32Array(b);
     this.outPhase = new Float64Array(b);
     this.dominant = new Uint8Array(b);
@@ -559,6 +567,8 @@ export class SpectralEngine implements MorphEngine {
       this.dominant[k] = dom;
     }
 
+    if (Math.abs(p.warp) > 0.001) actual = this.warp(p.warp);
+
     // smoothing across frequency (energy is restored below)
     if (p.smoothing > 0.001) {
       const r = Math.max(1, Math.round(p.smoothing * 24));
@@ -584,6 +594,43 @@ export class SpectralEngine implements MorphEngine {
     for (let k = 0; k < b; k++) mb[k] = mb[k] * blur + out[k] * gs * (1 - blur);
     this.haveSpectrum = true;
     this.framesComputed++;
+  }
+
+  /**
+   * Inharmonic warp: move each partial from f to f·(f / 500 Hz)^α, with
+   * α = 0.12·warp, so harmonic series stretch (or compress) like a bell.
+   * Gathers from the inverse mapping with linear interpolation. Returns the
+   * new frame energy.
+   */
+  private warp(amount: number): number {
+    const b = this.bins;
+    const a = 0.12 * amount;
+    const k0 = (500 * this.n) / this.sampleRate;
+    const inv = 1 / (1 + a);
+    const src = this.magOut;
+    const out = this.warpMag;
+    let energy = 0;
+    for (let k = 0; k < b; k++) {
+      // f_out = f_in^(1+a) · k0^(−a)  ⇒  f_in = (f_out · k0^a)^(1/(1+a))
+      const x = k === 0 ? 0 : Math.pow(k * Math.pow(k0, a), inv);
+      const i = Math.floor(x);
+      if (i >= b - 1) {
+        out[k] = 0;
+        this.warpFreq[k] = (TWO_PI * k) / this.n;
+        this.warpDom[k] = this.dominant[b - 1];
+        continue;
+      }
+      const f = x - i;
+      out[k] = src[i] + (src[i + 1] - src[i]) * f;
+      const fr = this.freqOut[i] + (this.freqOut[i + 1] - this.freqOut[i]) * f;
+      this.warpFreq[k] = x > 0 ? fr * (k / x) : fr;
+      this.warpDom[k] = this.dominant[f < 0.5 ? i : i + 1];
+      energy += out[k] * out[k];
+    }
+    src.set(out);
+    this.freqOut.set(this.warpFreq);
+    this.dominant.set(this.warpDom);
+    return energy;
   }
 
   // ---- resynthesis --------------------------------------------------------------------------

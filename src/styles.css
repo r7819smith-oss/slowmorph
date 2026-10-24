@@ -78,7 +78,16 @@ button.small.on { border-color: var(--accent); color: var(--accent); }
 .modes > div { display: flex; flex-direction: column; gap: 6px; }
 .modes .segmented button { padding: 12px 22px; font-size: 15px; }
 .character { flex: 1; min-width: 280px; }
-.character input { width: 100%; }
+.character-labels { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--muted); }
+.character-labels span:last-child { color: #c4b5fd; }
+.character-value { font: 600 20px ui-monospace, Menlo, monospace; color: var(--text); }
+input.character-range { width: 100%; height: 36px; margin: 6px 0; -webkit-appearance: none; appearance: none; background: transparent; }
+input.character-range::-webkit-slider-runnable-track { height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, #f2a65a, #e879f9 60%, #a78bfa); }
+input.character-range::-webkit-slider-thumb { -webkit-appearance: none; width: 30px; height: 30px; margin-top: -9px;
+  border-radius: 50%; background: #e6e9ee; border: 3px solid #0b0d10; box-shadow: 0 0 0 1px #e6e9ee55; }
+input.character-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px #a78bfa; }
+.character-desc { margin: 0; font-size: 12px; color: var(--muted); }
 
 /* sliders */
 .slider { display: grid; grid-template-columns: minmax(6.5em, auto) 1fr auto; gap: 10px; align-items: center; min-width: 200px; }
@@ -134,3 +143,16 @@ kbd { border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font:
   .master { margin-left: 0; }
   .times b { font-size: 20px; }
 }
+
+/* performance + effects */
+.perform { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+@media (max-width: 1000px) { .perform { grid-template-columns: minmax(0, 1fr); } }
+.button-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.midi-select { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); }
+.midi-list { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.midi-status { text-transform: none; letter-spacing: 0; }
+button.small:disabled { opacity: .4; cursor: not-allowed; }
+.section-head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.section-head h3 { margin: 0; }
+.effects-panel .param-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.bypassed { opacity: .45; }

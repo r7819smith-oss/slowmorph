@@ -10,6 +10,10 @@ import type { WorkletStatus } from './audio/messages';
 import type { GainLaw } from './dsp/curves';
 import type { GranularParams } from './dsp/engines/granular';
 import type { SpectralParams } from './dsp/engines/spectral';
+import type { DriftParams } from './dsp/core';
+import type { EffectsParams } from './dsp/effects';
+import type { MidiMapping } from './control/midi';
+import { randomEffects, randomGranular, randomSegment, randomSpectral, type RandomGroup } from './control/randomise';
 import type { PlayMode } from './dsp/clock';
 import { moveNode as moveNodePos, type Segment } from './dsp/timeline';
 import {
@@ -42,6 +46,7 @@ export interface LiveStatus {
   limiting: boolean;
   frozen: boolean;
   grains: number;
+  effectivePosition: number;
   contextState: ContextState;
   contextMessage: string | null;
 }
@@ -60,6 +65,7 @@ export class App {
     limiting: false,
     frozen: false,
     grains: 0,
+    effectivePosition: 0,
     contextState: 'suspended',
     contextMessage: null,
   };
@@ -78,6 +84,7 @@ export class App {
       this.live.peakR = s.peakR;
       this.live.limiting = s.limiterGain < 0.98;
       this.live.grains = s.grains;
+      this.live.effectivePosition = s.effectivePosition;
       if (this.state.direction !== s.direction) this.state.direction = s.direction;
       if (transportChanged) this.emit('transport');
       for (const l of this.statusListeners) l();
@@ -119,6 +126,9 @@ export class App {
     post({ type: 'loopCrossfade', seconds: s.loopCrossfadeMs / 1000 });
     post({ type: 'granular', params: s.granular });
     post({ type: 'spectral', params: s.spectral });
+    post({ type: 'character', value: s.character });
+    post({ type: 'drift', params: s.drift });
+    post({ type: 'effects', params: s.effects });
     post({ type: 'engine', engine: s.engine });
     this.syncTimeline();
   }
@@ -308,6 +318,75 @@ export class App {
     this.emit('settings');
   }
 
+  setCharacter(value: number): void {
+    this.state.character = Math.max(0, Math.min(1, value));
+    this.engine.post({ type: 'character', value: this.state.character });
+    this.emit('settings');
+  }
+
+  setDrift(patch: Partial<DriftParams>): void {
+    Object.assign(this.state.drift, patch);
+    this.engine.post({ type: 'drift', params: patch });
+    this.emit('settings');
+  }
+
+  setEffects(patch: Partial<EffectsParams>): void {
+    Object.assign(this.state.effects, patch);
+    this.engine.post({ type: 'effects', params: patch });
+    this.emit('settings');
+  }
+
+  setMidiMappings(mappings: MidiMapping[]): void {
+    this.state.midi = mappings;
+    this.emit('settings');
+  }
+
+  // ---- randomise with undo ---------------------------------------------------------
+
+  private undoStack: { group: RandomGroup; snapshot: string }[] = [];
+
+  get undoCount(): number {
+    return this.undoStack.length;
+  }
+
+  get lastRandomGroup(): RandomGroup | null {
+    return this.undoStack.at(-1)?.group ?? null;
+  }
+
+  private snapshot(group: RandomGroup): string {
+    const s = this.state;
+    const data = group === 'granular' ? s.granular : group === 'spectral' ? s.spectral : group === 'effects' ? s.effects : s.timeline.segments;
+    return JSON.stringify(data);
+  }
+
+  randomise(group: RandomGroup, rand: () => number = Math.random): void {
+    this.undoStack.push({ group, snapshot: this.snapshot(group) });
+    if (this.undoStack.length > 30) this.undoStack.shift();
+    if (group === 'granular') this.setGranular(randomGranular(rand));
+    else if (group === 'spectral') this.setSpectral(randomSpectral(rand));
+    else if (group === 'effects') this.setEffects({ ...randomEffects(rand), enabled: true });
+    else {
+      const act = activeSlots(this.state);
+      for (let i = 0; i + 1 < act.length; i++) this.state.timeline.segments[`${act[i].slot.id}>${act[i + 1].slot.id}`] = randomSegment(rand);
+      this.syncTimeline();
+      this.emit('timeline');
+    }
+  }
+
+  undoRandomise(): void {
+    const u = this.undoStack.pop();
+    if (!u) return;
+    const data = JSON.parse(u.snapshot);
+    if (u.group === 'granular') this.setGranular(data);
+    else if (u.group === 'spectral') this.setSpectral(data);
+    else if (u.group === 'effects') this.setEffects(data);
+    else {
+      this.state.timeline.segments = data;
+      this.syncTimeline();
+      this.emit('timeline');
+    }
+  }
+
   setGainLaw(law: GainLaw): void {
     this.state.gainLaw = law;
     this.engine.post({ type: 'gainLaw', law });
@@ -369,8 +448,13 @@ export class App {
   }
 
   toggleFreeze(): void {
-    this.live.frozen = !this.live.frozen;
-    this.engine.post({ type: 'hold', held: this.live.frozen });
+    this.setFreeze(!this.live.frozen);
+  }
+
+  setFreeze(frozen: boolean): void {
+    if (this.live.frozen === frozen) return;
+    this.live.frozen = frozen;
+    this.engine.post({ type: 'hold', held: frozen });
     this.emit('transport');
   }
 

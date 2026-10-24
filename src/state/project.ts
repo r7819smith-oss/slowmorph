@@ -12,6 +12,9 @@ import type { SlotSettings } from '../dsp/slot';
 import { dbToGain } from '../dsp/curves';
 import { defaultGranularParams, type GranularParams } from '../dsp/engines/granular';
 import { defaultSpectralParams, type SpectralParams } from '../dsp/engines/spectral';
+import { defaultEffectsParams, type EffectsParams } from '../dsp/effects';
+import { defaultDriftParams, type DriftParams } from '../dsp/core';
+import type { MidiMapping } from '../control/midi';
 
 export const MIN_SLOTS = 2;
 export const MAX_SLOTS = 8;
@@ -68,6 +71,11 @@ export interface ProjectState {
   engine: EngineId;
   granular: GranularParams;
   spectral: SpectralParams;
+  /** Original Character (0) ↔ Strange Hybrid (1). */
+  character: number;
+  drift: DriftParams;
+  effects: EffectsParams;
+  midi: MidiMapping[];
   timeline: TimelineState;
 }
 
@@ -109,6 +117,10 @@ export function defaultProject(): ProjectState {
     engine: 'crossfade',
     granular: defaultGranularParams(),
     spectral: defaultSpectralParams(),
+    character: 0.2,
+    drift: defaultDriftParams(),
+    effects: defaultEffectsParams(),
+    midi: [],
     timeline: { autoSpace: true, positions: {}, segments: {}, defaultCurve: 'linear' },
   };
 }

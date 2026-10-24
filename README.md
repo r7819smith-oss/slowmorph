@@ -29,8 +29,8 @@ Finder will not work.)
 | 1 | Sample slots, seamless looping, timeline, duration, crossfade engine, transport | **Done and tested** |
 | 2 | Granular engine | **Done and tested** |
 | 3 | Spectral engine | **Done and tested** |
-| 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | Next |
-| 5 | Projects, presets, WAV recording, offline render | Planned (recorder tap already in place) |
+| 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | **Done and tested** |
+| 5 | Projects, presets, WAV recording, offline render | Next |
 | 6 | M-VAVE FM1 feasibility study (no flashing) | Planned |
 
 ## Playing it (Phase 1)
@@ -84,6 +84,24 @@ sounds overlapping.
 * **Freeze** holds the current hybrid spectrum as a sustained sound.
 
 See ARCHITECTURE.md for exactly how it works and its limitations.
+
+## Performing (Phase 4)
+
+* **Original Character ←→ Strange Hybrid**: the large slider under the
+  engine buttons. 0 % is your settings, untouched; higher values push each
+  engine toward stranger results (the line under the slider says what it
+  does in the current engine). Double-click to reset.
+* **Freeze** (❄ or F) holds the current moment: loops keep going in
+  Crossfade, the grain cloud keeps going in Granular, the current hybrid
+  spectrum sustains in Spectral.
+* **Morph drift** slowly wanders the sound around the current position
+  (dashed playhead).
+* **Randomise** granular, spectral, curves or sound-shaping settings;
+  **Undo** steps back.
+* **MIDI**: click Enable MIDI, choose a parameter, click Learn and move a
+  knob or hit a pad. Remove a mapping with ✕.
+* **Sound shaping**: high-pass, low-pass, resonance, width, reverb and delay,
+  with one bypass switch.
 
 ## Development
 

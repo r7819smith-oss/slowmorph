@@ -120,13 +120,14 @@ export function spectralPanel(app: App): Panel {
   const phase = slider({ label: 'Phase random', min: 0, max: 1, step: 0.01, value: sp().phaseRandom, format: pct, onInput: (v) => app.setSpectral({ phaseRandom: v }), title: 'Adds random phase each frame: diffuse, whispering textures' });
   const speed = slider({ label: 'Scan speed', min: -2, max: 2, step: 0.01, value: sp().speed, format: (v) => `${v.toFixed(2)}×`, onInput: (v) => app.setSpectral({ speed: v }), title: 'Speed at which each sample is scanned (0 = hold, negative = backwards)' });
   const width = slider({ label: 'Stereo width', min: 0, max: 1, step: 0.01, value: sp().width, format: pct, onInput: (v) => app.setSpectral({ width: v }) });
+  const warp = slider({ label: 'Inharmonic warp', min: -1, max: 1, step: 0.01, value: sp().warp, format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`, onInput: (v) => app.setSpectral({ warp: v }), title: 'Stretches (+) or compresses (−) the partials around 500 Hz, like a bell or a gong' });
   return {
     root: h(
       'div',
       { class: 'param-group spectral-panel' },
       h('h3', {}, 'Spectral engine'),
       h('div', { class: 'seed-row' }, h('small', {}, 'FFT size'), fft.root, h('small', {}, 'Quality'), overlap.root),
-      h('div', { class: 'param-grid' }, interp.root, lead.root, blur.root, smooth.root, phase.root, speed.root, width.root),
+      h('div', { class: 'param-grid' }, interp.root, lead.root, blur.root, smooth.root, phase.root, speed.root, width.root, warp.root),
     ),
     refresh() {
       const p = sp();
@@ -139,6 +140,7 @@ export function spectralPanel(app: App): Panel {
       phase.set(p.phaseRandom);
       speed.set(p.speed);
       width.set(p.width);
+      warp.set(p.warp);
     },
   };
 }

@@ -13,6 +13,8 @@ import { h, segmented, slider } from './ui/dom';
 import { SlotsView } from './ui/slot-view';
 import { TimelineView } from './ui/timeline-view';
 import { crossfadePanel, granularPanel, spectralPanel } from './ui/engine-panels';
+import { characterControl, driftPanel, effectsPanel, midiPanel, randomisePanel } from './ui/perform-panels';
+import { MidiController } from './control/midi';
 
 const app = new App();
 (window as unknown as { slowmorph: App }).slowmorph = app;
@@ -123,18 +125,8 @@ const modes = segmented(
   (v) => app.setEngine(v),
   'Morph engine',
 );
-const modeSection = h(
-  'section',
-  { class: 'panel modes' },
-  h('div', {}, h('small', {}, 'Morph engine'), modes.root),
-  h(
-    'div',
-    { class: 'character', title: 'Original Character ↔ Strange Hybrid arrives with the performance controls (Phase 4).' },
-    h('small', {}, 'Original Character ←→ Strange Hybrid'),
-    h('input', { type: 'range', min: '0', max: '100', value: '0', disabled: true, 'aria-label': 'Character / hybrid (not yet available)' }),
-    h('small', { class: 'muted' }, 'Phase 4'),
-  ),
-);
+const character = characterControl(app);
+const modeSection = h('section', { class: 'panel modes' }, h('div', {}, h('small', {}, 'Morph engine'), modes.root), character.root);
 
 // ---- engine parameters -----------------------------------------------------------
 
@@ -169,7 +161,15 @@ const paramsSection = h(
 
 const slots = new SlotsView(app);
 
-document.getElementById('app')!.append(header, banner, timelineSection, modeSection, slots.root, paramsSection);
+const midi = new MidiController(app);
+(window as unknown as { slowmorphMidi: MidiController }).slowmorphMidi = midi;
+const drift = driftPanel(app);
+const randomise = randomisePanel(app);
+const midiUi = midiPanel(app, midi);
+const effects = effectsPanel(app);
+const performSection = h('section', { class: 'panel perform' }, drift.root, randomise.root, midiUi.root);
+
+document.getElementById('app')!.append(header, banner, timelineSection, modeSection, slots.root, paramsSection, performSection, effects.root);
 
 // ---- state → UI ----------------------------------------------------------------
 
@@ -207,6 +207,11 @@ function refreshSettings(): void {
   master.set(s.masterDb);
   equalBtn.classList.toggle('on', s.timeline.autoSpace);
   engineLabel.textContent = `Mode: ${s.engine[0].toUpperCase()}${s.engine.slice(1)}`;
+  character.refresh();
+  drift.refresh();
+  randomise.refresh();
+  midiUi.refresh();
+  effects.refresh();
 }
 
 function refreshTransport(): void {
@@ -234,6 +239,7 @@ app.on((kind) => {
   if (kind === 'all' || kind === 'settings') refreshSettings();
   if (kind === 'all' || kind === 'transport') refreshTransport();
   if (kind === 'all' || kind === 'timeline' || kind === 'slots') refreshSegmentEditor();
+  if (kind === 'timeline') randomise.refresh();
 });
 refreshSettings();
 refreshTransport();

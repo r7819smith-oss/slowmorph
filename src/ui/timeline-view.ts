@@ -228,6 +228,18 @@ export class TimelineView {
     ctx.drawImage(this.cache, 0, 0, w, hgt);
     const x = this.x(this.app.live.position, w);
     const frozen = this.app.live.frozen;
+    if (this.app.state.drift.enabled) {
+      // where the drift has actually taken the sound
+      const xd = this.x(this.app.live.effectivePosition, w);
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(xd, 10);
+      ctx.lineTo(xd, hgt);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.strokeStyle = frozen ? '#7dd3fc' : '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();

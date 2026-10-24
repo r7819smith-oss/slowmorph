@@ -169,6 +169,49 @@ WebAssembly was not needed.
   engine adds latency of one window plus one hop (≈ 53 ms at 2048/4×).
 * Stereo sources are analysed as mono; width is recreated by decorrelation.
 
+## Phase 4: performance controls (done)
+
+**Original Character ←→ Strange Hybrid** (`src/dsp/character.ts`). At 0 %
+every engine uses exactly the user's settings; raising it applies a fixed,
+documented set of changes on top, smoothed over 80 ms:
+
+| Engine | What the control changes |
+|---|---|
+| Crossfade | per-slot low-pass slowly wandering from 20 kHz down to 1.5 kHz at 100 %, slow amplitude shimmer up to ±2.5 dB. Still a pure amplitude crossfade: timeline gains are untouched. |
+| Granular | grain size × (1 − 0.6c), position randomness + 0.8c·(1 − base), pitch variation + 400c² cents, onset jitter + c·(1 − base), timeline smear 0.2c (grains from neighbouring samples interleave sooner). |
+| Spectral | interpolation toward hybrid + c·(1 − base), blur + 0.6c·(1 − base), smoothing + 0.3c, phase randomness + 0.45c², inharmonic warp + 0.6c², timeline smear 0.15c. |
+
+No new uncontrolled randomness: the engines' own seeded generators supply
+it, and each engine's normalisation holds the level (tested: sweeping the
+control 0→100 % moves the level less than 3.5 dB in every engine).
+
+**Freeze** holds the morph clock in every engine. Crossfade keeps the loops
+running at the frozen mix; Granular stops its scan heads but keeps spawning
+grains (a continuous cloud); Spectral stops analysing and sustains the last
+hybrid spectrum with advancing phases. Resuming continues from the frozen
+position.
+
+**Drift** moves the *heard* position around the clock position with a
+seeded smooth random curve (amount, destinations per minute, smoothness)
+followed by a 0.5 s glide; turning it off glides back. The timeline shows it
+as a dashed second playhead.
+
+**Randomise** draws from musical ranges per group (granular, spectral,
+transition curves, sound shaping) and keeps an undo stack of 30 steps.
+
+**MIDI** (`src/control/midi.ts`): Web MIDI with MIDI-learn. Pick a parameter,
+press Learn, move a knob (CC) or hit a pad (note; toggles freeze/playback).
+Mappings are saved with the project. Mappable: morph position, character,
+grain size, grain density, spectral blur, low-pass cutoff, drift amount,
+reverb send, output level, freeze, play/pause.
+
+**Sound shaping** (`src/dsp/effects.ts`), after the engines and before the
+master/limiter: TPT state-variable high-pass and low-pass (resonance),
+mid/side width, ping-pong delay with damped feedback and glided delay time
+(no clicks when changing it), Freeverb-style reverb. One bypass switch with
+a 20 ms crossfade; the effects start bypassed in the core so every engine
+test runs dry.
+
 ## Testing
 
 * `npm test`: Vitest unit and audio-rendering tests: curves, timeline

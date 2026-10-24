@@ -266,6 +266,43 @@ try {
   check('spectral output is continuous and finite (incl. FFT size change)', !sstats.nan && sstats.minRms > 0.01, `min 50ms RMS ${sstats.minRms.toFixed(3)}`);
   check('spectral output does not clip or click', sstats.peak < 0.9 && sstats.maxD2 < ref * 4, `peak ${sstats.peak.toFixed(3)}, max 2nd diff ${sstats.maxD2.toExponential(2)}`);
 
+  // ---- performance controls ------------------------------------------------------------
+  await page.locator('.character-range').fill('0.8');
+  await page.waitForTimeout(200);
+  const ch = await page.evaluate(() => window.slowmorph.state.character);
+  check('Character control updates the instrument', Math.abs(ch - 0.8) < 0.01, `character ${ch}`);
+
+  const before = await page.evaluate(() => JSON.stringify(window.slowmorph.state.granular));
+  await page.click('button[data-random="granular"]');
+  const after = await page.evaluate(() => JSON.stringify(window.slowmorph.state.granular));
+  await page.click('button.small:has-text("Undo")');
+  const undone = await page.evaluate(() => JSON.stringify(window.slowmorph.state.granular));
+  check('randomise changes granular settings and Undo restores them', before !== after && undone === before);
+
+  await page.click('.perform button:has-text("Drift")');
+  await page.evaluate(() => window.slowmorph.setDrift({ amount: 0.2, speed: 60 }));
+  await page.keyboard.press('f'); // freeze so only drift moves the sound
+  await page.waitForTimeout(2500);
+  const dr = await page.evaluate(() => ({ p: window.slowmorph.live.position, e: window.slowmorph.live.effectivePosition }));
+  check('drift moves the heard position around the frozen position', Math.abs(dr.e - dr.p) > 0.001 && Math.abs(dr.e - dr.p) <= 0.2, JSON.stringify(dr));
+  await page.keyboard.press('f');
+  await page.evaluate(() => window.slowmorph.setDrift({ enabled: false }));
+
+  await page.evaluate(() => {
+    const m = window.slowmorphMidi;
+    m.learn('character');
+    m.handle([0xb0, 21, 0]);
+    m.handle([0xb0, 21, 127]);
+  });
+  const midiState = await page.evaluate(() => ({ maps: window.slowmorph.state.midi, c: window.slowmorph.state.character }));
+  check('MIDI learn maps a CC and the CC then drives Character', midiState.maps.length === 1 && midiState.c === 1, JSON.stringify(midiState));
+  await page.evaluate(() => window.slowmorph.setCharacter(0.2));
+
+  await page.click('.effects-panel .section-head button');
+  const fxOff = await page.evaluate(() => window.slowmorph.state.effects.enabled);
+  await page.click('.effects-panel .section-head button');
+  check('effects can be bypassed and re-enabled', fxOff === false && (await page.evaluate(() => window.slowmorph.state.effects.enabled)) === true);
+
   // set up a nicer view for the screenshot: 10 minute morph, a third in
   await page.click('.duration-row button[data-value="600"]');
   await page.click('button.small:has-text("Equal spacing")');

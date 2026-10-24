@@ -14,8 +14,11 @@ import { computeFractions, type TimelineModel } from './timeline';
 import { SlotRuntime, type SlotSettings } from './slot';
 import { SafetyLimiter } from './limiter';
 import { CrossfadeEngine } from './engines/crossfade';
-import { GranularEngine, type GranularParams } from './engines/granular';
-import { SpectralEngine, type SpectralParams } from './engines/spectral';
+import { defaultGranularParams, GranularEngine, type GranularParams } from './engines/granular';
+import { defaultSpectralParams, SpectralEngine, type SpectralParams } from './engines/spectral';
+import { granularWithCharacter, spectralWithCharacter, timelineSmear } from './character';
+import { Effects, type EffectsParams } from './effects';
+import { SmoothRandom } from './smooth-random';
 import type { EngineBlock, MorphEngine } from './engines/types';
 
 export type EngineId = 'crossfade' | 'granular' | 'spectral';
@@ -36,6 +39,22 @@ const TRANSPORT_FADE = 0.03;
 const DECLICK_TIME = 0.008;
 /** Crossfade time when switching engines (s). */
 const ENGINE_XFADE = 0.15;
+/** Smoothing of the Character control (s). */
+const CHARACTER_TAU = 0.08;
+
+export interface DriftParams {
+  enabled: boolean;
+  /** Maximum excursion either side of the morph position (0..0.5). */
+  amount: number;
+  /** New random targets per minute (0.5..60). */
+  speed: number;
+  /** 0 = linear wandering, 1 = very smooth. */
+  smoothness: number;
+}
+
+export function defaultDriftParams(): DriftParams {
+  return { enabled: false, amount: 0.05, speed: 4, smoothness: 0.8 };
+}
 
 export class MorphCore {
   readonly sampleRate: number;
@@ -57,6 +76,18 @@ export class MorphCore {
   private engineMix = 1;
   private scratchL = new Float32Array(128);
   private scratchR = new Float32Array(128);
+  readonly effects: Effects;
+  private granularBase: GranularParams = defaultGranularParams();
+  private spectralBase: SpectralParams = defaultSpectralParams();
+  private characterTarget = 0;
+  /** Smoothed Original Character ↔ Strange Hybrid value, 0..1. */
+  character = 0;
+  drift: DriftParams = defaultDriftParams();
+  private readonly driftLfo = new SmoothRandom(4242);
+  private driftValue = 0;
+  /** Morph position actually heard (clock position + drift), 0..1. */
+  effectivePosition = 0;
+  private readonly smearTmp = new Float32Array(MAX_SLOTS);
   private readonly limiter: SafetyLimiter;
   private masterTarget = 1;
   private masterGain = 1;
@@ -79,6 +110,7 @@ export class MorphCore {
     this.limiter = new SafetyLimiter(sampleRate);
     this.granular = new GranularEngine(sampleRate);
     this.spectral = new SpectralEngine(sampleRate);
+    this.effects = new Effects(sampleRate);
     this.engine = this.crossfade;
     for (let i = 0; i < MAX_SLOTS; i++) this.slots.push(new SlotRuntime());
     this.block = {
@@ -145,11 +177,35 @@ export class MorphCore {
   }
 
   setGranularParams(p: Partial<GranularParams>): void {
+    this.granularBase = { ...this.granularBase, ...p };
     this.granular.setParams(p);
+    this.applyCharacter();
+  }
+
+  setCharacter(value: number): void {
+    this.characterTarget = Math.max(0, Math.min(1, value));
+  }
+
+  setDrift(p: Partial<DriftParams>): void {
+    this.drift = { ...this.drift, ...p };
+  }
+
+  setEffects(p: Partial<EffectsParams>): void {
+    this.effects.setParams(p);
+  }
+
+  /** Write the character-adjusted settings into the engines (allocation-free). */
+  private applyCharacter(): void {
+    const c = this.character;
+    this.crossfade.character = c;
+    granularWithCharacter(this.granularBase, c, this.granular.params);
+    spectralWithCharacter(this.spectralBase, c, this.spectral.params);
   }
 
   setSpectralParams(p: Partial<SpectralParams>): void {
+    this.spectralBase = { ...this.spectralBase, ...p };
     this.spectral.setParams(p);
+    this.applyCharacter();
   }
 
   private engineById(id: EngineId): MorphEngine {
@@ -185,6 +241,7 @@ export class MorphCore {
 
   seek(position: number): void {
     this.clock.seek(position);
+    this.effectivePosition = Math.min(1, Math.max(0, this.clock.position + this.driftValue));
     this.startGlide(SEEK_TAU);
   }
 
@@ -250,9 +307,26 @@ export class MorphCore {
     const ev = this.clock.advance(frames, sr);
     if (ev.wrapped) this.startGlide(this.wrapGlide / 3);
 
+    // Character (smoothed) → engine settings.
+    const ca = 1 - Math.exp(-frames / (CHARACTER_TAU * sr));
+    if (Math.abs(this.characterTarget - this.character) > 1e-5) {
+      this.character += (this.characterTarget - this.character) * ca;
+      this.applyCharacter();
+    } else if (this.character !== this.characterTarget) {
+      this.character = this.characterTarget;
+      this.applyCharacter();
+    }
+
+    // Drift: a slow, continuous random offset around the morph position.
+    const d = this.drift;
+    const lfo = this.driftLfo.step(frames / sr, Math.max(0.5, d.speed) / 60, d.smoothness);
+    const driftTarget = d.enabled ? lfo * Math.max(0, Math.min(0.5, d.amount)) : 0;
+    this.driftValue += (driftTarget - this.driftValue) * (1 - Math.exp(-frames / (0.5 * sr)));
+    this.effectivePosition = Math.min(1, Math.max(0, this.clock.position + this.driftValue));
+
     // Mix fractions: compute targets, smooth in the linear (fraction)
     // domain so the gain law is preserved during glides.
-    computeFractions(this.timeline, this.clock.position, this.targetFractions);
+    this.computeTargets(this.effectivePosition);
     const a = 1 - Math.exp(-frames / (this.fractionTau * sr));
     if (this.glideFrames > 0) {
       this.glideFrames -= frames;
@@ -293,6 +367,8 @@ export class MorphCore {
       if (slot.hasPending && slot.declick === 0) slot.applyPending(this.loopCrossfadeFrames);
     }
 
+    this.effects.process(outL, outR, frames);
+
     // Master gain × transport fade, ramped across the block.
     const m0 = this.masterGain * tg0;
     this.masterGain += (this.masterTarget - this.masterGain) * ga;
@@ -320,6 +396,23 @@ export class MorphCore {
   }
 
   // ---- internals -------------------------------------------------------------
+
+  /**
+   * Target fractions at position p. With Character in granular/spectral
+   * mode the timeline is smeared (averaged at p − d, p, p + d), so samples
+   * further along the timeline are interleaved earlier.
+   */
+  private computeTargets(p: number): void {
+    computeFractions(this.timeline, p, this.targetFractions);
+    const smear = timelineSmear(this.engine.id, this.character);
+    if (smear < 1e-4) return;
+    const t = this.targetFractions;
+    const tmp = this.smearTmp;
+    computeFractions(this.timeline, Math.max(0, p - smear), tmp);
+    for (let s = 0; s < MAX_SLOTS; s++) t[s] += tmp[s];
+    computeFractions(this.timeline, Math.min(1, p + smear), tmp);
+    for (let s = 0; s < MAX_SLOTS; s++) t[s] = (t[s] + tmp[s]) / 3;
+  }
 
   private renderEngineCrossfade(outL: Float32Array, outR: Float32Array, frames: number): void {
     if (this.scratchL.length < frames) {
@@ -354,7 +447,7 @@ export class MorphCore {
   }
 
   private snapFractions(): void {
-    computeFractions(this.timeline, this.clock.position, this.targetFractions);
+    this.computeTargets(Math.min(1, Math.max(0, this.clock.position + this.driftValue)));
     this.fractions.set(this.targetFractions);
   }
 
@@ -365,6 +458,7 @@ export class MorphCore {
     this.crossfade.reset();
     this.granular.reset();
     this.spectral.reset();
+    this.effects.reset();
     this.prevEngine = null;
     this.engineMix = 1;
     this.snapFractions();
