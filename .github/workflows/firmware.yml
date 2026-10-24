@@ -109,7 +109,23 @@ jobs:
             Write-Host "$root : $($missing.Count) of $(@($want.PSObject.Properties).Count) files differ $($missing -join ', ')"
             if (!$missing) { $match = $root; break }
           }
-          if (!$match) { throw 'No toolchain matches sdk/manifest.json (JieLi PI32v2 clang 4.0.1 r3).' }
+          if ($match) {
+            "TOOLCHAIN_EXACT=true" >> $env:GITHUB_ENV
+          } else {
+            # JieLi's current download is newer than the kit's clang 4.0.1 r3.
+            # Build anyway as a compile and link check only: point the runner's
+            # copy of the manifest at the installed files. Never commit this,
+            # and never flash what it produces.
+            $match = @($roots)[0]
+            Write-Host "::warning::No exact clang 4.0.1 r3 toolchain. Building a compile check with $match; its firmware is not for flashing."
+            foreach ($entry in $want.PSObject.Properties) {
+              $file = Join-Path $match $entry.Name
+              if (Test-Path $file) { $entry.Value = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() }
+            }
+            $manifest | ConvertTo-Json -Depth 8 | Set-Content "$env:KIT\sdk\manifest.json" -Encoding utf8NoBOM
+            "TOOLCHAIN_EXACT=false" >> $env:GITHUB_ENV
+          }
+          & (Join-Path $match 'bin\clang.exe') --version
           "FM1_PI32_TOOLCHAIN=$match" >> $env:GITHUB_ENV
 
       - name: Build firmware
@@ -126,11 +142,22 @@ jobs:
           $symbols | ForEach-Object { "- ``$_``" } | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4
-        if: env.KIT_PRESENT == 'true'
+        if: env.KIT_PRESENT == 'true' && env.TOOLCHAIN_EXACT == 'true'
         with:
           name: fm1-firmware-${{ github.sha }}
           path: |
             firmware/kit/build/dx7/generated/*.fwsc
+            firmware/kit/build/dx7/sdk.elf
+            firmware/kit/build/dx7/*.map
+          if-no-files-found: warn
+
+      # A build made with a non-matching toolchain keeps only the link outputs
+      # for inspection; there is deliberately no .fwsc to flash.
+      - uses: actions/upload-artifact@v4
+        if: env.KIT_PRESENT == 'true' && env.TOOLCHAIN_EXACT == 'false'
+        with:
+          name: compile-check-NOT-FOR-FLASHING-${{ github.sha }}
+          path: |
             firmware/kit/build/dx7/sdk.elf
             firmware/kit/build/dx7/*.map
           if-no-files-found: warn
