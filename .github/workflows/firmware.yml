@@ -1,0 +1,110 @@
+# Builds FM1 firmware on a Windows runner, because the JieLi PI32v2 toolchain
+# is Windows-only. Produces a .fwsc file as a build artifact; nothing is flashed.
+name: FM1 firmware
+
+on:
+  push:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+  pull_request:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      KIT: ${{ github.workspace }}\firmware\kit
+      TOOLCHAIN_URL: https://pkgman.jieliapp.com/s/win-toolchain
+    steps:
+      # The SDK checks SHA-256 hashes of its files, so line endings must not change.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+
+      - name: Check for the dev kit
+        run: |
+          $present = Test-Path "$env:KIT\sdk\manifest.json"
+          if (!$present) { Write-Host '::notice::firmware/kit is not in the repo yet; skipping the build.' }
+          "KIT_PRESENT=$($present.ToString().ToLower())" >> $env:GITHUB_ENV
+
+      - name: Cache JieLi toolchain
+        if: env.KIT_PRESENT == 'true'
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: C:\jl
+          key: jieli-toolchain-${{ hashFiles('firmware/kit/sdk/manifest.json') }}
+
+      - name: Download and unpack JieLi toolchain
+        if: env.KIT_PRESENT == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          New-Item -ItemType Directory -Force C:\jl-download, C:\jl | Out-Null
+          $installer = 'C:\jl-download\toolchain.exe'
+          Invoke-WebRequest -Uri $env:TOOLCHAIN_URL -OutFile $installer -MaximumRedirection 10
+          $info = Get-Item $installer
+          Write-Host "Downloaded $($info.Length) bytes"
+          $head = [IO.File]::ReadAllBytes($installer)
+          $text = [Text.Encoding]::ASCII.GetString($head)
+          foreach ($marker in 'Nullsoft', 'Inno Setup', '7-Zip', 'WiX') {
+            if ($text.Contains($marker)) { Write-Host "Installer looks like: $marker" }
+          }
+          # 7-Zip unpacks NSIS and plain self-extracting archives without running them.
+          & 7z x $installer -oC:\jl\unpacked -y | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '7-Zip could not unpack it; trying silent installer switches.'
+            Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/DIR=C:\jl\installed' -Wait
+            if (!(Get-ChildItem C:\jl -Recurse -Filter clang.exe -ErrorAction SilentlyContinue)) {
+              Start-Process $installer -ArgumentList '/S', '/D=C:\jl\installed' -Wait
+            }
+          }
+
+      - name: Find the toolchain that matches the SDK
+        if: env.KIT_PRESENT == 'true'
+        run: |
+          $manifest = Get-Content "$env:KIT\sdk\manifest.json" -Raw | ConvertFrom-Json
+          $want = $manifest.external_toolchain.files
+          $roots = Get-ChildItem C:\jl -Recurse -Filter clang.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.Name -eq 'bin' } | ForEach-Object { $_.Directory.Parent.FullName }
+          if (!$roots) { throw 'No bin\clang.exe found in the downloaded toolchain.' }
+          $match = $null
+          foreach ($root in $roots) {
+            $missing = @()
+            foreach ($entry in $want.PSObject.Properties) {
+              $file = Join-Path $root $entry.Name
+              if (!(Test-Path $file) -or (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() -ne $entry.Value) { $missing += $entry.Name }
+            }
+            Write-Host "$root : $($missing.Count) of $(@($want.PSObject.Properties).Count) files differ $($missing -join ', ')"
+            if (!$missing) { $match = $root; break }
+          }
+          if (!$match) { throw 'No toolchain matches sdk/manifest.json (JieLi PI32v2 clang 4.0.1 r3).' }
+          "FM1_PI32_TOOLCHAIN=$match" >> $env:GITHUB_ENV
+
+      - name: Build firmware
+        if: env.KIT_PRESENT == 'true'
+        shell: powershell
+        run: '& "$env:KIT\sdk\Build.ps1" -FirmwareOnly'
+
+      - name: Report free RAM
+        if: env.KIT_PRESENT == 'true'
+        run: |
+          $nm = Join-Path $env:FM1_PI32_TOOLCHAIN 'bin\llvm-nm.exe'
+          $symbols = & $nm "$env:KIT\build\dx7\sdk.elf" | Select-String -Pattern '\b_?(HEAP_BEGIN|HEAP_END|MALLOC_SIZE)\b'
+          $symbols | ForEach-Object { Write-Host $_ }
+          $symbols | ForEach-Object { "- ``$_``" } | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        if: env.KIT_PRESENT == 'true'
+        with:
+          name: fm1-firmware-${{ github.sha }}
+          path: |
+            firmware/kit/build/dx7/generated/*.fwsc
+            firmware/kit/build/dx7/sdk.elf
+            firmware/kit/build/dx7/*.map
+          if-no-files-found: warn
