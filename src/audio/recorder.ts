@@ -6,13 +6,18 @@ export class Recorder {
   private stopResolve: (() => void) | null = null;
   recording = false;
   frames = 0;
+  /** When set, chunks are handed to this callback instead of being kept. */
+  private stream: ((l: Float32Array, r: Float32Array) => void) | null = null;
 
   constructor(private readonly node: AudioWorkletNode, readonly sampleRate: number) {
     node.port.onmessage = (e: MessageEvent<{ type: string; l?: Float32Array; r?: Float32Array }>) => {
       if (e.data.type === 'chunk' && e.data.l && e.data.r) {
-        this.chunksL.push(e.data.l);
-        this.chunksR.push(e.data.r);
         this.frames += e.data.l.length;
+        if (this.stream) this.stream(e.data.l, e.data.r);
+        else {
+          this.chunksL.push(e.data.l);
+          this.chunksR.push(e.data.r);
+        }
       } else if (e.data.type === 'stopped') {
         this.stopResolve?.();
         this.stopResolve = null;
@@ -20,7 +25,9 @@ export class Recorder {
     };
   }
 
-  start(): void {
+  /** Start recording; with `onChunk`, stream instead of keeping the audio. */
+  start(onChunk?: (l: Float32Array, r: Float32Array) => void): void {
+    this.stream = onChunk ?? null;
     this.chunksL = [];
     this.chunksR = [];
     this.frames = 0;
@@ -34,6 +41,7 @@ export class Recorder {
     this.node.port.postMessage({ type: 'stop' });
     await done;
     this.recording = false;
+    this.stream = null;
     return [concat(this.chunksL, this.frames), concat(this.chunksR, this.frames)];
   }
 }

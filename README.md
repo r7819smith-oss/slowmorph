@@ -30,7 +30,7 @@ Finder will not work.)
 | 2 | Granular engine | **Done and tested** |
 | 3 | Spectral engine | **Done and tested** |
 | 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | **Done and tested** |
-| 5 | Projects, presets, WAV recording, offline render | Next |
+| 5 | Projects, presets, WAV recording, offline render | **Done and tested** |
 | 6 | M-VAVE FM1 feasibility study (no flashing) | Planned |
 
 ## Playing it (Phase 1)
@@ -103,6 +103,24 @@ See ARCHITECTURE.md for exactly how it works and its limitations.
 * **Sound shaping**: high-pass, low-pass, resonance, width, reverb and delay,
   with one bypass switch.
 
+## Projects, presets and recording (Phase 5)
+
+* **Projects** (⌘S / ⌘O, or Save… / Open…): a `.slowmorph` file holds every
+  setting *and* the sample audio, so it opens on another Mac with nothing
+  missing. Typical size is a few MB.
+* **Presets**: six factory presets (Slow Dissolve, Granular Cloud, Spectral
+  Ghost, Endless Drone, Unstable Memory, Field Recording Transformation).
+  **Apply** changes the engine, morph settings, drift and sound shaping but
+  keeps your samples. **Save as preset…** stores your own in this browser.
+* **Record** (● in the header or the Record & Export panel) records exactly
+  what you hear. Chrome/Edge ask where to save first and then stream to that
+  file, so a two-hour take does not fill memory. Pick a length limit, or
+  **Record full morph** to restart and record start to finish (plus a
+  4-second tail) and stop by itself.
+* **Render full morph (offline)** computes the whole morph without playing
+  it, typically 30–60× faster than real time, with a short tail and a
+  0.1-second fade at the end. Formats: 16-bit, 24-bit or 32-bit float WAV.
+
 ## Development
 
 ```sh
@@ -111,5 +129,5 @@ npm run test:browser  # end-to-end test in headless Chromium (needs Playwright)
 npm run typecheck
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, including the planned
-granular and spectral algorithms.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the design of every engine and
+its limitations.

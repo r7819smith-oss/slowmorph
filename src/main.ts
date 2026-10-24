@@ -15,9 +15,13 @@ import { TimelineView } from './ui/timeline-view';
 import { crossfadePanel, granularPanel, spectralPanel } from './ui/engine-panels';
 import { characterControl, driftPanel, effectsPanel, midiPanel, randomisePanel } from './ui/perform-panels';
 import { MidiController } from './control/midi';
+import { Session } from './session';
+import { recordButton, sessionPanel } from './ui/session-panel';
 
 const app = new App();
 (window as unknown as { slowmorph: App }).slowmorph = app;
+const session = new Session(app);
+(window as unknown as { slowmorphSession: Session }).slowmorphSession = session;
 
 const DURATION_PRESETS: [string, number][] = [
   ['30s', 30], ['1m', 60], ['5m', 300], ['10m', 600], ['20m', 1200], ['30m', 1800], ['60m', 3600],
@@ -34,6 +38,7 @@ const restartBtn = btn('⏮', 'Restart (Home)', () => app.restart());
 const reverseBtn = btn('⇄', 'Reverse morph direction (R)', () => app.setDirection(app.live.direction === 1 ? -1 : 1));
 const freezeBtn = btn('❄', 'Freeze: hold the current morph position (F)', () => app.toggleFreeze());
 const stateBadge = h('span', { class: 'state' });
+const recBtn = recordButton(session);
 const meterL = h('i');
 const meterR = h('i');
 const limitLed = h('span', { class: 'led', title: 'Safety limiter active' }, 'LIM');
@@ -53,6 +58,7 @@ const header = h(
   { class: 'top' },
   h('h1', {}, 'Slow', h('span', {}, 'Morph')),
   h('div', { class: 'transport' }, restartBtn, playBtn, stopBtn, reverseBtn, freezeBtn),
+  recBtn.root,
   h('div', { class: 'status' }, engineLabel, stateBadge),
   h('div', { class: 'master' }, h('div', { class: 'meter', title: 'Output level' }, meterL, meterR), limitLed, master.root),
 );
@@ -168,8 +174,14 @@ const randomise = randomisePanel(app);
 const midiUi = midiPanel(app, midi);
 const effects = effectsPanel(app);
 const performSection = h('section', { class: 'panel perform' }, drift.root, randomise.root, midiUi.root);
+const sessionUi = sessionPanel(app, session);
+session.onChange = () => {
+  sessionUi.refresh();
+  recBtn.refresh();
+};
 
-document.getElementById('app')!.append(header, banner, timelineSection, modeSection, slots.root, paramsSection, performSection, effects.root);
+document.getElementById('app')!.append(header, banner, timelineSection, modeSection, slots.root, paramsSection, performSection, effects.root, sessionUi.root);
+sessionUi.refresh();
 
 // ---- state → UI ----------------------------------------------------------------
 
@@ -269,6 +281,12 @@ requestAnimationFrame(frame);
 // ---- keyboard ------------------------------------------------------------------
 
 window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'o')) {
+    e.preventDefault();
+    if (e.key === 's') void session.saveProject();
+    else (document.querySelector('.session input[type=file]') as HTMLInputElement | null)?.click();
+    return;
+  }
   const t = e.target as HTMLElement;
   if (t.tagName === 'INPUT' && (t as HTMLInputElement).type === 'text') return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;

@@ -84,7 +84,7 @@ export async function decodeArrayBuffer(data: ArrayBuffer, name: string, targetR
   return { name, channels, sampleRate: targetRate, originalSampleRate: originalRate, frames: channels[0].length, peak, warnings };
 }
 
-async function resample(pcm: PcmData, targetRate: number): Promise<Float32Array[]> {
+export async function resample(pcm: PcmData, targetRate: number): Promise<Float32Array[]> {
   const nch = pcm.channels.length;
   const frames = pcm.channels[0].length;
   const outFrames = Math.max(1, Math.ceil((frames * targetRate) / pcm.sampleRate));

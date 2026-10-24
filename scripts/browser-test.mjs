@@ -83,6 +83,35 @@ const check = (name, ok, detail = '') => {
 const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+  // Stand-in for the macOS save dialog: captures what the app writes.
+  await page.addInitScript(() => {
+    window.__files = {};
+    window.showSaveFilePicker = async (o) => {
+      const name = o.suggestedName;
+      const parts = [];
+      let seq = 0;
+      return {
+        name,
+        createWritable: async () => ({
+          write: async (d) => {
+            if (d && d.type === 'write') parts.push({ pos: d.position, data: new Uint8Array(d.data) });
+            else {
+              const u = new Uint8Array(d instanceof ArrayBuffer ? d : d.buffer);
+              parts.push({ pos: seq, data: u });
+              seq += u.length;
+            }
+          },
+          close: async () => {
+            const end = Math.max(0, ...parts.map((p) => p.pos + p.data.length));
+            const out = new Uint8Array(end);
+            for (const p of parts) out.set(p.data, p.pos);
+            window.__files[name] = out;
+          },
+          abort: async () => {},
+        }),
+      };
+    };
+  });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
@@ -302,6 +331,73 @@ try {
   const fxOff = await page.evaluate(() => window.slowmorph.state.effects.enabled);
   await page.click('.effects-panel .section-head button');
   check('effects can be bypassed and re-enabled', fxOff === false && (await page.evaluate(() => window.slowmorph.state.effects.enabled)) === true);
+
+  // ---- projects, presets, recording, offline render ----------------------------------
+  await page.evaluate(() => {
+    window.slowmorphSession.projectName = 'browser-test';
+    window.slowmorph.setDuration(321);
+    window.slowmorph.setEngine('granular');
+  });
+  await page.click('.session button:has-text("Save…")');
+  await page.waitForFunction(() => window.__files['browser-test.slowmorph']);
+  const saved = await page.evaluate(() => window.__files['browser-test.slowmorph'].length);
+  check('project saves with its samples', saved > 300000, `${(saved / 1e6).toFixed(2)} MB`);
+  // change things, then reopen the saved file
+  await page.evaluate(() => {
+    window.slowmorph.setDuration(99);
+    window.slowmorph.clearSlot(1);
+  });
+  await page.evaluate(async () => {
+    const f = new File([window.__files['browser-test.slowmorph']], 'browser-test.slowmorph');
+    await window.slowmorphSession.openProjectFile(f);
+  });
+  const reopened = await page.evaluate(() => ({ d: window.slowmorph.state.durationSec, e: window.slowmorph.state.engine, b: !!window.slowmorph.state.slots[1].audio, msg: window.slowmorphSession.message }));
+  check('project reopens with settings and samples restored', reopened.d === 321 && reopened.e === 'granular' && reopened.b, JSON.stringify(reopened));
+
+  await page.selectOption('.session select[aria-label="Preset"]', 'Spectral Ghost');
+  await page.click('.session button:has-text("Apply")');
+  const pre = await page.evaluate(() => ({ e: window.slowmorph.state.engine, fft: window.slowmorph.state.spectral.fftSize, d: window.slowmorph.state.durationSec, b: !!window.slowmorph.state.slots[1].audio }));
+  check('factory preset applies and keeps the samples', pre.e === 'spectral' && pre.fft === 4096 && pre.d === 900 && pre.b, JSON.stringify(pre));
+
+  await page.evaluate(() => window.slowmorph.play());
+  await page.selectOption('.session select[aria-label="Recording length"]', '60');
+  await page.click('.session button.rec-btn');
+  await page.waitForTimeout(3000);
+  await page.click('.session button.rec-btn');
+  await page.waitForFunction(() => Object.keys(window.__files).some((k) => k.endsWith('.wav')));
+  const wav = await page.evaluate(() => {
+    const name = Object.keys(window.__files).find((k) => k.endsWith('.wav'));
+    const b = window.__files[name];
+    const v = new DataView(b.buffer);
+    const frames = v.getUint32(40, true) / 6;
+    let peak = 0;
+    for (let i = 44; i + 3 <= b.length; i += 3) {
+      let x = b[i] | (b[i + 1] << 8) | (b[i + 2] << 16);
+      if (x & 0x800000) x -= 0x1000000;
+      peak = Math.max(peak, Math.abs(x / 8388608));
+    }
+    return { name, riff: String.fromCharCode(...b.slice(0, 4)), bits: v.getUint16(34, true), ch: v.getUint16(22, true), sr: v.getUint32(24, true), frames, bytes: b.length, peak };
+  });
+  const recSecs = wav.frames / wav.sr;
+  check('recording writes a valid 24-bit stereo WAV of the right length', wav.riff === 'RIFF' && wav.bits === 24 && wav.ch === 2 && recSecs > 2.5 && recSecs < 3.6 && wav.bytes === 44 + wav.frames * 6 && wav.peak > 0.01, JSON.stringify({ ...wav, secs: recSecs.toFixed(2) }));
+
+  await page.evaluate(() => {
+    window.slowmorph.stop();
+    window.slowmorph.setDuration(6);
+    window.slowmorph.setEngine('crossfade');
+  });
+  const t0 = Date.now();
+  await page.click('.session button:has-text("Render full morph")');
+  await page.waitForFunction(() => Object.keys(window.__files).some((k) => k.includes('full morph')), null, { timeout: 60000 });
+  const rendered = await page.evaluate(() => {
+    const name = Object.keys(window.__files).find((k) => k.includes('full morph'));
+    const b = window.__files[name];
+    const v = new DataView(b.buffer);
+    return { name, frames: v.getUint32(40, true) / 6, sr: v.getUint32(24, true), msg: window.slowmorphSession.render.message };
+  });
+  const renderSecs = rendered.frames / rendered.sr;
+  check('offline render writes the whole morph + tail faster than real time', Math.abs(renderSecs - 10.1) < 0.05 && Date.now() - t0 < 10000, `${renderSecs.toFixed(2)} s audio in ${((Date.now() - t0) / 1000).toFixed(1)} s · ${rendered.msg}`);
+  await page.evaluate(() => window.slowmorph.play());
 
   // set up a nicer view for the screenshot: 10 minute morph, a third in
   await page.click('.duration-row button[data-value="600"]');

@@ -24,7 +24,7 @@ src/audio/audio-engine.ts  context, nodes           ├ slot.ts       declick/sw
 
 * **All DSP lives in `src/dsp/`** and is plain TypeScript with no Web Audio
   dependency. The worklet wraps it for real time; the unit tests drive it
-  directly; the offline renderer (Phase 5) will run the same code faster
+  directly; the offline renderer (Phase 5) runs the same code faster
   than real time. Each engine implements `MorphEngine` and can be tested
   on its own.
 * **The morph clock runs on the audio thread**, so the morph advances
@@ -212,6 +212,39 @@ mid/side width, ping-pong delay with damped feedback and glided delay time
 a 20 ms crossfade; the effects start bypassed in the core so every engine
 test runs dry.
 
+## Phase 5: projects, presets, recording, offline render (done)
+
+**Project file** (`src/state/serialize.ts`): `"SLOWMORPH\0"` magic, u32
+format version (1), u32 JSON length, UTF-8 JSON of every setting, padding
+to 4 bytes, then each slot's audio as raw float32 at the project's sample
+rate. On open every field is read through a typed `pick` that falls back to
+the default when a field is missing or the wrong type, so older or
+hand-edited files still load; truncated or corrupt files raise a clear
+error and leave the current project untouched. Audio saved at another
+sample rate is resampled on open.
+
+**Presets** (`src/state/presets.ts`) are settings only (engine, duration,
+play mode, engine parameters, character, drift, effects, transition
+curves); they never touch samples. User presets live in `localStorage`, so
+they stay in that browser profile; projects are the portable format.
+
+**Live recording** taps the final output (after the limiter) with a second
+AudioWorklet that posts blocks to the main thread. With the File System
+Access API (Chrome/Edge) the WAV is streamed to disk with positional writes
+and its header patched on close, so memory use is flat however long the
+take. Elsewhere it falls back to collecting in memory and downloading.
+Limitation: a live recording also records any glitches the computer
+causes (e.g. a busy CPU); offline render does not.
+
+**Offline render** (`src/audio/offline-render.ts`, run in a Web Worker)
+builds a fresh `MorphCore` from the same messages the worklet receives and
+calls `process()` in chunks, streaming encoded WAV bytes out. It forces
+once mode, forward direction and position 0, renders the morph plus a tail
+(reverb/delay decay) and fades the last 0.1 s. Because every engine is
+seeded, the same project renders bit-identically every time (tested). MIDI
+movements and live drift changes are not part of an offline render; it
+renders the saved settings.
+
 ## Testing
 
 * `npm test`: Vitest unit and audio-rendering tests: curves, timeline
@@ -221,4 +254,7 @@ test runs dry.
   mute/solo, loop-mode wrap).
 * `npm run test:browser`: builds the app, drives it in headless Chromium,
   loads WAV (44.1/48 kHz), AIFF (22.05 kHz, resampled) and a corrupt file,
-  records the real output through the recorder tap and analyses it.
+  records the real output through the recorder tap and analyses it. From
+  Phase 5 it also stubs the save dialog to check a project save/open round
+  trip, a factory preset, a live 24-bit WAV recording and an offline render
+  (38 checks).

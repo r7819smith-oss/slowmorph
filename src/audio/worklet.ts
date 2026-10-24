@@ -7,6 +7,7 @@
 /// <reference path="./worklet-env.d.ts" />
 import { MorphCore } from '../dsp/core';
 import type { ToWorklet, WorkletStatus } from './messages';
+import { applyMessage } from './apply-message';
 
 class SlowMorphProcessor extends AudioWorkletProcessor {
   private readonly core = new MorphCore(sampleRate);
@@ -24,33 +25,8 @@ class SlowMorphProcessor extends AudioWorkletProcessor {
   }
 
   private handle(msg: ToWorklet): void {
-    const c = this.core;
-    switch (msg.type) {
-      case 'sample': c.setSample(msg.slot, msg.channels, msg.settings); break;
-      case 'slotSettings': c.setSlotSettings(msg.slot, msg.settings); break;
-      case 'timeline': c.setTimeline(msg.model); break;
-      case 'gainLaw': c.setGainLaw(msg.law); break;
-      case 'master': c.setMasterGain(msg.gain); break;
-      case 'duration': c.setDuration(msg.seconds); break;
-      case 'playMode': c.setPlayMode(msg.mode); break;
-      case 'direction': c.setDirection(msg.direction); break;
-      case 'hold': c.setHold(msg.held); break;
-      case 'seek': c.seek(msg.position); break;
-      case 'engine': c.setEngine(msg.engine); break;
-      case 'granular': c.setGranularParams(msg.params); break;
-      case 'spectral': c.setSpectralParams(msg.params); break;
-      case 'character': c.setCharacter(msg.value); break;
-      case 'drift': c.setDrift(msg.params); break;
-      case 'effects': c.setEffects(msg.params); break;
-      case 'loopCrossfade': c.loopCrossfadeSeconds = msg.seconds; break;
-      case 'transport':
-        if (msg.command === 'play') c.play();
-        else if (msg.command === 'pause') c.pause();
-        else if (msg.command === 'stop') c.stop();
-        else c.restart();
-        this.statusCountdown = 0;
-        break;
-    }
+    applyMessage(this.core, msg);
+    if (msg.type === 'transport') this.statusCountdown = 0;
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {

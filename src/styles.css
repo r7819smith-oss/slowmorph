@@ -156,3 +156,18 @@ button.small:disabled { opacity: .4; cursor: not-allowed; }
 .section-head h3 { margin: 0; }
 .effects-panel .param-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .bypassed { opacity: .45; }
+
+/* session: project, presets, recording */
+.session { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+@media (max-width: 900px) { .session { grid-template-columns: minmax(0, 1fr); } }
+.session h3.gap { margin-top: 12px; }
+.project-name { width: 220px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); }
+.preset-desc { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.session-msg { grid-column: 1 / -1; font-size: 13px; color: var(--accent); min-height: 1em; }
+.session-msg:empty { display: none; }
+.render-progress { width: 100%; accent-color: var(--accent); }
+.rec-status { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text); }
+button.rec-btn.on, .tbtn.rec.on { background: var(--danger); border-color: var(--danger); color: #111; }
+.tbtn.rec { color: var(--danger); }
+.rec-wrap { display: flex; align-items: center; gap: 8px; }
+.rec-time { font: 600 14px ui-monospace, Menlo, monospace; color: var(--danger); min-width: 0; }

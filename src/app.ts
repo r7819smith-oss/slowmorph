@@ -32,6 +32,8 @@ import {
   type SlotState,
 } from './state/project';
 import { dbToGain } from './dsp/curves';
+import { stateMessages } from './state/sync';
+import type { PresetSettings } from './state/presets';
 
 export type ChangeKind = 'slots' | 'timeline' | 'transport' | 'settings' | 'all';
 
@@ -112,25 +114,9 @@ export class App {
     for (const l of this.listeners) l(kind);
   }
 
-  /** Push the whole state to the audio thread. */
-  private syncAll(): void {
-    const s = this.state;
-    const post = this.engine.post.bind(this.engine);
-    s.slots.forEach((slot, i) => post({ type: 'sample', slot: i, channels: slot.audio?.channels ?? null, settings: slotSettings(slot) }));
-    for (let i = s.slots.length; i < MAX_SLOTS; i++) post({ type: 'sample', slot: i, channels: null, settings: slotSettings(emptySlot()) });
-    post({ type: 'duration', seconds: s.durationSec });
-    post({ type: 'playMode', mode: s.playMode });
-    post({ type: 'direction', direction: s.direction });
-    post({ type: 'gainLaw', law: s.gainLaw });
-    post({ type: 'master', gain: dbToGain(s.masterDb) });
-    post({ type: 'loopCrossfade', seconds: s.loopCrossfadeMs / 1000 });
-    post({ type: 'granular', params: s.granular });
-    post({ type: 'spectral', params: s.spectral });
-    post({ type: 'character', value: s.character });
-    post({ type: 'drift', params: s.drift });
-    post({ type: 'effects', params: s.effects });
-    post({ type: 'engine', engine: s.engine });
-    this.syncTimeline();
+  /** Push the whole state to the audio thread (optionally leaving the audio as it is). */
+  private syncAll(includeSamples = true): void {
+    for (const msg of stateMessages(this.state)) if (includeSamples || msg.type !== 'sample') this.engine.post(msg);
   }
 
   private syncTimeline(): void {
@@ -456,6 +442,37 @@ export class App {
     this.live.frozen = frozen;
     this.engine.post({ type: 'hold', held: frozen });
     this.emit('transport');
+  }
+
+  /** Replace the whole project (used when opening a project file). */
+  loadState(state: ProjectState): void {
+    this.stop();
+    this.state = state;
+    this.undoStack = [];
+    this.live.frozen = false;
+    this.syncAll();
+    this.emit('all');
+  }
+
+  /** Apply preset settings to the current samples. */
+  applyPresetSettings(p: PresetSettings): void {
+    const s = this.state;
+    s.engine = p.engine;
+    s.durationSec = p.durationSec;
+    s.playMode = p.playMode;
+    s.gainLaw = p.gainLaw;
+    s.loopCrossfadeMs = p.loopCrossfadeMs;
+    s.character = p.character;
+    s.granular = { ...p.granular };
+    s.spectral = { ...p.spectral };
+    s.drift = { ...p.drift };
+    s.effects = { ...p.effects };
+    s.timeline.defaultCurve = p.segment.curve;
+    s.timeline.segments = {};
+    const act = activeSlots(s);
+    for (let i = 0; i + 1 < act.length; i++) s.timeline.segments[`${act[i].slot.id}>${act[i + 1].slot.id}`] = { ...p.segment };
+    this.syncAll(false);
+    this.emit('all');
   }
 
   get hasAudio(): boolean {
