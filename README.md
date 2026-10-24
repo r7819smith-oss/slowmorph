@@ -31,7 +31,7 @@ Finder will not work.)
 | 3 | Spectral engine | **Done and tested** |
 | 4 | Character/Hybrid, freeze per engine, drift, randomise, MIDI, effects | **Done and tested** |
 | 5 | Projects, presets, WAV recording, offline render | **Done and tested** |
-| 6 | M-VAVE FM1 feasibility study (no flashing) | Planned |
+| 6 | M-VAVE FM1 feasibility study (no flashing) | **Done**: [report](https://claude.ai/artifact/GjzgHg22UZGA7Fu5XuVf7k). Crossfade and granular fit; spectral only reduced; nothing was flashed |
 
 ## Playing it (Phase 1)
 
