@@ -55,19 +55,24 @@ jobs:
           foreach ($marker in 'Nullsoft', 'Inno Setup', '7-Zip', 'WiX') {
             if ($text.Contains($marker)) { Write-Host "Installer looks like: $marker" }
           }
-          # The download is an Inno Setup installer. Install it silently, then
-          # copy the toolchain folder under C:\jl so later runs can cache it.
-          $log = 'C:\jl-download\install.log'
-          $p = Start-Process $installer -PassThru -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/DIR=C:\jl\installed', "/LOG=$log"
-          Write-Host "Installer exit code: $($p.ExitCode)"
-          $places = 'C:\jl', 'C:\JL', 'C:\Program Files', 'C:\Program Files (x86)', $env:LOCALAPPDATA, $env:APPDATA, 'C:\ProgramData'
-          $found = $places | Where-Object { $_ -and (Test-Path $_) } | ForEach-Object {
-            Get-ChildItem $_ -Recurse -Filter pi32v2-ld.exe -ErrorAction SilentlyContinue }
+          # The download is an Inno Setup installer. Unpack it with innoextract
+          # first, which never runs it; running the installer silently hung for
+          # more than 7 minutes on the first try, so it is only a timed fallback.
+          choco install innoextract -y --no-progress | Out-Null
+          innoextract --version
+          innoextract -l $installer | Select-String -Pattern 'clang|pi32v2|llvm' | Select-Object -First 40 | ForEach-Object { Write-Host $_ }
+          innoextract -s -d C:\jl\unpacked $installer
+          Write-Host "innoextract exit code: $LASTEXITCODE"
+          $found = Get-ChildItem C:\jl\unpacked -Recurse -Filter pi32v2-ld.exe -ErrorAction SilentlyContinue
           if (!$found) {
-            Write-Host 'Installer did not leave pi32v2-ld.exe; unpacking with innoextract instead.'
-            choco install innoextract -y --no-progress | Out-Null
-            innoextract -s -d C:\jl\unpacked $installer
-            $found = Get-ChildItem C:\jl\unpacked -Recurse -Filter pi32v2-ld.exe -ErrorAction SilentlyContinue
+            Write-Host 'innoextract found no pi32v2-ld.exe; running the installer silently for up to 5 minutes.'
+            $log = 'C:\jl-download\install.log'
+            $p = Start-Process $installer -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/DIR=C:\jl\installed', "/LOG=$log"
+            if (!$p.WaitForExit(300000)) { Write-Host 'Installer still running after 5 minutes; stopping it.'; $p | Stop-Process -Force }
+            Get-Process | Where-Object { $_.Path -like '*jl*' -or $_.Path -like 'C:\Users\*\AppData\Local\Temp\*' } | ForEach-Object { Write-Host "Still running: $($_.Path)" }
+            $places = 'C:\jl', 'C:\JL', 'C:\Program Files', 'C:\Program Files (x86)', $env:LOCALAPPDATA, $env:APPDATA, 'C:\ProgramData'
+            $found = $places | Where-Object { $_ -and (Test-Path $_) } | ForEach-Object {
+              Get-ChildItem $_ -Recurse -Filter pi32v2-ld.exe -ErrorAction SilentlyContinue }
           }
           $found | ForEach-Object { Write-Host "Found: $($_.FullName)" }
           $i = 0
