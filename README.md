@@ -8,6 +8,7 @@ into the next, with crossfade, granular and spectral morph engines.
 | Folder | What it is | State |
 |---|---|---|
 | [`browser/`](browser/) | The instrument as a local web app for Chrome or Edge on macOS (TypeScript, Web Audio, AudioWorklet). No cloud services. | Working and tested |
+| [`sequencer/`](sequencer/) | A four-track MIDI step sequencer for the RG40XX-V on Knulli, to drive an FM1. | Runs on desktop Linux; untested on the device |
 | [`firmware/`](firmware/) | A future port to the M-VAVE FM1 pocket synth. | Feasibility study only |
 
 ## Play it
