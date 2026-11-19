@@ -179,6 +179,11 @@ Works and tested on desktop Linux:
   running, shows `MIDI: WAITING FOR ...` in the header, and reconnects within
   about a second when it appears. If that happens while playing, it restarts
   from step 1 with a fresh Start so the FM1's clock is back in phase.
+- **Header status:** top right shows `MIDI: OK` (green) with the port name,
+  `MIDI: WAITING` (yellow) with the name it looks for, or `MIDI: NONE`. Each
+  connect and disconnect is written to `seq4h/seq4h.log` as
+  `seq4h: MIDI connected to ...` / `seq4h: MIDI WAITING FOR ...`. (Roy's
+  2026-11-19 photo showed no status; the header had stopped drawing it.)
 - **Clock master:** MIDI clock now runs continuously, also while stopped, so
   the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four
