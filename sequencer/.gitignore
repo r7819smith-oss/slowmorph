@@ -10,3 +10,4 @@ dist/
 tests/test_input
 seq4h.log
 __pycache__/
+tests/test_battery
