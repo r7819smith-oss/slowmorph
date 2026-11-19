@@ -1,8 +1,7 @@
 # seq4h
 
 A four-track step sequencer for the Anbernic RG40XX-V running Knulli. It sends
-MIDI to an M-VAVE FM1 (or any other MIDI device) running firmware such as
-Felucca. It is inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares
+MIDI to an M-VAVE FM1 running Shrub (or any other MIDI device). It is inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares
 no code with it.
 
 **State:** the engine, UI and timing run and are tested on a desktop Linux
@@ -55,18 +54,38 @@ make
 Without hardware: `./seq4h --midi none --verbose --autoplay` prints the MIDI
 it would send.
 
-## Connecting to the FM1
+## Connecting to the FM1 running Shrub
 
-ALSA sequencer ports cover both transports, so the same code handles both.
+From the [Shrub user guide](https://shrub.audio/guide/) (MIDI and USB section):
 
-- **USB-C (try this first).** The handheld must act as USB host. Whether the
-  RG40XX-V's USB-C port can do that is **unverified**. Plug the FM1 in and
-  run `./seq4h --midi list`; if the FM1 appears, it works. If not, you may need
-  a USB-C OTG adapter or a powered hub.
-- **Bluetooth.** Needs the FM1's firmware to offer BLE-MIDI (unverified) and
-  Knulli's BlueZ to bridge it to ALSA (unverified). If it appears in
-  `--midi list` after pairing, `seq4h` can use it. Expect more timing jitter
-  than USB.
+- Shrub listens on **USB MIDI** and the **TRS MIDI IN** jack, on the single
+  channel set by its **MIDI CH** setting (OMNI, 1-16 or MPE). It is not
+  multitimbral, so all four seq4h tracks play the same sound.
+- It responds to notes with velocity, program change, MIDI clock with
+  start/stop, and CC 120/123 (panic). seq4h sends exactly these.
+- The guide lists no Bluetooth MIDI input, so **Bluetooth is not an option
+  with Shrub**. Use USB.
+- Shrub follows incoming MIDI clock, including tempo. While seq4h is playing
+  it sets Shrub's tempo; press PLAY on the FM1 to take the lead back.
+
+Setup:
+
+1. On the FM1, set Shrub's MIDI CH to **OMNI**, or to a channel number and run
+   `./seq4h --channel N` with the same N (1-16). With OMNI the track channels
+   don't matter.
+2. Connect the FM1's USB-C to the handheld's USB-C. The handheld must act as
+   USB host. Whether the RG40XX-V's port can do that is **unverified**; you may
+   need a USB-C OTG adapter or a powered hub. The FM1 is the USB device and
+   also streams its audio over this link.
+3. Run `./seq4h --midi list` and check the FM1 appears, then
+   `./seq4h --midi FM --channel 1` (or part of the name that `--midi list`
+   shows).
+
+Tracks share one channel, so if two tracks play the *same* note at once, the
+first note-off cuts both. Give tracks different pitch ranges to avoid it.
+
+Other MIDI devices work the same way; use per-track channels (Select + up/down)
+for multitimbral gear.
 
 ## Building for Knulli
 

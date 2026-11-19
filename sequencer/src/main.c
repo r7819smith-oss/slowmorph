@@ -12,6 +12,8 @@ static void usage(void) {
          "  --midi NAME      MIDI output port: case-insensitive part of \"client:port\"\n"
          "                   (default: first available; 'none' = no output; 'list' = show ports)\n"
          "  --pattern FILE   pattern file to load and autosave (default seq4h.pat)\n"
+         "  --channel N      put all four tracks on MIDI channel N (1-16), e.g. for a\n"
+         "                   single-channel synth such as Shrub\n"
          "  --fullscreen     fullscreen window (use on the handheld)\n"
          "  --no-clock       do not send MIDI clock/start/stop\n"
          "  --demo           start from the built-in demo pattern, ignoring the file\n"
@@ -22,11 +24,12 @@ static void usage(void) {
 
 int main(int argc, char **argv) {
     const char *midi_name = "", *pattern = "seq4h.pat", *shot = NULL;
-    int fullscreen = 0, no_clock = 0, demo = 0, verbose = 0, autoplay = 0;
+    int fullscreen = 0, no_clock = 0, demo = 0, verbose = 0, autoplay = 0, channel = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--midi") && i + 1 < argc) midi_name = argv[++i];
         else if (!strcmp(argv[i], "--pattern") && i + 1 < argc) pattern = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
+        else if (!strcmp(argv[i], "--channel") && i + 1 < argc) channel = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fullscreen")) fullscreen = 1;
         else if (!strcmp(argv[i], "--no-clock")) no_clock = 1;
         else if (!strcmp(argv[i], "--demo")) demo = 1;
@@ -59,6 +62,9 @@ int main(int argc, char **argv) {
         seq_load_demo(&p.seq);
     }
     if (no_clock) p.seq.clock_out = 0;
+    if (channel < 0 || channel > 16) { fprintf(stderr, "seq4h: --channel must be 1-16\n"); return 2; }
+    if (channel)
+        for (int t = 0; t < SEQ_TRACKS; t++) p.seq.track[t].channel = (uint8_t)(channel - 1);
 
     char desc[128];
     snprintf(desc, sizeof desc, "%s", midi->desc);   /* player_end frees midi */
