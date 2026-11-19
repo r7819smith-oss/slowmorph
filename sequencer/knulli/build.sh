@@ -6,7 +6,8 @@
 # Output:
 #   sequencer/dist/seq4h          aarch64 binary
 #   sequencer/dist/seq4h-knulli-aarch64.zip   unzip into /userdata/roms/ports/
-#     (SEQ4H.sh, USB-MIDI-CHECK.sh, seq4h/seq4h, seq4h/README.md; the zip keeps
+#     (SEQ4H.sh, USB-MIDI-CHECK.sh, seq4h/seq4h, seq4h/seq4h.input,
+#     seq4h/README.md; the zip keeps
 #     the execute bits)
 #
 # SEQ4H_IMAGE=name   use an image you already built instead of building one.
@@ -74,6 +75,7 @@ cp seq4h dist/seq4h
 cp seq4h dist/pkg/seq4h/seq4h
 cp knulli/SEQ4H.sh knulli/USB-MIDI-CHECK.sh dist/pkg/
 cp README.md dist/pkg/seq4h/README.md
+cp knulli/seq4h.input dist/pkg/seq4h/seq4h.input
 chmod 755 dist/pkg/*.sh dist/pkg/seq4h/seq4h
 # Fixed timestamps so the zip is byte-for-byte reproducible.
 find dist/pkg -exec touch -h -d '2000-01-01 00:00:00' {} +

@@ -35,6 +35,18 @@ int main(void) {
     CHECK(l.clocks == 96);          /* 4 beats * 24 */
     CHECK(l.on[1] == 4 && l.on[2] == 5);
 
+    /* clock master: clock keeps running while stopped, with no notes; none with clock off */
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    seq_load_demo(&s);
+    run(&s, 96);
+    CHECK(l.clocks == 24 && l.on[0] == 0 && l.starts == 0);
+    seq_start(&s); run(&s, 96); seq_stop(&s); run(&s, 96);
+    CHECK(l.starts == 1 && l.stops == 1 && l.clocks == 72);
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    s.clock_out = 0;
+    run(&s, 96); seq_start(&s); run(&s, 96);
+    CHECK(l.clocks == 0 && l.starts == 0);
+
     /* gate: 50% of 24 ticks => note off 12 ticks after on */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
     s.track[0].step[0].on = 1;

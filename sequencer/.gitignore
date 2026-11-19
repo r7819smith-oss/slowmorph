@@ -3,3 +3,5 @@ tests/test_engine
 *.bmp
 seq4h.pat
 dist/
+tests/test_input
+seq4h.log

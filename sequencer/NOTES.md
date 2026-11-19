@@ -21,6 +21,15 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   as ALSA ports.
 - **Timing:** a dedicated thread ticks at 96 PPQN using absolute
   `clock_nanosleep`. Measured 0.1 ms deviation on desktop Linux.
+- **Controls are for navigation and editing only** (Roy, 2026-11-19: no
+  finger drumming / live performance shortcuts). Four pages: GRID, STEP,
+  TRACK, GENERATE. L1/R1 = page, L2/R2 = track, B = back to grid; list pages
+  use up/down = row, left/right = value, hold Y = big step.
+- **Input** goes through `src/input.c`: a table from keyboard keys, raw
+  joystick buttons/hats/axes and SDL game-controller buttons/axes to seq4h
+  buttons and actions, overridable from `seq4h.input`. On Knulli the shipped
+  file sets `mode joystick`, because H700 pads can carry a GUID that SDL
+  matches to the wrong controller mapping (reported for the RG35XX SP).
 - **Generators write into the step grid** (not a separate live mode), so every
   result is editable and the save file stays simple. Locked steps are never
   touched.
@@ -53,9 +62,11 @@ Works and tested on desktop Linux:
   sound devices, so the code compiles and falls back cleanly, nothing more.
 - **Any run on the handheld.** The aarch64 build is settled (see *aarch64
   build* below) and smoke-tested under qemu, but has not run on Knulli.
-- **Face-button labels** (A/B may be swapped; `map_pad()` in `src/ui.c`).
-- **L2/R2** page/roll shortcuts (it is unknown whether the handheld reports
-  them as trigger axes).
+- **Button codes on a Knulli unit.** The defaults (README, "Button mapping")
+  come from a published log of an RG40XX-V on stock firmware: A=0 B=1 Y=2
+  X=3 L1=4 R1=5 Select=6 Start=7 L2=10 R2=11, D-pad on hat 0. L2/R2 are
+  digital buttons there, not trigger axes. Confirm with `--show-input` and fix
+  any difference in `seq4h.input`, not in code.
 - **Felucca's clock-source labels.** The wiki puts the clock source on the
   CLOCK page (tap HOME: HOME > MIXER > CLOCK) but does not name the options.
   Whether Felucca follows MIDI Start/Stop is not documented.
@@ -66,7 +77,8 @@ Works and tested on desktop Linux:
 
 1. Run the checklist below on the RG40XX-V and fill in the results table.
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
-3. Check button mapping and fullscreen on the device; adjust `map_pad()`.
+3. Check button codes (`SEQ4H_SHOW_INPUT=1`, then read `seq4h.log`) and
+   fullscreen on the device; adjust `seq4h.input`.
 4. Features discussed but not built:
    - a generator that reads another track (for example a bass line following
      the kick rhythm)
@@ -112,7 +124,10 @@ Works and tested on desktop Linux:
   either name, e.g. `--midi FM` or `--midi hw:1,0,0`.
 - **Hot-plug:** if the FM1 is not there at start, or is unplugged, seq4h keeps
   running, shows `MIDI: WAITING FOR ...` in the header, and reconnects within
-  about a second when it appears.
+  about a second when it appears. If that happens while playing, it restarts
+  from step 1 with a fresh Start so the FM1's clock is back in phase.
+- **Clock master:** MIDI clock now runs continuously, also while stopped, so
+  the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four
   together, then sends All Notes Off and exits.
 - `knulli/USB-MIDI-CHECK.sh`: a Ports-menu diagnostic that logs USB role,
@@ -161,8 +176,8 @@ Fill in the results table as you go. Tick each box or note what happened.
       missing*.
 - [ ] Power: does the FM1 show it is charging or powered from USB? Does the
       handheld's battery drain noticeably faster? (Check after 30 minutes.)
-- [ ] Optional: a hub with power pass-through. Does the handheld charge and
-      still see the FM1?
+- [ ] Optional (Roy prefers direct USB; a hub is the fallback): a hub with
+      power pass-through. Does the handheld charge and still see the FM1?
 
 **D. Ports and notes (SSH)**
 
@@ -177,15 +192,35 @@ Fill in the results table as you go. Tick each box or note what happened.
       module: `rmmod snd-seq-midi` then `--midi-test` again (checks the raw
       MIDI fallback). Skip if not possible.
 
-**E. Sequencer, clock and transport**
+**E. Handheld as clock master**
 
-- [ ] On the FM1 CLOCK page (tap HOME until CLOCK), set the clock source to
-      USB. Record the exact option names shown.
-- [ ] Start *SEQ4H* from Ports. The header shows `MIDI: <FM1 name>`.
+seq4h is the clock master: it sends MIDI clock (24 per quarter note)
+continuously, even while stopped, plus Start (from step 1) and Stop. The FM1
+follows it. `--no-clock` turns all of this off.
+
+Set Felucca to follow external clock over USB:
+
+1. On the FM1, tap **HOME** until the **CLOCK** page shows (HOME, MIXER,
+   CLOCK). It holds BPM, swing and the clock source.
+2. Set the **clock source** to **USB** (the wiki lists internal, USB or TRS;
+   the exact label on screen is unconfirmed, so record it below). Not TRS:
+   that is the 3.5 mm jack.
+3. If the BPM field is greyed out or follows incoming clock, that confirms it.
+
+Checks:
+
+- [ ] Start *SEQ4H* from Ports, with seq4h **stopped**. The FM1's BPM already
+      shows seq4h's tempo (120 for the demo), because clock runs while stopped.
+- [ ] Change BPM on the TRACK page (hold Y for steps of 10). The FM1's BPM follows
+      within a second or so.
 - [ ] Press Start: all four tracks play on the matching Felucca tracks.
-- [ ] The FM1's BPM follows seq4h; change BPM with L/R and check it follows.
+      Anything tempo-synced on the FM1 (arpeggiator, LFO SYNC, delay) locks
+      to seq4h.
 - [ ] Press Start again (stop): notes stop, nothing hangs. Does the FM1's own
-      sequencer/arpeggiator start and stop with seq4h?
+      sequencer start and stop with seq4h? (Felucca's Start/Stop handling is
+      not documented, so record what happens.)
+- [ ] Swing: seq4h's swing applies to its own notes only. Note whether
+      Felucca's CLOCK-page swing also affects them.
 - [ ] Mute a track (X): the matching FM1 track goes silent.
 - [ ] Run `--channel 1` with `MIDI IN` = SEL: everything plays on the FM1's
       selected track.
@@ -194,10 +229,11 @@ Fill in the results table as you go. Tick each box or note what happened.
 
 - [ ] Start *SEQ4H* with the FM1 unplugged: header shows
       `MIDI: WAITING FOR ...`.
-- [ ] Plug the FM1 in: within about 2 seconds the header shows its name and
-      Start plays it.
-- [ ] Unplug while playing, plug back in: playback resumes on the FM1, and
-      nothing crashes. Note any hung notes.
+- [ ] Plug the FM1 in: within about 2 seconds the header shows its name, and
+      the FM1 picks up the tempo. Start plays it.
+- [ ] Unplug while playing, plug back in: seq4h restarts the pattern from
+      step 1 with a fresh Start, so the FM1 is back in phase. Nothing crashes;
+      note any hung notes.
 
 **G. Timing and endurance**
 
@@ -209,9 +245,13 @@ Fill in the results table as you go. Tick each box or note what happened.
 **H. Handheld UI**
 
 - [ ] Fullscreen fills the screen; text is readable.
-- [ ] Face buttons: A toggles a step, B is the note modifier. If swapped, note
-      it (fix in `map_pad()` in `src/ui.c`).
-- [ ] L2/R2 switch page and roll (or note that they do nothing).
+- [ ] Start once with `SEQ4H_SHOW_INPUT=1` and press every button. The top
+      right shows the code (`IN: JOY 10 > L2`); `seq4h.log` lists them and
+      the pad's name and GUID. Note any code that differs from the table in
+      README "Button mapping" and fix it in `seq4h.input`.
+- [ ] Face buttons: on the grid A toggles a step, X opens the STEP page,
+      Y locks, B returns to the grid.
+- [ ] L1/R1 change page, L2/R2 change track.
 - [ ] Select+Start quits and the pattern is saved (`seq4h.pat` updated).
 
 **Results**
@@ -225,8 +265,8 @@ Fill in the results table as you go. Tick each box or note what happened.
 | FM1 powered by handheld? | |
 | MIDI port name(s) in `--midi list` | |
 | Channels 1-4 -> tracks 1-4 | |
-| Felucca clock source labels | |
-| FM1 follows tempo / start / stop | |
+| Felucca CLOCK page: source label for USB | |
+| FM1 follows tempo while stopped / on Start / Stop | |
 | Hot-plug | |
 | 30 min run | |
 | Button mapping, L2/R2 | |
@@ -285,12 +325,14 @@ knulli/build.sh                # aarch64 binary + Ports zip in dist/ (Docker)
 ./seq4h --midi list                                 # sequencer and raw MIDI ports
 ./seq4h --midi FM --midi-test                       # one note per channel 1-4
 SDL_VIDEODRIVER=dummy ./seq4h --midi none --demo --screenshot out.bmp \
-    --keys "Up,+Tab,c,-Tab"    # replay key names, save a screenshot
+    --keys "Down,c,Down,Right"  # replay key names, save a screenshot
 ```
 
 `--keys` takes comma-separated SDL key names; `+name` presses only and
 `-name` releases only. Keyboard map: arrows = D-pad, Z = A, X = B, C = X,
-V = Y, Q/W = L/R, Tab = Select, Space = Start, E/R/U/K = page/roll/undo/lock.
+V = Y, Q/W = L1/R1, 1/2 = L2/R2, Tab = Select, Space = Start,
+E/R/U/K = page/roll/undo/lock,
+Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 ## Files
 
@@ -299,6 +341,9 @@ V = Y, Q/W = L/R, Tab = Select, Space = Start, E/R/U/K = page/roll/undo/lock.
 - `src/player.c`: timing thread and lock
 - `src/midi_alsa.c`, `midi_null.c`: MIDI output backends
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
+- `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
+- `tests/test_input.c`: mapping tests
+- `knulli/seq4h.input`: RG40XX-V button map
 - `tests/test_engine.c`: unit tests
 - `knulli/SEQ4H.sh`: Ports launcher script
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device

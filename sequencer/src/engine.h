@@ -56,9 +56,10 @@ typedef struct {
     int swing;          /* 0..SEQ_MAX_SWING ticks */
     int scale;          /* index into the scale list (see gen.h) */
     int root;           /* 0..11, C = 0 */
-    int clock_out;      /* send MIDI clock/start/stop */
+    int clock_out;      /* send MIDI clock/start/stop; as clock master, clock also runs while stopped */
     int playing;
     uint32_t tick;      /* next tick to process */
+    uint32_t idle_tick; /* tick counter while stopped, for the free-running clock */
     uint32_t rng;
     SeqSend send;
     void *ctx;

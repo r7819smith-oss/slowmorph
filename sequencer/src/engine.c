@@ -74,6 +74,7 @@ void seq_load_demo(Seq *s) {
 void seq_start(Seq *s) {
     if (s->playing) return;
     s->tick = 0;
+    s->idle_tick = 0;
     s->playing = 1;
     if (s->clock_out) emit1(s, 0xFA);
 }
@@ -89,7 +90,12 @@ void seq_stop(Seq *s) {
 }
 
 void seq_tick(Seq *s) {
-    if (!s->playing) return;
+    if (!s->playing) {
+        /* Keep sending clock while stopped, so the FM1 locks to the tempo
+         * before Start (and shows it). Start then restarts the count. */
+        if (s->clock_out && s->idle_tick++ % (SEQ_PPQN / 24) == 0) emit1(s, 0xF8);
+        return;
+    }
     uint32_t now = s->tick;
     if (s->clock_out && now % (SEQ_PPQN / 24) == 0) emit1(s, 0xF8);
 
