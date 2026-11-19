@@ -8,3 +8,4 @@ out/
 dist/
 tests/test_input
 seq4h.log
+__pycache__/
