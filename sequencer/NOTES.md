@@ -79,6 +79,24 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   UI: GENERATE page rows (list scrolls; A does the row's action), HOLD on the
   STEP page, grid shows 16 steps at a time, MUSIC STYLE and NEW FROM STYLE in
   the M menu.
+- **Techno and Melodic sets** (2026-11-19, tuned to match the ambient set):
+  `TrackPreset` gained `shape` (a finishing pass, `style_shape()` in
+  `src/gen.c`) and per-track generator parameters (`setp`/`p`). Shapes write
+  accents, gates and chord-aware notes into every step, so a roll (which only
+  changes on/off and notes) or evolution keeps the feel, and use locks to pin
+  the core: techno's offbeat hats; melodic's bass roots on each chord change
+  and the resting halves of the call (T3) and answer (T4). Techno: 128 BPM, A
+  phrygian, kick EUCLID 4 (no evolution), hats EUCLID 4 rotate 2 plus ghosts
+  (rhythm/chance/level drift), bass FOLLOW T1 GAPS with root/octave cells and a
+  turnaround, stab TURING 16 (slow REGEN). Melodic: 100 BPM, D dorian, 32
+  steps, a progression picked from `PROGS` (from a fresh start: Dm for a bar, then C;
+  NEW FROM STYLE picks again), bass and arp are EUCLID with PITCH KEEP so rolls keep chord tones,
+  call/answer are MOTIF. Ambient is untouched (a test pins its first-run
+  pattern hash). The engine has no ratchets, so techno has none; adding them
+  would be an engine change (step field, player, save format). Tests:
+  `test_style_presets` in `tests/test_gen.c` (deterministic, in key, kick and
+  hat positions, bass avoids the kick, arp and strong call notes on chord
+  tones, answer copies the call's rhythm, all still true after 32 bars).
 - **Per-track approach and manual tracks** (Roy, 2026-11-19): each track has its
   own generator; MANUAL (`GEN_NONE`) is the blank, write-it-yourself mode.
   Decisions made without asking: a manual track's evolution stays off unless

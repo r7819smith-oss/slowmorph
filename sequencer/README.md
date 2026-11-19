@@ -156,6 +156,15 @@ you were on. Rows:
   ambient set runs at 72 BPM in D major pentatonic, with track lengths 16, 13,
   11 and 23 so the tracks drift against each other, long held notes, and
   evolution that wanders and is pulled back to each track's anchor.
+  The techno set runs at 128 BPM in A phrygian: T1 a four-on-the-floor kick,
+  T2 offbeat hats (locked) with quiet ghost 16ths that come and go, T3 a
+  rolling bass in the gaps between kicks with offbeat accents and varied
+  note lengths, T4 a short stab riff that changes a little every few bars.
+  The melodic set runs at 100 BPM in D dorian, all tracks 32 steps over a
+  short chord progression: T1 bass on the chord roots, T2 a chord-tone
+  arpeggio, T3 a phrase ("call") in steps 1-8 and 17-24 and T4 its answer in
+  9-16 and 25-32. The resting halves of T3 and T4 are locked off, so rolling
+  or evolving keeps the call and response; unlock them to fill them in.
   With BLANK, *New from style* gives four empty MANUAL tracks to build from
   scratch: 16 steps, every step off, evolution off, no chain, all unmuted.
   Tempo, swing, scale, root, MIDI channels and your stored slots stay as they

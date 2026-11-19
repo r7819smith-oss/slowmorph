@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 static int fails;
+#define AMBIENT_HASH 0xbf8089b6u   /* the first-run ambient Roy tested on 2026-11-19 */
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
 
 static int hits(const Seq *s, int t) { return gen_hits(s, t); }
@@ -613,6 +614,120 @@ static void test_hold(void) {
     CHECK(b.track[1].step[3].hold == 0);
 }
 
+/* Pitch class of a note, as a scale degree 0..6 from the root (7-note scales). */
+static int degree7(const Seq *s, int note) { return ((gen_note_degree(s, note) - gen_note_degree(s, s->root)) % 7 + 7) % 7; }
+
+/* Each style's first pattern is the same every time, in key, and has the
+ * shape the style promises. */
+static void test_style_presets(void) {
+    static const int styles[] = {STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC};
+    for (unsigned k = 0; k < sizeof styles / sizeof styles[0]; k++) {
+        Seq a, b;
+        seq_init(&a, NULL, NULL);
+        seq_init(&b, NULL, NULL);
+        style_apply(&a, styles[k], 0);
+        style_apply(&b, styles[k], 0);
+        CHECK(a.bpm == b.bpm && a.scale == b.scale && a.root == b.root && a.swing == b.swing);
+        for (int t = 0; t < SEQ_TRACKS; t++) {
+            CHECK(a.track[t].len == b.track[t].len && a.track[t].gen.type == b.track[t].gen.type);
+            CHECK(memcmp(a.track[t].gen.p, b.track[t].gen.p, 4) == 0);
+            CHECK(same_steps(a.track[t].step, b.track[t].step, SEQ_STEPS));
+            for (int i = 0; i < SEQ_STEPS; i++) CHECK(seq_in_scale(&a, a.track[t].step[i].note));
+            CHECK(a.track[t].channel == t);                       /* channels 1-4, one per track */
+        }
+    }
+
+    /* Techno: four-on-the-floor kick, locked offbeat hats, bass in the kick's gaps */
+    {
+        Seq s;
+        seq_init(&s, NULL, NULL);
+        style_apply(&s, STYLE_TECHNO, 0);
+        CHECK(s.bpm >= 124 && s.bpm <= 132);
+        CHECK(!strcmp(scale_name(s.scale), "PHRYGIAN") || !strcmp(scale_name(s.scale), "MINOR"));
+        for (int i = 0; i < 16; i++) {
+            CHECK(s.track[0].step[i].on == (i % 4 == 0));
+            if (i % 4 == 0) CHECK(s.track[0].step[i].note % 12 == s.root);
+            if (i % 4 == 2) CHECK(s.track[1].step[i].on && s.track[1].step[i].lock);
+            if (i % 4 == 0) CHECK(!s.track[2].step[i].on);
+            else CHECK(s.track[2].step[i].on);
+        }
+        CHECK(s.track[0].evo.every == 0);                         /* the kick never drifts */
+        int accents = 0, gates[101] = {0}, ng = 0;
+        for (int i = 0; i < 16; i++) {
+            const SeqStep *st = &s.track[2].step[i];
+            if (!st->on) continue;
+            accents += st->vel >= 110;
+            if (!gates[st->gate]++) ng++;
+        }
+        CHECK(accents == 4 && ng >= 2);                           /* offbeat accents, varied gates */
+        /* 32 bars on: kick and offbeat hats are untouched, bass still dodges the kick */
+        SeqStep kick[SEQ_STEPS];
+        memcpy(kick, s.track[0].step, sizeof kick);
+        seq_start(&s);
+        for (int i = 0; i < 384 * 32; i++) seq_tick(&s);
+        CHECK(same_steps(kick, s.track[0].step, SEQ_STEPS));
+        for (int i = 0; i < 16; i++) {
+            if (i % 4 == 2) CHECK(s.track[1].step[i].on);
+            if (i % 4 == 0) CHECK(!s.track[2].step[i].on);
+            CHECK(seq_in_scale(&s, s.track[2].step[i].note) && seq_in_scale(&s, s.track[3].step[i].note));
+        }
+    }
+
+    /* Melodic: bass on chord roots, chord-tone arp, call and response */
+    {
+        Seq s;
+        seq_init(&s, NULL, NULL);
+        style_apply(&s, STYLE_MELODIC, 0);
+        CHECK(s.bpm >= 90 && s.bpm <= 110);
+        CHECK(!strcmp(scale_name(s.scale), "DORIAN") || !strcmp(scale_name(s.scale), "MAJOR"));
+        const SeqTrack *bass = &s.track[0], *arp = &s.track[1], *call = &s.track[2], *ans = &s.track[3];
+        CHECK(bass->step[0].on && bass->step[0].lock && bass->step[0].note % 12 == s.root);
+        for (int t = 0; t < SEQ_TRACKS; t++) CHECK(s.track[t].len == 32);
+        int calls = 0;
+        for (int i = 0; i < 32; i++) {
+            int seg = i / 8, root = degree7(&s, bass->step[seg * 8].note);   /* chord root under this step */
+            int d = (degree7(&s, arp->step[i].note) - root + 7) % 7;
+            if (arp->step[i].on && i % 2 == 0) CHECK(d == 0 || d == 2 || d == 4 || d == 6);
+            if (seg % 2) {
+                CHECK(!call->step[i].on && call->step[i].lock);
+                CHECK(ans->step[i].on == call->step[i - 8].on);  /* the answer keeps the call's rhythm */
+                calls += call->step[i - 8].on;
+            } else {
+                CHECK(!ans->step[i].on && ans->step[i].lock);
+            }
+            if (i % 4 == 0 && call->step[i].on) {
+                int dc = (degree7(&s, call->step[i].note) - root + 7) % 7;
+                CHECK(dc == 0 || dc == 2 || dc == 4 || dc == 6);  /* strong beats land on chord tones */
+            }
+        }
+        CHECK(calls >= 4);
+        seq_start(&s);
+        for (int i = 0; i < 384 * 32; i++) seq_tick(&s);
+        for (int i = 0; i < 32; i++) {
+            if ((i / 8) % 2) CHECK(!s.track[2].step[i].on);
+            else CHECK(!s.track[3].step[i].on);
+            for (int t = 0; t < SEQ_TRACKS; t++) CHECK(seq_in_scale(&s, s.track[t].step[i].note));
+        }
+        CHECK(s.track[0].step[0].on && s.track[0].step[0].note % 12 == s.root);
+    }
+
+    /* the first-run ambient set is exactly as before the techno/melodic work */
+    {
+        Seq s;
+        seq_init(&s, NULL, NULL);
+        style_apply(&s, STYLE_AMBIENT, 0);
+        uint32_t h = 2166136261u;
+        for (int t = 0; t < SEQ_TRACKS; t++)
+            for (int i = 0; i < s.track[t].len; i++) {
+                const SeqStep *st = &s.track[t].step[i];
+                uint8_t v[5] = {st->on, st->note, st->vel, st->gate, st->prob};
+                for (int j = 0; j < 5; j++) h = (h ^ v[j]) * 16777619u;
+            }
+        printf("ambient first pattern hash %08x\n", h);
+        CHECK(h == AMBIENT_HASH);
+    }
+}
+
 static void test_styles(void) {
     CHECK(style_count() == 4 && strcmp(style_name(STYLE_AMBIENT), "AMBIENT") == 0);
     CHECK(strcmp(style_name(STYLE_BLANK), "BLANK") == 0);
@@ -835,6 +950,7 @@ int main(void) {
     test_long_patterns();
     test_slots_and_chain();
     test_styles();
+    test_style_presets();
     test_hold();
     test_blank_style();
     test_save_all_slots();
