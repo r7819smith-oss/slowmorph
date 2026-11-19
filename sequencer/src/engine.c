@@ -24,7 +24,9 @@ static void emit1(Seq *s, uint8_t a) {
 static void release(Seq *s, SeqTrack *t) {
     if (t->sounding >= 0) {
         emit3(s, 0x80 | t->channel, (uint8_t)t->sounding, 0);
+        for (int k = 0; k < t->nvoice; k++) emit3(s, 0x80 | t->channel, t->voice[k], 0);
         t->sounding = -1;
+        t->nvoice = 0;
     }
 }
 
@@ -79,6 +81,7 @@ void seq_start(Seq *s) {
     s->tick = 0;
     s->idle_tick = 0;
     s->playing = 1;
+    for (int t = 0; t < SEQ_TRACKS; t++) s->track[t].rest_left = 0;
     if (s->clock_out) emit1(s, 0xFA);
 }
 
@@ -96,8 +99,10 @@ void seq_stop(Seq *s) {
 void seq_panic(Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
-        if (tr->last_note >= 0 && tr->last_note != tr->sounding)
+        if (tr->last_note >= 0 && tr->last_note != tr->sounding) {
             emit3(s, 0x80 | tr->channel, (uint8_t)tr->last_note, 0);
+            for (int k = 0; k < tr->last_nvoice; k++) emit3(s, 0x80 | tr->channel, tr->last_voice[k], 0);
+        }
         release(s, tr);
     }
     for (int t = 0; t < SEQ_TRACKS; t++) {
@@ -132,6 +137,12 @@ void seq_tick(Seq *s) {
     if (now && now % (SEQ_PPQN * 4) == 0) {          /* a bar boundary */
         uint32_t bar = now / (SEQ_PPQN * 4);
         for (int t = 0; t < SEQ_TRACKS; t++) seq_chain_bar(s, t, bar);
+        /* Rests: after a rest ends the track plays at least one bar. */
+        for (int t = 0; t < SEQ_TRACKS; t++) {
+            SeqTrack *tr = &s->track[t];
+            if (tr->rest_left) tr->rest_left--;
+            else if (tr->rest && (int)(seq_rand(s) % 100) < tr->rest) tr->rest_left = (uint8_t)(1 + seq_rand(s) % 4);
+        }
         for (int t = 0; t < SEQ_TRACKS; t++) {
             uint8_t e = s->track[t].evo.every;
             if (e && bar % e == 0) gen_evolve_bar(s, t);
@@ -141,7 +152,7 @@ void seq_tick(Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         if (tr->sounding >= 0 && (int32_t)(now - tr->off_tick) >= 0) release(s, tr);
-        if (!seq_track_audible(s, t)) continue;
+        if (!seq_track_audible(s, t) || tr->rest_left) continue;   /* a rest lets held notes ring out */
 
         uint32_t gstep = now / SEQ_TICKS_PER_STEP;
         uint32_t idx = gstep % tr->len;
@@ -156,9 +167,22 @@ void seq_tick(Seq *s) {
         if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) continue;
 
         release(s, tr);   /* retrigger */
-        emit3(s, 0x90 | tr->channel, st->note, st->vel);
+        int vel = seq_swell_vel(s, t, now, st->vel);
+        emit3(s, 0x90 | tr->channel, st->note, (uint8_t)vel);
+        tr->nvoice = 0;
+        if (tr->chord) {
+            uint8_t cn[SEQ_CHORD_MAX];
+            int nc = gen_chord_notes(s, st->note, tr->chord, cn);
+            int cv = vel * 4 / 5 < 1 ? 1 : vel * 4 / 5;   /* chord notes sit under the step's note */
+            for (int k = 0; k < nc; k++) {
+                emit3(s, 0x90 | tr->channel, cn[k], (uint8_t)cv);
+                tr->voice[tr->nvoice++] = cn[k];
+            }
+        }
         tr->sounding = st->note;
         tr->last_note = st->note;
+        tr->last_nvoice = tr->nvoice;
+        memcpy(tr->last_voice, tr->voice, sizeof tr->voice);
         uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
         tr->off_tick = now + (gl ? gl : 1);
     }
@@ -169,6 +193,19 @@ int seq_playhead(const Seq *s, int t) {
     if (!s->playing) return -1;
     uint32_t last = s->tick ? s->tick - 1 : 0;
     return (int)((last / SEQ_TICKS_PER_STEP) % s->track[t].len);
+}
+
+int seq_swell_vel(const Seq *s, int t, uint32_t now, int vel) {
+    const SeqTrack *tr = &s->track[t];
+    if (!tr->swell || !tr->swell_depth) return vel;
+    /* A triangle from quiet (step velocity minus depth%) to full and back,
+     * offset a quarter period per track so the tracks swell in turn. */
+    uint32_t period = (uint32_t)tr->swell * SEQ_PPQN * 4, half = period / 2;
+    uint32_t ph = (now + (uint32_t)t * (period / 4)) % period;
+    uint32_t tri = (ph < half ? ph : period - ph) * 1000 / half;   /* 0..1000 */
+    int f = 1000 - (int)(tr->swell_depth * (1000 - tri) / 100);
+    int v = vel * f / 1000;
+    return v < 1 ? 1 : v > 127 ? 127 : v;
 }
 
 void seq_step_toggle(Seq *s, int t, int i) { s->track[t].step[i].on ^= 1; }
@@ -294,6 +331,7 @@ void seq_save(const Seq *s, FILE *f) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const SeqTrack *tr = &s->track[t];
         fprintf(f, "t %d %d %d %d\n", t, tr->channel, tr->len, tr->mute);
+        fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
                 tr->gen.p[3], tr->gen.base, tr->gen.span);
         fprintf(f, "e %d %d %d %d\n", t, tr->evo.every, tr->evo.amount, tr->evo.kinds);
@@ -390,9 +428,16 @@ int seq_load(Seq *s, FILE *f) {
         } else if (sscanf(line, "e %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             EvolveSettings *ev = &s->track[a].evo;
-            ev->every = (uint8_t)clampi(b, 0, 8);
+            ev->every = (uint8_t)clampi(b, 0, SEQ_MAX_EVERY);
             ev->amount = (uint8_t)clampi(c, 0, 100);
             ev->kinds = (uint8_t)(d & EVO_ALL);
+        } else if (sscanf(line, "pc %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+            if (a < 0 || a >= SEQ_TRACKS) continue;
+            SeqTrack *tr = &s->track[a];
+            tr->chord = (uint8_t)clampi(b, 0, CHORD_COUNT - 1);
+            tr->swell = (uint8_t)(c <= 0 ? 0 : c <= 2 ? 2 : c <= 4 ? 4 : c <= 8 ? 8 : c <= 16 ? 16 : 32);
+            tr->swell_depth = (uint8_t)clampi(d, 0, 100);
+            tr->rest = (uint8_t)clampi(e, 0, 100);
         } else if (sscanf(line, "t %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             s->track[a].channel = (uint8_t)clampi(b, 0, 15);

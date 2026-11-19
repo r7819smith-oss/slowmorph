@@ -17,6 +17,9 @@ typedef enum {
     GEN_ARP,        /* arpeggiates a chord built from the scale */
     GEN_TURING,     /* looping shift register; CHANGE sets how often bits flip per roll */
     GEN_MOTIF,      /* invents a short phrase and develops it (repeat, transpose, invert, reverse) */
+    GEN_DRONE,      /* one to four long held notes on a steady tone that moves rarely */
+    GEN_DRIFT,      /* a few long notes, each a small step from the last, carried on across rolls */
+    GEN_BELL,       /* sparse, soft, chance-played notes on the scale's most stable tones */
     GEN_COUNT
 } GenType;
 
@@ -92,6 +95,14 @@ const char *style_name(int style);
 int         style_apply(Seq *s, int style, int keep_manual);
 /* Short generator name for the grid ("MANUAL", "EUCLID", "CA", ...), <= 6 chars. */
 const char *gen_short_name(int type);
+
+/* Chords stacked on each note a track plays (SeqTrack.chord), so a drone
+ * track can hold a pad. 0 = single notes. */
+enum { CHORD_OFF, CHORD_FIFTH, CHORD_TRIAD, CHORD_SUS2, CHORD_SUS4, CHORD_SEVENTH, CHORD_OPEN, CHORD_COUNT };
+const char *gen_chord_name(int chord);
+/* The extra notes the chord adds above `note` (in the scale, ascending, never
+ * `note` itself, all <= 127). Returns how many (0..SEQ_CHORD_MAX). */
+int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX]);
 
 const char *gen_xform_name(int op);
 void gen_transform(Seq *s, int t, int op, int amount);

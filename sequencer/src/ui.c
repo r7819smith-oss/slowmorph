@@ -114,10 +114,12 @@ typedef struct {
 enum {
     GR_TRACK, GR_GEN, GR_P0, GR_P1, GR_P2, GR_P3, GR_BASE, GR_SPAN,
     GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 5, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
+    GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST,
     GR_XFORM, GR_XAMOUNT, GR_SLOT, GR_STORE, GR_CHAIN, GR_CHAIN_BARS, GR_MORPH,
     GR_SCALE, GR_ROOT, GR_SNAP, GEN_ROWS
 };
-static const int EVERY[5] = {0, 1, 2, 4, 8};
+static const int EVERY[8] = {0, 1, 2, 4, 8, 16, 32, 64};
+static const int SWELL_BARS[6] = {0, 2, 4, 8, 16, 32};
 static const int CHAIN_BARS[5] = {1, 2, 4, 8, 16};
 static const uint8_t EVO_BITS[6] = {EVO_PITCH, EVO_RHYTHM, EVO_VEL, EVO_ROTATE, EVO_REGEN, EVO_PROB};
 
@@ -126,7 +128,7 @@ static int wrap(int v, int n) { return (v % n + n) % n; }
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 static int gen_row_is_head(int row) {
-    return row == GR_TRACK || row == GR_GEN || row == GR_EVOLVE || row == GR_ANCHOR || row == GR_XFORM ||
+    return row == GR_TRACK || row == GR_GEN || row == GR_EVOLVE || row == GR_ANCHOR || row == GR_CHORD || row == GR_XFORM ||
            row == GR_SLOT || row == GR_SCALE;
 }
 
@@ -169,6 +171,16 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     }
     else if (row == GR_ANCHOR) { snprintf(label, 24, "ANCHOR"); snprintf(val, 24, "%s", tr->has_anchor ? "SET (A: RESET)" : "NONE (A: SET)"); }
     else if (row == GR_PULL) { snprintf(label, 24, "  PULL HOME"); snprintf(val, 24, "%d%%", tr->evo.pull); }
+    else if (row == GR_CHORD) { snprintf(label, 24, "CHORD"); snprintf(val, 24, "%s", gen_chord_name(tr->chord)); }
+    else if (row == GR_SWELL) {
+        snprintf(label, 24, "  SWELL");
+        if (tr->swell) snprintf(val, 24, "OVER %d BARS", tr->swell); else snprintf(val, 24, "OFF");
+    }
+    else if (row == GR_SWELL_DEPTH) { snprintf(label, 24, "  SWELL DEPTH"); snprintf(val, 24, "%d%%", tr->swell_depth); }
+    else if (row == GR_REST) {
+        snprintf(label, 24, "  RESTS");
+        if (tr->rest) snprintf(val, 24, "%d%% A BAR", tr->rest); else snprintf(val, 24, "OFF");
+    }
     else if (row == GR_XFORM) { snprintf(label, 24, "TRANSFORM"); snprintf(val, 24, "%s (A)", gen_xform_name(u->xf_op)); }
     else if (row == GR_XAMOUNT) {
         snprintf(label, 24, "  BY");
@@ -210,10 +222,22 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     else if (row == GR_SPAN) g->span = (uint8_t)clampi(g->span + d, 1, 4);
     else if (row == GR_EVOLVE) {
         int i = 0;
-        while (i < 4 && EVERY[i] != e->every) i++;
-        e->every = (uint8_t)EVERY[clampi(i + d, 0, 4)];
+        while (i < 7 && EVERY[i] < e->every) i++;
+        e->every = (uint8_t)EVERY[clampi(i + d, 0, 7)];
     }
-    else if (row == GR_AMOUNT) e->amount = (uint8_t)clampi(e->amount + 5 * d * (big ? 2 : 1), 0, 100);
+    else if (row == GR_AMOUNT) {   /* 1% steps below 10%, for slow drifts; 5% above */
+        int fine = !big && (e->amount < 10 || (e->amount == 10 && d < 0));
+        e->amount = (uint8_t)clampi(e->amount + d * (fine ? 1 : big ? 10 : 5), 0, 100);
+    }
+    else if (row == GR_CHORD) tr->chord = (uint8_t)wrap(tr->chord + d, CHORD_COUNT);
+    else if (row == GR_SWELL) {
+        int i = 0;
+        while (i < 5 && SWELL_BARS[i] < tr->swell) i++;
+        tr->swell = (uint8_t)SWELL_BARS[clampi(i + d, 0, 5)];
+        if (tr->swell && !tr->swell_depth) tr->swell_depth = 30;
+    }
+    else if (row == GR_SWELL_DEPTH) tr->swell_depth = (uint8_t)clampi(tr->swell_depth + 5 * d * (big ? 2 : 1), 0, 100);
+    else if (row == GR_REST) tr->rest = (uint8_t)clampi(tr->rest + 5 * d * (big ? 2 : 1), 0, 100);
     else if (row <= GR_EVO_LAST) e->kinds ^= EVO_BITS[row - GR_EVO0];
     else if (row == GR_MIN) {
         e->min_hits = (uint8_t)clampi(e->min_hits + d * (big ? 4 : 1), 0, SEQ_STEPS);

@@ -112,6 +112,10 @@ static const struct { const char *name; int n; Param p[4]; } GENS[GEN_COUNT] = {
     [GEN_ARP] = {"ARP", 4, {{"CHORD", 0, 5, 0}, {"ORDER", 0, 4, 0}, {"OCTAVES", 1, 4, 2}, {"RATE", 1, 4, 1}}},
     [GEN_TURING] = {"TURING", 4, {{"CHANGE", 0, 10, 2}, {"DENSITY", 0, 10, 6}, {"RANGE", 1, 8, 4}, {"LENGTH", 2, 32, 8}}},
     [GEN_MOTIF] = {"MOTIF", 4, {{"LENGTH", 2, 8, 4}, {"DEVELOP", 0, 10, 5}, {"DENSITY", 1, 10, 7}, {"LEAP", 1, 4, 2}}},
+    /* The ambient generators carry ambient defaults themselves, whatever the style. */
+    [GEN_DRONE] = {"DRONE", 3, {{"NOTES", 1, 4, 1}, {"MOVE", 0, 10, 3}, {"HOME", 0, 10, 5}}},
+    [GEN_DRIFT] = {"DRIFT", 3, {{"NOTES", 1, 8, 3}, {"HOLD", 0, 10, 8}, {"STEP", 1, 3, 1}}},
+    [GEN_BELL] = {"BELL", 4, {{"NOTES", 1, 8, 2}, {"CHANCE", 1, 10, 6}, {"HEIGHT", 0, 2, 1}, {"SOFTEN", 0, 10, 4}}},
 };
 static const char *FOLLOW_RHYTHM[4] = {"SAME", "GAPS", "ECHO", "HALF"};
 static const char *FOLLOW_PITCH[3] = {"ROOT", "HARMONY", "KEEP"};
@@ -171,6 +175,17 @@ void gen_param_text(int type, int k, int v, char out[16]) {
         break;
     case GEN_MOTIF:
         if (k == 1 || k == 2) { snprintf(out, 16, "%d%%", v * 10); return; }
+        break;
+    case GEN_DRONE:
+        if (k == 1 || k == 2) { snprintf(out, 16, "%d%%", v * 10); return; }
+        break;
+    case GEN_DRIFT:
+        if (k == 1) { snprintf(out, 16, "%d%%", v * 10); return; }
+        if (k == 2) { snprintf(out, 16, "%d DEG", v); return; }
+        break;
+    case GEN_BELL:
+        if (k == 1 || k == 3) { snprintf(out, 16, "%d%%", v * 10); return; }
+        if (k == 2) { snprintf(out, 16, "+%d OCT", v); return; }
         break;
     default: break;
     }
@@ -246,7 +261,7 @@ static const int8_t STYLE_DEF[STYLE_COUNT][GEN_COUNT][4] = {
 };
 
 static void style_defaults(int st, int type, uint8_t p[4]) {
-    if (st < 0 || st >= STYLE_COUNT || type < 0 || type >= GEN_COUNT) return;
+    if (st < 0 || st >= STYLE_COUNT || type < 0 || type > GEN_MOTIF) return;   /* later generators: table defaults */
     for (int k = 0; k < GENS[type].n; k++) {
         int v = STYLE_DEF[st][type][k];
         if (v >= 0) p[k] = (uint8_t)(v < GENS[type].p[k].min ? GENS[type].p[k].min : v > GENS[type].p[k].max ? GENS[type].p[k].max : v);
@@ -256,6 +271,7 @@ static void style_defaults(int st, int type, uint8_t p[4]) {
 typedef struct {
     uint8_t gen, len, base, span, gate, vel, prob, hold;   /* prob: chance each step plays; hold: tied steps */
     uint8_t every, amount, kinds, pull, min_hits, max_hits;
+    uint8_t chord, swell, swell_depth, rest;               /* playback colour; 0 (left out) = off */
 } TrackPreset;
 
 static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } STYLE_SET[STYLE_COUNT] = {
@@ -305,6 +321,11 @@ int style_apply(Seq *s, int st, int keep_manual) {
         tr->evo = (EvolveSettings){pr->every, pr->amount, pr->kinds, pr->pull, pr->min_hits, pr->max_hits};
         tr->chain_len = 0;
         tr->has_anchor = 0;
+        tr->chord = pr->chord;
+        tr->swell = pr->swell;
+        tr->swell_depth = pr->swell_depth;
+        tr->rest = pr->rest;
+        tr->rest_left = 0;
     }
     /* Generate in order, so FOLLOW (techno track 2) reads a finished track 1. */
     for (int t = 0; t < SEQ_TRACKS; t++) {
@@ -317,7 +338,7 @@ int style_apply(Seq *s, int st, int keep_manual) {
 
 const char *gen_short_name(int type) {
     static const char *N[GEN_COUNT] = {"MANUAL", "EUCLID", "WALK", "MARKOV", "CHAOS", "CA", "WEIGHT",
-                                       "FOLLOW", "ARP", "TURING", "MOTIF"};
+                                       "FOLLOW", "ARP", "TURING", "MOTIF", "DRONE", "DRIFT", "BELL"};
     return N[tidx(type)];
 }
 
@@ -342,8 +363,11 @@ void gen_apply(Seq *s, int t) {
 
     uint8_t pool[64];
     int n = gen_pool(s, t, pool), len = tr->len;
-    int on[SEQ_STEPS], idx[SEQ_STEPS], note[SEQ_STEPS], vel[SEQ_STEPS];
-    for (int i = 0; i < SEQ_STEPS; i++) { on[i] = tr->step[i].on; idx[i] = note[i] = vel[i] = -1; }
+    int on[SEQ_STEPS], idx[SEQ_STEPS], note[SEQ_STEPS], vel[SEQ_STEPS], hold[SEQ_STEPS], gate[SEQ_STEPS], prob[SEQ_STEPS];
+    for (int i = 0; i < SEQ_STEPS; i++) {
+        on[i] = tr->step[i].on;
+        idx[i] = note[i] = vel[i] = hold[i] = gate[i] = prob[i] = -1;
+    }
     const uint8_t *p = g->p;
 
     switch (g->type) {
@@ -551,6 +575,101 @@ void gen_apply(Seq *s, int t) {
         }
         break;
     }
+    case GEN_DRONE: {
+        /* The drone tone is the track's current first note, so it stays put
+         * between rolls; each roll it may move (MOVE) to another stable tone,
+         * or go home to the root (HOME). A fresh, empty track starts on the root. */
+        int cand[64], nc = 0, home = -1;
+        for (int k = 0; k < n; k++) {
+            int pc = ((pool[k] - s->root) % 12 + 12) % 12;
+            if (pc == 0 || pc == 7 || pc == 5 || pc == 9 || pc == 3 || pc == 8) cand[nc++] = k;
+            if (pc == 0 && home < 0) home = k;
+        }
+        if (nc == 0) cand[nc++] = 0;
+        if (home < 0) home = cand[0];
+        int first = -1;
+        for (int i = 0; i < len && first < 0; i++) if (tr->step[i].on) first = i;
+        int cur = first < 0 ? home : nearest(pool, n, tr->step[first].note);
+        if (first >= 0 && chance(s, p[1] * 10)) {
+            if (cur != home && chance(s, p[2] * 10)) cur = home;
+            else {
+                int near[64], nn = 0;   /* stable tones within a fifth of the current one */
+                for (int c = 0; c < nc; c++) {
+                    int d = pool[cand[c]] - pool[cur];
+                    if (cand[c] != cur && d >= -7 && d <= 7) near[nn++] = cand[c];
+                }
+                if (nn) cur = near[pick(s, nn)];
+            }
+        }
+        int notes = p[0] < 1 ? 1 : p[0] > len ? len : p[0];
+        int fifth = nearest(pool, n, pool[cur] + 7);
+        if (pool[fifth] <= pool[cur]) fifth = cur;
+        for (int i = 0; i < len; i++) on[i] = 0;
+        for (int j = 0; j < notes; j++) {
+            int a = j * len / notes, b = (j + 1) * len / notes;
+            on[a] = 1;
+            idx[a] = (j & 1) ? fifth : cur;   /* more than one note: alternate with the fifth above */
+            hold[a] = b - a - 1;
+            gate[a] = 100;
+        }
+        break;
+    }
+    case GEN_DRIFT: {
+        /* A few long notes, evenly spread with a little jitter; each moves at
+         * most STEP scale degrees from the one before, starting from the
+         * track's current first note, so the line carries on across rolls. */
+        int notes = p[0] < 1 ? 1 : p[0] > len ? len : p[0], pos[SEQ_STEPS];
+        for (int j = 0; j < notes; j++) {
+            int a = j * len / notes, gap = (j + 1) * len / notes - a;
+            pos[j] = a + (gap > 2 && chance(s, 50) ? pick(s, gap / 2) : 0);
+        }
+        int first = -1;
+        for (int i = 0; i < len && first < 0; i++) if (tr->step[i].on) first = i;
+        int cur = first < 0 ? n / 3 : nearest(pool, n, tr->step[first].note);
+        for (int i = 0; i < len; i++) on[i] = 0;
+        for (int j = 0; j < notes; j++) {
+            int st = p[2] < 1 ? 1 : p[2];
+            cur += pick(s, 2 * st + 1) - st;
+            while (cur < 0 || cur >= n) cur = cur < 0 ? -cur : 2 * (n - 1) - cur;
+            if (n == 1) cur = 0;
+            int a = pos[j], b = j + 1 < notes ? pos[j + 1] : len + pos[0];   /* the last note can ring into the loop */
+            int h = (b - a) * p[1] / 10;
+            on[a] = 1;
+            idx[a] = cur;
+            hold[a] = h < 1 ? 0 : h - 1 > SEQ_MAX_HOLD ? SEQ_MAX_HOLD : h - 1;
+            if (h >= 1) gate[a] = 100;
+        }
+        break;
+    }
+    case GEN_BELL: {
+        /* Sparse notes, never next to each other, on weighted stable tones
+         * (root, fifth, third...) HEIGHT octaves above the lowest note, each
+         * played only CHANCE of the time and a little softer at random. */
+        int lo = 0;
+        while (lo < n - 1 && pool[lo] < g->base + 12 * p[2]) lo++;
+        int w[64], total = 0;
+        for (int k = lo; k < n; k++) {
+            int pc = ((pool[k] - s->root) % 12 + 12) % 12;
+            w[k] = pc == 0 ? 5 : pc == 7 ? 4 : (pc == 3 || pc == 4) ? 3 : (pc == 2 || pc == 9) ? 2 : 1;
+            total += w[k];
+        }
+        int notes = p[0] > (len + 1) / 2 ? (len + 1) / 2 : p[0];
+        for (int i = 0; i < len; i++) on[i] = 0;
+        for (int j = 0, tries = 0; j < notes && tries < 200; tries++) {
+            int i = pick(s, len);
+            if (on[i] || (len > 2 && (on[(i + 1) % len] || on[(i + len - 1) % len]))) continue;
+            int r = pick(s, total), k = lo;
+            while (r >= w[k]) { r -= w[k]; k++; }
+            on[i] = 1;
+            idx[i] = k;
+            prob[i] = p[1] * 10;
+            int base_vel = tr->step[i].vel;
+            vel[i] = base_vel - pick(s, p[3] * 4 + 1);
+            if (vel[i] < 1) vel[i] = 1;
+            j++;
+        }
+        break;
+    }
     default: return;
     }
 
@@ -561,6 +680,9 @@ void gen_apply(Seq *s, int t) {
         if (idx[i] >= 0) st->note = pool[idx[i]];
         if (note[i] >= 0) st->note = (uint8_t)(note[i] > 127 ? 127 : note[i]);
         if (vel[i] > 0) st->vel = (uint8_t)vel[i];
+        if (hold[i] >= 0) st->hold = (uint8_t)(hold[i] > SEQ_MAX_HOLD ? SEQ_MAX_HOLD : hold[i]);
+        if (gate[i] >= 0) st->gate = (uint8_t)(gate[i] < 5 ? 5 : gate[i] > 100 ? 100 : gate[i]);
+        if (prob[i] >= 0) st->prob = (uint8_t)(prob[i] > 100 ? 100 : prob[i]);
     }
 }
 
@@ -699,6 +821,37 @@ void gen_set_anchor(Seq *s, int t) {
 void gen_clear_anchor(Seq *s, int t) { s->track[t].has_anchor = 0; }
 
 /* ---- transforms ---- */
+
+/* ---- chords ---- */
+
+const char *gen_chord_name(int chord) {
+    static const char *N[CHORD_COUNT] = {"OFF", "FIFTH", "TRIAD", "SUS2", "SUS4", "SEVENTH", "OPEN"};
+    return N[chord < 0 || chord >= CHORD_COUNT ? 0 : chord];
+}
+
+int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX]) {
+    /* Intervals in semitones above the note; the second choice is used when
+     * the first is not in the scale (minor third for major third, and so on),
+     * and failing both the nearest scale note is taken. */
+    static const int8_t IV[CHORD_COUNT][SEQ_CHORD_MAX][2] = {
+        [CHORD_FIFTH] = {{7, 0}},
+        [CHORD_TRIAD] = {{4, 3}, {7, 0}},
+        [CHORD_SUS2] = {{2, 0}, {7, 0}},
+        [CHORD_SUS4] = {{5, 0}, {7, 0}},
+        [CHORD_SEVENTH] = {{4, 3}, {7, 0}, {11, 10}},
+        [CHORD_OPEN] = {{7, 0}, {16, 15}},   /* fifth and the third an octave up */
+    };
+    int n = 0, last = note;
+    if (chord <= CHORD_OFF || chord >= CHORD_COUNT) return 0;
+    for (int k = 0; k < SEQ_CHORD_MAX && IV[chord][k][0]; k++) {
+        int a = note + IV[chord][k][0], b = IV[chord][k][1] ? note + IV[chord][k][1] : -1;
+        int c = a <= 127 && seq_in_scale(s, a) ? a : b >= 0 && b <= 127 && seq_in_scale(s, b) ? b : gen_snap_note(s, a);
+        if (c > 127 || c <= last) continue;   /* keep the chord ascending, no doubled notes */
+        out[n++] = (uint8_t)c;
+        last = c;
+    }
+    return n;
+}
 
 const char *gen_xform_name(int op) {
     static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR"};
