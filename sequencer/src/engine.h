@@ -58,6 +58,7 @@ typedef struct {
     uint8_t len;        /* 1..SEQ_STEPS */
     uint8_t channel;    /* 0..15 (shown as 1..16) */
     uint8_t mute;
+    uint8_t solo;       /* while any track is soloed, only soloed tracks play (not saved) */
     GenSettings gen;
     EvolveSettings evo;
     SeqStep anchor[SEQ_STEPS];  /* pattern evolution is pulled back towards */
@@ -114,6 +115,12 @@ void seq_step_toggle(Seq *s, int t, int i);
 void seq_step_adjust(Seq *s, int t, int i, int dnote, int dvel, int dgate, int dprob);
 void seq_step_hold(Seq *s, int t, int i, int delta);   /* change a step's hold, 0..SEQ_MAX_HOLD */
 void seq_track_mute_toggle(Seq *s, int t);
+/* Solo: while any track is soloed, only soloed, unmuted tracks play. Several
+ * tracks can be soloed at once. Notes held by tracks that go silent are
+ * released straight away. */
+void seq_track_solo_toggle(Seq *s, int t);
+int  seq_any_solo(const Seq *s);
+int  seq_track_audible(const Seq *s, int t);   /* not muted, and soloed if any track is */
 void seq_track_len(Seq *s, int t, int delta);
 void seq_track_channel(Seq *s, int t, int delta);
 void seq_adjust_bpm(Seq *s, int delta);

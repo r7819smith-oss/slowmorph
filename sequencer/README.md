@@ -14,7 +14,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - Per step: on/off, note, velocity, gate length, probability, and a **lock**
 - A global **scale and root** (12 scales). Editing a note steps by scale degree.
 - **Pattern generators** and **evolution** (below)
-- Swing, mute per track, BPM 30-300
+- Swing, mute and solo per track (from the grid), BPM 30-300
 - Clock master: MIDI clock (also while stopped), start and stop output (turn off with `--no-clock`)
 - Pattern, generator and scale settings autosave on quit to `seq4h.pat` (plain text)
 - 96 ticks per quarter note from a dedicated timing thread; measured 0.1 ms
@@ -98,7 +98,7 @@ which track you are on. Keyboard keys are in brackets.
 |---|---|
 | L1 / R1 [Q / W] | previous / next page |
 | L2 / R2 [1 / 2] | previous / next track |
-| B [X] | back to the grid |
+| B [X] | back to the grid (on a grid track label: solo) |
 | M [M] | open / close the main menu |
 | Start [Space] | play / stop |
 | Select + Start [Tab + Space, or Esc] | quit (the pattern is saved) |
@@ -111,6 +111,22 @@ which track you are on. Keyboard keys are in brackets.
 | A [Z] | step on / off |
 | X [C] | edit this step (opens the STEP page) |
 | Y [V] | lock / unlock this step |
+| Left from step 1 | move the cursor onto the track label (T1-T4) |
+
+With the cursor on a **track label**:
+
+| Input | Action |
+|---|---|
+| A [Z] | mute / unmute the track |
+| B [X] | solo / unsolo the track (several tracks can be soloed) |
+| Up / down | next / previous track |
+| Right | back to step 1 |
+
+Muted tracks turn grey and show an **M** badge; soloed tracks show a yellow
+**S** badge, and while anything is soloed the other tracks are dimmed and
+silent. Mute is saved with the pattern; solo is not, so seq4h always starts
+with every unmuted track playing. The TRACK page's MUTE row is the same
+setting.
 
 **STEP, TRACK and GENERATE pages**: a list of values for the current track.
 Up/down picks a row, left/right changes it, and holding **Y** makes the
