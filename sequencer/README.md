@@ -51,7 +51,7 @@ one step), and regen (re-run the generator, so CELLULAR advances a generation
 each time). Together with per-step probability, this gives patterns that keep
 their character but never settle.
 
-The engine also supports (not yet on the generate page):
+More on the GENERATE page (press **A** on a row to do its action):
 
 - **Anchor and pull:** save a track's pattern as its anchor; each bar, every
   step that has drifted returns to the anchor with chance `PULL`, so evolution
@@ -64,7 +64,16 @@ The engine also supports (not yet on the generate page):
   transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
   fill (new notes borrowed from neighbours) and humanize velocity. All of them
   leave locked steps in place; rotate also now works around locked steps.
-- **Scale snap:** changing scale can move every note into the new scale.
+- **Scale snap:** with `SNAP NOTES` on, changing scale or root moves every
+  note into the new scale. A on that row snaps the notes now.
+- **Slots and chains:** each track has 8 pattern slots. `SAVE TO SLOT` stores
+  the live pattern; A on `SLOT` loads it back. `CHAIN` plays slots 1 to N in
+  turn, `BARS PER SLOT` each, and `CHANGE BY` either jumps to the next slot or
+  morphs into it a few steps per bar.
+- **Held notes:** `HOLD` on the STEP page ties a note over up to 31 more steps
+  (until the track's next note), for drones and pads.
+- **Patterns up to 32 steps:** set `LENGTH` on the TRACK page. The grid shows
+  16 steps at a time; move the cursor past step 16 to see steps 17-32.
 
 The generated notes come from the track's `LOWEST NOTE` and `RANGE` (octaves)
 in the chosen scale.
@@ -101,9 +110,9 @@ change bigger.
 
 | Page | Rows | Also |
 |---|---|---|
-| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, probability, lock | A = step on/off |
+| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, probability, lock | A = step on/off |
 | TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
-| GENERATE | track, generator and its parameters, lowest note, range, evolve settings, scale, root | A = roll a new pattern, X = undo the roll |
+| GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 
 The STEP page edits the step under the grid cursor, and its STEP row moves
 that cursor, so you can walk through a pattern without going back to the
