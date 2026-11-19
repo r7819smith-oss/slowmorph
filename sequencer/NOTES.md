@@ -165,7 +165,9 @@ Works and tested on desktop Linux:
 
 ## Next steps (suggested order)
 
-1. Run the checklist below on the RG40XX-V and fill in the results table.
+1. Run the plain (no SSH) test checklist below on the RG40XX-V and add to
+   the results table. Still open: the 30-minute run, a hub, slots after
+   autosave (PR 14), and the FM1 audio fluttering.
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
    fullscreen on the device; adjust `seq4h.input`.
@@ -316,143 +318,156 @@ port). Findings:
 
 ### Test checklist
 
-Fill in the results table as you go. Tick each box or note what happened.
+Plain steps, no SSH needed. Everything is done on the handheld, the FM1 and
+a Mac. Tick each box or write what happened. Steps that need SSH are in
+*Appendix: advanced checks (SSH)* at the end, and are optional.
 
-**A. Install**
+**How to install a new build**
 
-- [ ] Download the `seq4h-knulli-aarch64` artifact from the latest
-      *seq4h aarch64 build* run on GitHub Actions (or run
-      `knulli/build.sh`). Inside is `seq4h-knulli-aarch64.zip`.
-- [ ] Unzip `seq4h-knulli-aarch64.zip` into `/userdata/roms/ports/` (SHARE
-      partition `roms/ports`, or over SSH/SMB). You get `SEQ4H.sh`,
-      `USB-MIDI-CHECK.sh` and `seq4h/`. The zip keeps the execute bits; if
-      you copied the files some other way, run `chmod +x` on both scripts and
-      `seq4h/seq4h`.
-- [ ] Update the game list; both entries appear under Ports.
+1. On the Mac, open the repo on GitHub and click **Actions**.
+2. On the left, click **seq4h aarch64 build**. Click the newest run with a
+   green tick whose branch is **main**.
+3. Scroll to **Artifacts** at the bottom and click
+   **seq4h-knulli-aarch64** to download it.
+4. Unzip it. Inside is another zip, `seq4h-knulli-aarch64.zip`. Unzip that
+   one too. (Safari may already have done the first unzip for you.) You now
+   have `SEQ4H.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and a `seq4h`
+   folder.
+5. Switch the handheld off and put its SD card in the Mac, or open the
+   handheld's **SHARE** over the network.
+6. Copy all of those into `roms/ports/`. When the Mac asks, choose
+   **Replace** for every file. Replacing the `seq4h` folder's files is fine:
+   your saved patterns (`seq4h.pat`) are not in the zip, so they stay.
+   If you once edited `seq4h/seq4h.input` yourself, replace it anyway: an
+   old one overrides the new button codes.
+7. Eject the card, put it back and switch the handheld on.
+8. On the handheld, press Start for the main menu, then **Game settings >
+   Update game lists**. **SEQ4H**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**
+   appear under **Ports**.
 
-**B. Driver check (no FM1)**
+**How to read the logs on the Mac**
 
-- [ ] With the FM1 unplugged, run *USB-MIDI-CHECK* from Ports.
-- [ ] Read `seq4h/usb-midi-check.log`. Note the kernel version, and whether
-      `CONFIG_SND_USB_AUDIO` is `y`, `m` or missing, and the same for
-      `CONFIG_SND_SEQUENCER`.
-- [ ] Note any `/sys/class/usb_role/*/role` or `musb` mode lines (tells us
-      whether the port is OTG and how its role is switched).
+seq4h writes `roms/ports/seq4h/seq4h.log`, and USB-MIDI-CHECK writes
+`roms/ports/seq4h/usb-midi-check.log`. Quit seq4h first (Select + Start),
+then open the SD card or SHARE on the Mac and open the file in TextEdit.
+The newest run is at the bottom; each seq4h run starts with a
+`=== ... seq4h start` line.
 
-**C. USB host and power**
+**Before you start**
 
-- [ ] Charge both devices fully. Switch the FM1 on.
-- [ ] Connect FM1 USB-C to RG40XX-V USB-C with a USB-C to USB-C **data**
-      cable. If nothing happens, try a USB-C OTG adapter (USB-C male to USB-A
-      female) plus an A-to-C cable.
-- [ ] Run *USB-MIDI-CHECK* again. Under *USB devices* the FM1 should appear
-      (vendor:product, name). Record both.
-- [ ] If the FM1 is listed but `/proc/asound/cards` has no new card, the
-      kernel lacks `snd-usb-audio`: stop here and go to *If the driver is
-      missing*.
-- [ ] Power: does the FM1 show it is charging or powered from USB? Does the
-      handheld's battery drain noticeably faster? (Check after 30 minutes.)
-- [ ] Optional (Roy prefers direct USB; a hub is the fallback): a hub with
-      power pass-through. Does the handheld charge and still see the FM1?
+1. Charge the FM1 fully first. The handheld powers the FM1 over USB and
+   will otherwise spend its own battery charging it (see *Stopping the
+   handheld charging the FM1*).
+2. On the FM1, clear its own pattern: **REC > CLEAR**. Otherwise the FM1's
+   built-in sequencer plays along with seq4h when Start is sent.
+3. On the FM1, set **MENU > MIDI > MIDI IN** to **CH1-4**.
+4. On the FM1, tap **HOME** until the **CLOCK** page shows, and set the
+   clock source to **USB**. From then on the FM1's BPM follows seq4h.
+5. Connect the FM1 to the handheld with a USB-C to USB-C data cable.
 
-**D. Ports and notes (SSH)**
+**A. Connection**
 
-- [ ] `cd /userdata/roms/ports/seq4h && ./seq4h --midi list`. Record the
-      `seq` and/or `raw` lines for the FM1.
-- [ ] On the FM1, `MENU > MIDI > MIDI IN` = **CH1-4**. Give the four tracks
-      clearly different sounds.
-- [ ] `./seq4h --midi FM --midi-test` (use part of the name from the list if
-      it is not "FM"). Expect track 1 C4, track 2 E4, track 3 G4, track 4 C5,
-      then all four. Record which track plays each note.
-- [ ] Repeat with the sequencer missing if the log showed it is built as a
-      module: `rmmod snd-seq-midi` then `--midi-test` again (checks the raw
-      MIDI fallback). Skip if not possible.
+1. [ ] Start **SEQ4H** from Ports. Top right shows **MIDI: OK** in green
+   with the FM1's name.
+2. [ ] The FM1's BPM shows seq4h's tempo before you press Start.
+3. [ ] Unplug the FM1: the header shows **MIDI: WAITING** in yellow. Plug it
+   back in: **MIDI: OK** again within about 2 seconds.
 
-**E. Handheld as clock master**
+**B. Playing**
 
-seq4h is the clock master: it sends MIDI clock (24 per quarter note)
-continuously, even while stopped, plus Start (from step 1) and Stop. The FM1
-follows it. `--no-clock` turns all of this off.
+1. [ ] Press **Start**: the four tracks play on FM1 tracks 1-4.
+2. [ ] Press **Start** again: everything stops, no note hangs.
+3. [ ] On the **TRACK** page change BPM (hold Y for steps of 10): the FM1's
+   BPM follows within a second.
+4. [ ] Try 200 BPM or more with busy tracks: steps sound even.
+5. [ ] On the grid, press left from step 1 to reach the track label. **A**
+   mutes the track, **B** solos it. The FM1 track goes silent or alone.
+6. [ ] Unplug the FM1 while playing, then plug it back in. A note may hang
+   while it is unplugged; it stops when you plug back in, and playing
+   carries on in time.
 
-Set Felucca to follow external clock over USB:
+**C. Buttons and screen**
 
-1. On the FM1, tap **HOME** until the **CLOCK** page shows (HOME, MIXER,
-   CLOCK). It holds BPM, swing and the clock source.
-2. Set the **clock source** to **USB** (the wiki lists internal, USB or TRS;
-   the exact label on screen is unconfirmed, so record it below). Not TRS:
-   that is the 3.5 mm jack.
-3. If the BPM field is greyed out or follows incoming clock, that confirms it.
+1. [ ] Press **M**, choose **BUTTON CODES**, press **A**. Press every
+   button: the top right shows the code and what it does, e.g.
+   `JOY 10 = START`. Compare with the table in README *Button mapping*.
+   (If M itself does nothing, start **SHOW-BUTTONS** from Ports instead.)
+2. [ ] Fullscreen fills the screen and text is readable.
+3. [ ] L1/R1 change page, L2/R2 change track, B goes back to the grid.
+4. [ ] A short press of M opens the main menu without a Knulli hotkey
+   firing; M or B closes it.
 
-Checks:
+**D. Patterns**
 
-- [ ] Start *SEQ4H* from Ports, with seq4h **stopped**. The FM1's BPM already
-      shows seq4h's tempo (120 for the demo), because clock runs while stopped.
-- [ ] Change BPM on the TRACK page (hold Y for steps of 10). The FM1's BPM follows
-      within a second or so.
-- [ ] Press Start: all four tracks play on the matching Felucca tracks.
-      Anything tempo-synced on the FM1 (arpeggiator, LFO SYNC, delay) locks
-      to seq4h.
-- [ ] Press Start again (stop): notes stop, nothing hangs. Does the FM1's own
-      sequencer start and stop with seq4h? (Felucca's Start/Stop handling is
-      not documented, so record what happens.)
-- [ ] Swing: seq4h's swing applies to its own notes only. Note whether
-      Felucca's CLOCK-page swing also affects them.
-- [ ] Mute a track (X): the matching FM1 track goes silent.
-- [ ] Run `--channel 1` with `MIDI IN` = SEL: everything plays on the FM1's
-      selected track.
+1. [ ] M > **MUSIC STYLE** and **NEW FROM STYLE** give a new set for that
+   style. Try AMBIENT, TECHNO, MELODIC and BLANK.
+2. [ ] On the **GENERATE** page each track can have its own generator,
+   including **MANUAL**.
+3. [ ] Steps 17-32 are reachable on the grid (it shows 16 at a time).
+4. [ ] Save a pattern to a slot, load it again, and set a chain.
+5. [ ] Quit with **Select + Start**, start SEQ4H again: the pattern and
+   slots are still there. Also make an edit, wait 5 seconds and switch the
+   handheld off without quitting: after restart the edit is still there
+   (autosave).
 
-**F. Hot-plug**
+**E. Long run and power**
 
-- [ ] Start *SEQ4H* with the FM1 unplugged: header shows
-      `MIDI: WAITING FOR ...`.
-- [ ] Plug the FM1 in: within about 2 seconds the header shows its name, and
-      the FM1 picks up the tempo. Start plays it.
-- [ ] Unplug while playing, plug back in: seq4h restarts the pattern from
-      step 1 with a fresh Start, so the FM1 is back in phase. Nothing crashes;
-      note any hung notes.
+1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
+   evolution on. No drift, no stuck notes, no crash.
+2. [ ] Quit, then on the Mac open `seq4h.log`. The `battery ...` lines at
+   start and quit give the handheld's drain. Look for any `raw MIDI
+   messages dropped` line.
+3. [ ] Header `BAT nn%` matches Knulli's own battery reading.
+4. [ ] Optional: a hub with power. Does the handheld charge and still see
+   the FM1?
 
-**G. Timing and endurance**
+**F. Problem reports**
 
-- [ ] Play 30 minutes at 120 BPM with evolution on. No drift between the FM1's
-      clock-synced parts and seq4h, no stuck notes, no crash.
-- [ ] Listen at 200+ BPM with all four tracks busy: are steps even?
-- [ ] Check `seq4h/seq4h.log` for `raw MIDI messages dropped`.
-- [ ] Battery: header shows `BAT nn%` matching Knulli's own battery reading,
-      `+` appears within 10 s of plugging in a charger. After the 30-minute
-      run, the `battery ... start` and `battery ... quit` lines in
-      `seq4h.log` give the drain.
+If something goes wrong, note what you pressed and what happened, then quit
+and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
+**USB-MIDI-CHECK** from Ports first).
 
-**H. Handheld UI**
-
-- [ ] Fullscreen fills the screen; text is readable.
-- [ ] Turn on M > BUTTON CODES (or start SHOW-BUTTONS from Ports) and press
-      every button. The top right shows the code and its action
-      (`JOY 10 = START`); `seq4h.log` lists them and the pad's name and
-      GUID. Note any code that differs from the table in README "Button
-      mapping" and fix it in `seq4h.input`.
-- [ ] Face buttons: on the grid A toggles a step, X opens the STEP page,
-      Y locks, B returns to the grid.
-- [ ] L1/R1 change page, L2/R2 change track.
-- [ ] A short press of M opens the main menu and doesn't trigger a Knulli
-      hotkey; M or B closes it. M should show as joy 11.
-- [ ] Select+Start quits and the pattern is saved (`seq4h.pat` updated).
-
-**Results**
+**Results so far (Roy's RG40XX-V and FM1, 2026-11-19)**
 
 | Item | Result |
 |---|---|
-| Knulli version / kernel | Batocera 42 base, kernel 4.9.170 (2026-11-19) |
-| `CONFIG_SND_USB_AUDIO` / `CONFIG_SND_SEQUENCER` | |
-| FM1 seen as USB device (vid:pid, name) | |
-| Cable or adapter that worked | |
-| FM1 powered by handheld? | |
-| MIDI port name(s) in `--midi list` | |
-| Channels 1-4 -> tracks 1-4 | |
-| Felucca CLOCK page: source label for USB | |
-| FM1 follows tempo while stopped / on Start / Stop | |
-| Hot-plug | |
-| 30 min run | |
-| Button mapping, L2/R2 | stock table wrong; old-build report fits the Knulli table for every button; recheck on new build |
+| System | Knulli on Batocera 42, kernel 4.9.170 |
+| USB-C role | `otg_role` = `usb_host` with nothing plugged in |
+| Connection | direct USB-C to USB-C cable to the FM1 works; no hub needed |
+| MIDI status | header shows MIDI: OK |
+| Clock | works once the FM1's CLOCK page source is set to USB; then the FM1's BPM follows seq4h |
+| Start / stop | works |
+| Tempo changes | FM1 follows |
+| 200+ BPM | steps even |
+| Mute | works |
+| Buttons | Knulli codes are 3 higher than stock; fixed (PR 8) and checked against the help on build #68 |
+| FM1's own sequencer | also plays along on Start; clear it with REC > CLEAR |
+| Unplug while playing | a note hangs until you plug back in, then it clears (expected) |
+| Power | the handheld charges the FM1 over USB and drains its own battery; charge the FM1 first or use a powered hub |
+| Audio | quiet fluttering noise on the FM1 output with sparse tracks; probably USB power or ground noise, not investigated yet |
+| Styles, per-track generators, MANUAL, 32 steps, slots, chaining | work |
+| Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14), to retest |
+| 30-minute run | not tested yet |
+| Hub | not tested yet |
+
+### Appendix: advanced checks (SSH)
+
+Optional. These need SSH into the handheld (`ssh root@<handheld-ip>`,
+Knulli's default password is `linux`). The plain checklist above covers
+everything else.
+
+- **Port list:** `cd /userdata/roms/ports/seq4h && ./seq4h --midi list`
+  shows the `seq` and/or `raw` lines for the FM1.
+- **One note per channel:** `./seq4h --midi FM --midi-test` plays track 1
+  C4, track 2 E4, track 3 G4, track 4 C5, then all four, and exits.
+- **Raw MIDI fallback:** if the sequencer is a module, `rmmod snd-seq-midi`
+  and run `--midi-test` again.
+- **SEL mode:** `./seq4h --channel 1` with the FM1's MIDI IN set to SEL
+  plays everything on the FM1's selected track.
+- **Execute bits:** if files were copied without the zip, `chmod +x` both
+  scripts and `seq4h/seq4h`.
+- **Timing captures:** see *Harness add-ons for the hardware checklist*
+  below (`--capture` files checked with `tools/midicheck.py`).
 
 ### If the driver is missing
 
@@ -553,21 +568,21 @@ Findings from the harness so far:
 
 ### Harness add-ons for the hardware checklist
 
-These slot into the test checklist above and turn "it sounded fine" into
+These need SSH (see the appendix above). They turn "it sounded fine" into
 numbers. `tools/midicheck.py` runs on any PC with Python 3; copy capture files
 off the handheld with `scp root@<handheld-ip>:/tmp/h.cap .`.
 
-- **After B (no FM1): does the H700 keep time?**
+- **Without the FM1: does the H700 keep time?**
   `./seq4h --midi capture:/tmp/h.cap --demo --headless 20`, then on a PC
   `tools/midicheck.py h.cap --demo --duration 20 --tolerance-ms 2 --max-ms 8`.
   All PASS means the timing thread holds up on the handheld. Record the
   "note timing error" and "clock error" lines.
-- **During E: record what reached the FM1.** Add `--capture /tmp/fm1.cap` to
+- **While playing (checklist B): record what reached the FM1.** Add `--capture /tmp/fm1.cap` to
   the seq4h command (it tees, so the FM1 still gets everything), then run
   `tools/midicheck.py fm1.cap --bpm N` (N = the tempo you played at; add
   `--demo` if you didn't edit the pattern). This separates "seq4h sent the
   wrong thing" from "the FM1 did something unexpected with it".
-- **During G:** the same with `--capture` on the 30-minute run (a few MB).
+- **During the long run (checklist E):** the same with `--capture` on the 30-minute run (a few MB).
 
 
 ## aarch64 build
