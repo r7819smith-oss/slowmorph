@@ -121,7 +121,7 @@ Works and tested on desktop Linux:
 - `knulli/SEQ4H.sh` logs to `seq4h/seq4h.log`, runs `modprobe` for the USB
   MIDI modules, and loads `.ko` files from `seq4h/modules/` if you add them.
 - CI (`.github/workflows/seq4h.yml`) builds an aarch64 binary on Debian
-  bullseye (glibc 2.31, dynamic SDL2 and ALSA) and uploads
+  bookworm (glibc 2.36, dynamic SDL2 and ALSA) and uploads
   `seq4h-knulli-aarch64` with both scripts.
 
 ### Test checklist

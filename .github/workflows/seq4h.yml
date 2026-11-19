@@ -1,7 +1,7 @@
 name: seq4h aarch64 build
 
 # Builds seq4h for Knulli on the RG40XX-V (64-bit ARM) and uploads it with the
-# launcher scripts. Debian bullseye is used for its old glibc (2.31), so the
+# launcher scripts. Debian bookworm (glibc 2.36) is used; Knulli 2024+ is built with a newer glibc, so the
 # binary also runs on newer glibc. It links SDL2 and ALSA dynamically and uses
 # the copies Knulli already ships.
 
@@ -23,9 +23,9 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      - name: Build and test in an arm64 Debian container
+      - name: Build and test in an arm64 Debian bookworm container
         run: |
-          docker run --rm --platform linux/arm64 -v "$PWD/sequencer:/src" -w /src debian:bullseye sh -ec '
+          docker run --rm --platform linux/arm64 -v "$PWD/sequencer:/src" -w /src debian:bookworm sh -ec '
             apt-get update -q
             apt-get install -y -q --no-install-recommends build-essential pkg-config libsdl2-dev libasound2-dev file
             make clean
