@@ -1,7 +1,7 @@
 # seq4h
 
 A four-track step sequencer for the Anbernic RG40XX-V running Knulli. It sends
-MIDI to an M-VAVE FM1 running Shrub (or any other MIDI device). It is inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares
+MIDI to an M-VAVE FM1 running Felucca firmware (or any other MIDI device). It is inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares
 no code with it.
 
 **State:** the engine, UI and timing run and are tested on a desktop Linux
@@ -54,38 +54,49 @@ make
 Without hardware: `./seq4h --midi none --verbose --autoplay` prints the MIDI
 it would send.
 
-## Connecting to the FM1 running Shrub
+## Connecting to the FM1 running Felucca
 
-From the [Shrub user guide](https://shrub.audio/guide/) (MIDI and USB section):
+From the [Felucca wiki](https://github.com/hugelton/Felucca/wiki) (MIDI section,
+as quoted to me; I could not open the wiki myself):
 
-- Shrub listens on **USB MIDI** and the **TRS MIDI IN** jack, on the single
-  channel set by its **MIDI CH** setting (OMNI, 1-16 or MPE). It is not
-  multitimbral, so all four seq4h tracks play the same sound.
-- It responds to notes with velocity, program change, MIDI clock with
-  start/stop, and CC 120/123 (panic). seq4h sends exactly these.
-- The guide lists no Bluetooth MIDI input, so **Bluetooth is not an option
-  with Shrub**. Use USB.
-- Shrub follows incoming MIDI clock, including tempo. While seq4h is playing
-  it sets Shrub's tempo; press PLAY on the FM1 to take the lead back.
+- Felucca takes MIDI on **USB** and the **TRS MIDI IN** jack. With
+  `MENU > MIDI > MIDI IN` set to **CH1-4**, MIDI channels 1-4 play tracks 1-4.
+  That is `seq4h`'s default (track 1 on channel 1 ... track 4 on channel 4), so
+  the four sequencer tracks drive the four Felucca tracks with no setup.
+- Other `MIDI IN` modes: **CH5-8**, **CH9-12**, **CH13-16** (another block of
+  four, for example for two FM-1s on one cable), **SEL** (every channel plays
+  the *selected* track) and **TRACK** (each track on its own channel, 1-16, OMNI
+  or OFF, set in `MENU > MIDI > T1-T4 CHANNEL`).
+- Felucca responds to notes, pitch bend, sustain and panic, and to MIDI clock
+  from internal, USB or TRS. It also responds to track CCs (5 glide, 7 level,
+  10 pan, 71 resonance, 72/73/75 release/attack/decay, 74 brightness,
+  91/93/94 reverb/chorus/delay sends) and Program Change (loads a track's
+  sound by its preset number). `seq4h` does not send CCs or Program Change yet.
 
 Setup:
 
-1. On the FM1, set Shrub's MIDI CH to **OMNI**, or to a channel number and run
-   `./seq4h --channel N` with the same N (1-16). With OMNI the track channels
-   don't matter.
-2. Connect the FM1's USB-C to the handheld's USB-C. The handheld must act as
-   USB host. Whether the RG40XX-V's port can do that is **unverified**; you may
-   need a USB-C OTG adapter or a powered hub. The FM1 is the USB device and
-   also streams its audio over this link.
-3. Run `./seq4h --midi list` and check the FM1 appears, then
-   `./seq4h --midi FM --channel 1` (or part of the name that `--midi list`
-   shows).
+1. Connect the FM1's USB-C to the handheld's USB-C. The handheld must act as
+   USB host. Whether the RG40XX-V's port can do that, and whether it powers the
+   FM1, is **unverified**; you may need a USB-C OTG adapter or a powered hub.
+2. On the FM1, set `MENU > MIDI > MIDI IN` to **CH1-4** (see the wiki for the
+   current default).
+3. Set the FM1's **clock source to USB** so it follows `seq4h`'s tempo and
+   start/stop. I don't know where that setting lives in Felucca's menu; check
+   the wiki. Without it the FM1 keeps its own clock and only the notes line up.
+4. Run `./seq4h --midi list` and check the FM1 appears, then
+   `./seq4h --midi FM` (or part of the name the list shows).
 
-Tracks share one channel, so if two tracks play the *same* note at once, the
-first note-off cuts both. Give tracks different pitch ranges to avoid it.
+For the other `MIDI IN` modes:
 
-Other MIDI devices work the same way; use per-track channels (Select + up/down)
-for multitimbral gear.
+- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` with
+  Select + up/down.
+- **SEL:** run `./seq4h --channel N` so all four tracks use one channel. The
+  FM1 then plays them all on the track you've selected on the device.
+- **TRACK:** set the matching channels in `seq4h` the same way.
+
+Settings are saved in `seq4h.pat`, so you only set channels once.
+
+**Bluetooth:** the wiki text lists USB and TRS only, so don't count on it.
 
 ## Building for Knulli
 
