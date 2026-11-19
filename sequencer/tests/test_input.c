@@ -16,13 +16,14 @@ int main(void) {
     CHECK(m.joy[10] == B_L2 && m.joy[11] == B_R2 && m.joy[8] == B_NONE);
     CHECK(m.hat[0] == B_UP && m.hat[3] == B_LEFT);
     CHECK(m.pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] == B_R2);
+    CHECK(m.joy[13] == B_MENU && input_key(&m, SDLK_m) == B_MENU && input_btn_from_name("menu") == B_MENU);
     CHECK(input_key(&m, SDLK_1) == B_L2 && input_btn_from_name("r2") == B_R2);
     CHECK(input_key(&m, SDLK_z) == B_A && input_key(&m, SDLK_ESCAPE) == B_QUIT);
 
     /* each source */
     CHECK(input_parse_line(&m, "mode joystick") == 0 && m.mode == INPUT_JOYSTICK);
     CHECK(input_parse_line(&m, "joy 0 b   # swap") == 0 && m.joy[0] == B_B);
-    CHECK(input_parse_line(&m, "JOY 13 Quit") == 0 && m.joy[13] == B_QUIT);
+    CHECK(input_parse_line(&m, "JOY 14 Quit") == 0 && m.joy[14] == B_QUIT);
     CHECK(input_parse_line(&m, "joy 10 none") == 0 && m.joy[10] == B_NONE);
     CHECK(input_parse_line(&m, "hat down up") == 0 && m.hat[2] == B_UP);
     CHECK(input_parse_line(&m, "axis 1- up") == 0 && m.axis[1][0] == B_UP);
@@ -68,7 +69,7 @@ int main(void) {
     input_defaults(&n);
     CHECK(input_load(&n, f, "knulli/seq4h.input", stderr) == 0);
     fclose(f);
-    CHECK(n.mode == INPUT_JOYSTICK && n.joy[10] == B_L2 && n.joy[11] == B_R2);
+    CHECK(n.mode == INPUT_JOYSTICK && n.joy[10] == B_L2 && n.joy[11] == B_R2 && n.joy[13] == B_MENU);
 
     puts("input tests passed");
     return 0;
