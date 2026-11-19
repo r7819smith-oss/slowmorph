@@ -15,20 +15,24 @@ else
   $(warning ALSA not found: building without MIDI hardware output)
 endif
 
-SRC := src/main.c src/engine.c src/gen.c src/player.c src/midi_null.c src/ui.c $(MIDI_SRC)
+SRC := src/main.c src/engine.c src/gen.c src/player.c src/midi_null.c src/ui.c src/input.c $(MIDI_SRC)
 
 all: seq4h
 
 seq4h: $(SRC) $(wildcard src/*.h)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(MIDI_CFLAGS) -o $@ $(SRC) $(SDL_LIBS) $(MIDI_LIBS) -lpthread
 
-test: tests/test_engine
+test: tests/test_engine tests/test_input
 	./tests/test_engine
+	./tests/test_input
 
 tests/test_engine: tests/test_engine.c src/engine.c src/gen.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c src/gen.c
 
+tests/test_input: tests/test_input.c src/input.c src/input.h
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ tests/test_input.c src/input.c $(SDL_LIBS)
+
 clean:
-	rm -f seq4h tests/test_engine
+	rm -f seq4h tests/test_engine tests/test_input
 
 .PHONY: all test clean

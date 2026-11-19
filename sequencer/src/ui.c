@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "gen.h"
+#include "input.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -70,9 +71,10 @@ static void text(SDL_Renderer *r, int x, int y, int sc, Col c, const char *s) {
 
 static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uint8_t)(c.g * pct / 100), (uint8_t)(c.b * pct / 100)}; }
 
-typedef enum { B_UP, B_DOWN, B_LEFT, B_RIGHT, B_A, B_B, B_X, B_Y, B_L, B_R, B_SEL, B_START,
-               B_PAGE, B_ROLL, B_UNDO, B_LOCK,   /* virtual: Select+X/B/Y/A, keys E/R/U/K, L2/R2 */
-               B_COUNT } Btn;
+/* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
+ * values for the current track: up/down picks a row, left/right changes it. */
+typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_COUNT } Page;
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE"};
 
 typedef struct {
     Player *p;
@@ -81,12 +83,15 @@ typedef struct {
     Uint32 next_rep[B_COUNT];
     int quit;
     int midi_up;              /* last MIDI poll result; -1 = not polled yet */
-    int page;                 /* 0 = grid, 1 = generate/evolve */
-    int row;                  /* selected row on the generate page */
+    int page;                 /* Page */
+    int row[P_COUNT];         /* selected row on each list page */
     SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll */
     int undo_track;           /* -1 = nothing to undo */
     const char *msg;
     Uint32 msg_until;
+    const InputMap *map;
+    int show_input;
+    char input_msg[48];       /* last raw input, shown with --show-input */
 } Ui;
 
 #define GEN_ROWS 17
@@ -154,60 +159,125 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }
 
+#define STEP_ROWS 7
+#define TRACK_ROWS 7
+
+static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    const SeqStep *st = &s->track[u->track].step[u->step];
+    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "PROBABILITY", "LOCK"};
+    snprintf(label, 24, "%s", L[row]);
+    switch (row) {
+    case 0: snprintf(val, 24, "%d", u->step + 1); break;
+    case 1: snprintf(val, 24, "%s", st->on ? "ON" : "OFF"); break;
+    case 2: { char nn[8]; seq_note_name(st->note, nn); snprintf(val, 24, "%s", nn); break; }
+    case 3: snprintf(val, 24, "%d", st->vel); break;
+    case 4: snprintf(val, 24, "%d%%", st->gate); break;
+    case 5: snprintf(val, 24, "%d%%", st->prob); break;
+    default: snprintf(val, 24, "%s", st->lock ? "LOCKED" : "OFF"); break;
+    }
+}
+
+static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    SeqStep *st = &s->track[u->track].step[u->step];
+    switch (row) {
+    case 0: u->step = wrap(u->step + d, SEQ_STEPS); break;
+    case 1: seq_step_toggle(s, u->track, u->step); break;
+    case 2:
+        if (big) { st->note = (uint8_t)clampi(st->note + 12 * d, 0, 127); st->on = 1; }   /* octave */
+        else seq_step_adjust(s, u->track, u->step, d, 0, 0, 0);                            /* scale degree */
+        break;
+    case 3: seq_step_adjust(s, u->track, u->step, 0, d * (big ? 10 : 1), 0, 0); break;
+    case 4: seq_step_adjust(s, u->track, u->step, 0, 0, d * (big ? 25 : 5), 0); break;
+    case 5: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
+    default: st->lock ^= 1; break;
+    }
+}
+
+static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char *val, const char *midi_desc) {
+    const SeqTrack *tr = &s->track[u->track];
+    static const char *L[TRACK_ROWS] = {"TRACK", "MIDI CHANNEL", "LENGTH", "MUTE", "BPM", "SWING", "MIDI OUT"};
+    snprintf(label, 24, "%s", L[row]);
+    switch (row) {
+    case 0: snprintf(val, 24, "%d", u->track + 1); break;
+    case 1: snprintf(val, 24, "%d", tr->channel + 1); break;
+    case 2: snprintf(val, 24, "%d STEPS", tr->len); break;
+    case 3: snprintf(val, 24, "%s", tr->mute ? "MUTED" : "OFF"); break;
+    case 4: snprintf(val, 24, "%d", s->bpm); break;
+    case 5: snprintf(val, 24, "%d", s->swing); break;
+    default: snprintf(val, 24, "%.14s", midi_desc ? midi_desc : "NONE"); break;
+    }
+}
+
+static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    switch (row) {
+    case 0: u->track = wrap(u->track + d, SEQ_TRACKS); break;
+    case 1: seq_track_channel(s, u->track, d); break;
+    case 2: seq_track_len(s, u->track, d * (big ? 4 : 1)); break;
+    case 3: seq_track_mute_toggle(s, u->track); break;
+    case 4: seq_adjust_bpm(s, d * (big ? 10 : 1)); break;
+    case 5: seq_adjust_swing(s, d); break;
+    default: break;    /* MIDI OUT is information only */
+    }
+}
+
+static int page_rows(int page) { return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : GEN_ROWS; }
+
+static void roll(Seq *s, Ui *u) {
+    if (s->track[u->track].gen.type == GEN_NONE) {
+        say(u, "NO GENERATOR: PICK ONE ON GENERATE");
+        return;
+    }
+    memcpy(u->undo, s->track[u->track].step, sizeof u->undo);
+    u->undo_track = u->track;
+    gen_roll(s, u->track);
+    say(u, "ROLLED");
+}
+
+static void undo(Seq *s, Ui *u) {
+    if (u->undo_track < 0) { say(u, "NOTHING TO UNDO"); return; }
+    memcpy(s->track[u->undo_track].step, u->undo, sizeof u->undo);
+    u->undo_track = -1;
+    say(u, "UNDONE");
+}
+
+/* Controls (same on every page unless noted):
+ *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
+ *   GRID: d-pad moves the cursor, A step on/off, X edit the step, Y lock the step
+ *   lists: up/down row, left/right value (hold Y for big steps)
+ *          STEP A step on/off; GENERATE A roll, X undo */
 static void press(Ui *u, Btn b) {
     Player *p = u->p;
-    if (u->held[B_SEL]) {                       /* Select + face button = special actions */
-        if (b == B_X) b = B_PAGE;
-        else if (b == B_B) b = B_ROLL;
-        else if (b == B_Y) b = B_UNDO;
-        else if (b == B_A) b = B_LOCK;
-    }
-    if (u->page == 1 && b == B_A) b = B_ROLL;
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
-    if (b == B_START && u->held[B_SEL]) { u->quit = 1; }
+    if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
-    else if (b == B_PAGE) { u->page ^= 1; }
-    else if (b == B_ROLL) {
-        if (s->track[u->track].gen.type == GEN_NONE) {
-            say(u, "NO GENERATOR: SELECT+X, PICK ONE");
-        } else {
-            memcpy(u->undo, s->track[u->track].step, sizeof u->undo);
-            u->undo_track = u->track;
-            gen_roll(s, u->track);
-            say(u, "ROLLED");
-        }
-    }
-    else if (b == B_UNDO) {
-        if (u->undo_track >= 0) {
-            memcpy(s->track[u->undo_track].step, u->undo, sizeof u->undo);
-            u->undo_track = -1;
-            say(u, "UNDONE");
-        } else {
-            say(u, "NOTHING TO UNDO");
-        }
-    }
-    else if (b == B_LOCK) { s->track[u->track].step[u->step].lock ^= 1; }
-    else if (b == B_A) { seq_step_toggle(s, u->track, u->step); }
-    else if (b == B_X) { seq_track_mute_toggle(s, u->track); }
-    else if (b == B_L || b == B_R) {
-        int d = b == B_R ? 1 : -1;
-        if (u->held[B_Y]) seq_adjust_swing(s, d);
-        else seq_adjust_bpm(s, u->held[B_B] ? 10 * d : d);
-    } else if (u->page == 1) {
-        if (dy) u->row = wrap(u->row + dy, GEN_ROWS);
-        else if (dx) gen_row_adjust(s, u, u->row, dx, u->held[B_B]);
-    } else if (dx || dy) {
-        if (u->held[B_B]) seq_step_adjust(s, u->track, u->step, -dy, 8 * dx, 0, 0);
-        else if (u->held[B_Y]) seq_step_adjust(s, u->track, u->step, 0, 0, -10 * dy, 10 * dx);
-        else if (u->held[B_SEL]) { if (dx) seq_track_len(s, u->track, dx); else seq_track_channel(s, u->track, -dy); }
-        else { u->step = wrap(u->step + dx, SEQ_STEPS); u->track = wrap(u->track + dy, SEQ_TRACKS); }
+    else if (b == B_L || b == B_R) u->page = wrap(u->page + (b == B_R ? 1 : -1), P_COUNT);
+    else if (b == B_PAGE) u->page = wrap(u->page + 1, P_COUNT);
+    else if (b == B_L2 || b == B_R2) u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
+    else if (b == B_ROLL) roll(s, u);
+    else if (b == B_UNDO) undo(s, u);
+    else if (b == B_LOCK) s->track[u->track].step[u->step].lock ^= 1;
+    else if (b == B_B) u->page = P_GRID;
+    else if (u->page == P_GRID) {
+        if (b == B_A) seq_step_toggle(s, u->track, u->step);
+        else if (b == B_X) u->page = P_STEP;
+        else if (b == B_Y) s->track[u->track].step[u->step].lock ^= 1;
+        else if (dx || dy) { u->step = wrap(u->step + dx, SEQ_STEPS); u->track = wrap(u->track + dy, SEQ_TRACKS); }
+    } else {
+        int *row = &u->row[u->page], big = u->held[B_Y];
+        if (dy) *row = wrap(*row + dy, page_rows(u->page));
+        else if (dx && u->page == P_STEP) step_row_adjust(s, u, *row, dx, big);
+        else if (dx && u->page == P_TRACK) track_row_adjust(s, u, *row, dx, big);
+        else if (dx) gen_row_adjust(s, u, *row, dx, big);
+        else if (b == B_A && u->page == P_STEP) seq_step_toggle(s, u->track, u->step);
+        else if (b == B_A && u->page == P_GEN) roll(s, u);
+        else if (b == B_X && u->page == P_GEN) undo(s, u);
     }
     player_unlock(p);
 }
 
-static int repeats(Btn b) { return b <= B_RIGHT || b == B_L || b == B_R; }  /* d-pad and shoulders auto-repeat */
+static int repeats(Btn b) { return b <= B_RIGHT; }  /* the d-pad auto-repeats */
 
 static void set_button(Ui *u, Btn b, int down) {
     if (down && !u->held[b]) {
@@ -219,35 +289,138 @@ static void set_button(Ui *u, Btn b, int down) {
     }
 }
 
-static int map_key(SDL_Keycode k, Btn *b) {
-    switch (k) {
-    case SDLK_UP: *b = B_UP; return 1;       case SDLK_DOWN: *b = B_DOWN; return 1;
-    case SDLK_LEFT: *b = B_LEFT; return 1;   case SDLK_RIGHT: *b = B_RIGHT; return 1;
-    case SDLK_z: *b = B_A; return 1;         case SDLK_x: *b = B_B; return 1;
-    case SDLK_c: *b = B_X; return 1;         case SDLK_v: *b = B_Y; return 1;
-    case SDLK_q: *b = B_L; return 1;         case SDLK_w: *b = B_R; return 1;
-    case SDLK_TAB: *b = B_SEL; return 1;     case SDLK_SPACE: *b = B_START; return 1;
-    case SDLK_e: *b = B_PAGE; return 1;      case SDLK_r: *b = B_ROLL; return 1;
-    case SDLK_u: *b = B_UNDO; return 1;      case SDLK_k: *b = B_LOCK; return 1;
-    default: return 0;
+/* One opened joystick: raw (joy set, gc NULL) or SDL game controller (gc set). */
+typedef struct {
+    SDL_JoystickID id;
+    SDL_Joystick *joy;
+    SDL_GameController *gc;
+    Uint8 hat[4];
+    Uint8 axis[IN_JOY_AXES];                  /* bit 0 = negative held, bit 1 = positive held */
+    Uint8 pad_axis[SDL_CONTROLLER_AXIS_MAX];
+} Dev;
+
+#define MAX_DEVS 8
+
+static Dev *find_dev(Dev *d, SDL_JoystickID id) {
+    for (int i = 0; i < MAX_DEVS; i++) if ((d[i].joy || d[i].gc) && d[i].id == id) return &d[i];
+    return NULL;
+}
+
+static void open_dev(Dev *devs, int index, const InputMap *m, int verbose) {
+    Dev *d = NULL;
+    for (int i = 0; i < MAX_DEVS && !d; i++) if (!devs[i].joy && !devs[i].gc) d = &devs[i];
+    if (!d || find_dev(devs, SDL_JoystickGetDeviceInstanceID(index))) return;
+    memset(d, 0, sizeof *d);
+    int as_pad = m->mode != INPUT_JOYSTICK && SDL_IsGameController(index);
+    if (as_pad) d->gc = SDL_GameControllerOpen(index);
+    else if (m->mode != INPUT_CONTROLLER) d->joy = SDL_JoystickOpen(index);
+    if (!d->gc && !d->joy) return;
+    d->id = SDL_JoystickGetDeviceInstanceID(index);
+    if (verbose) {
+        char guid[33];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(index), guid, sizeof guid);
+        SDL_Joystick *j = d->gc ? SDL_GameControllerGetJoystick(d->gc) : d->joy;
+        fprintf(stderr, "seq4h: input \"%s\" guid %s: %s, %d buttons, %d hats, %d axes\n",
+                SDL_JoystickNameForIndex(index), guid, d->gc ? "game controller" : "raw joystick",
+                SDL_JoystickNumButtons(j), SDL_JoystickNumHats(j), SDL_JoystickNumAxes(j));
     }
 }
 
-static int map_pad(Uint8 k, Btn *b) {
-    switch (k) {
-    case SDL_CONTROLLER_BUTTON_DPAD_UP: *b = B_UP; return 1;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: *b = B_DOWN; return 1;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: *b = B_LEFT; return 1;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: *b = B_RIGHT; return 1;
-    case SDL_CONTROLLER_BUTTON_A: *b = B_A; return 1;
-    case SDL_CONTROLLER_BUTTON_B: *b = B_B; return 1;
-    case SDL_CONTROLLER_BUTTON_X: *b = B_X; return 1;
-    case SDL_CONTROLLER_BUTTON_Y: *b = B_Y; return 1;
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: *b = B_L; return 1;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: *b = B_R; return 1;
-    case SDL_CONTROLLER_BUTTON_BACK: *b = B_SEL; return 1;
-    case SDL_CONTROLLER_BUTTON_START: *b = B_START; return 1;
-    default: return 0;
+static void close_dev(Dev *d) {
+    if (d->gc) SDL_GameControllerClose(d->gc);
+    else if (d->joy) SDL_JoystickClose(d->joy);
+    d->gc = NULL; d->joy = NULL;
+}
+
+/* Records what arrived and where it went, for --show-input. */
+static void note_input(Ui *u, const char *what, Btn b) {
+    if (!u->show_input) return;
+    snprintf(u->input_msg, sizeof u->input_msg, "IN: %.28s > %s", what, input_btn_name(b));
+    fprintf(stderr, "seq4h: input %s -> %s\n", what, input_btn_name(b));
+}
+
+/* Axis held state as a 2-bit mask (bit 0 = negative, bit 1 = positive). */
+static Uint8 axis_bits(int v, int thr) { return (Uint8)((v <= -thr) | ((v >= thr) << 1)); }
+
+static void axis_change(Ui *u, Uint8 *state, Uint8 now, const Btn dir[2], const char *label) {
+    for (int s = 0; s < 2; s++) {
+        int was = (*state >> s) & 1, is = (now >> s) & 1;
+        if (was == is) continue;
+        if (is) {
+            char what[32];
+            snprintf(what, sizeof what, "%s%c", label, s ? '+' : '-');
+            note_input(u, what, dir[s]);
+        }
+        if (dir[s] != B_NONE) set_button(u, dir[s], is);
+    }
+    *state = now;
+}
+
+static void handle_input(Ui *u, Dev *devs, const SDL_Event *e, int verbose) {
+    const InputMap *m = u->map;
+    char what[32];
+    Dev *d;
+    Btn b;
+    switch (e->type) {
+    case SDL_KEYDOWN: case SDL_KEYUP:
+        if (e->key.repeat) break;
+        b = input_key(m, e->key.keysym.sym);
+        if (e->type == SDL_KEYDOWN) {
+            snprintf(what, sizeof what, "KEY %s", SDL_GetKeyName(e->key.keysym.sym));
+            note_input(u, what, b);
+        }
+        if (b != B_NONE) set_button(u, b, e->type == SDL_KEYDOWN);
+        break;
+    case SDL_JOYDEVICEADDED:
+        open_dev(devs, e->jdevice.which, m, verbose);
+        break;
+    case SDL_JOYDEVICEREMOVED:
+        if ((d = find_dev(devs, e->jdevice.which))) close_dev(d);
+        break;
+    case SDL_JOYBUTTONDOWN: case SDL_JOYBUTTONUP:
+        if (!(d = find_dev(devs, e->jbutton.which)) || d->gc) break;
+        b = e->jbutton.button < IN_JOY_BUTTONS ? m->joy[e->jbutton.button] : B_NONE;
+        if (e->type == SDL_JOYBUTTONDOWN) {
+            snprintf(what, sizeof what, "JOY %d", e->jbutton.button);
+            note_input(u, what, b);
+        }
+        if (b != B_NONE) set_button(u, b, e->type == SDL_JOYBUTTONDOWN);
+        break;
+    case SDL_JOYHATMOTION: {
+        static const char *HAT[4] = {"UP", "RIGHT", "DOWN", "LEFT"};
+        if (!(d = find_dev(devs, e->jhat.which)) || d->gc || e->jhat.hat >= 4) break;
+        Uint8 *old = &d->hat[e->jhat.hat], now = e->jhat.value;
+        for (int i = 0; i < 4; i++) {           /* SDL_HAT_UP/RIGHT/DOWN/LEFT are bits 0..3 */
+            int was = (*old >> i) & 1, is = (now >> i) & 1;
+            if (was == is) continue;
+            if (is) {
+                snprintf(what, sizeof what, "HAT%d %s", e->jhat.hat, HAT[i]);
+                note_input(u, what, m->hat[i]);
+            }
+            if (m->hat[i] != B_NONE) set_button(u, m->hat[i], is);
+        }
+        *old = now;
+        break;
+    }
+    case SDL_JOYAXISMOTION:
+        if (!(d = find_dev(devs, e->jaxis.which)) || d->gc || e->jaxis.axis >= IN_JOY_AXES) break;
+        snprintf(what, sizeof what, "AXIS %d", e->jaxis.axis);
+        axis_change(u, &d->axis[e->jaxis.axis], axis_bits(e->jaxis.value, m->axis_threshold), m->axis[e->jaxis.axis], what);
+        break;
+    case SDL_CONTROLLERBUTTONDOWN: case SDL_CONTROLLERBUTTONUP:
+        if (!(d = find_dev(devs, e->cbutton.which)) || !d->gc || e->cbutton.button >= SDL_CONTROLLER_BUTTON_MAX) break;
+        b = m->pad[e->cbutton.button];
+        if (e->type == SDL_CONTROLLERBUTTONDOWN) {
+            snprintf(what, sizeof what, "PAD %s", SDL_GameControllerGetStringForButton((SDL_GameControllerButton)e->cbutton.button));
+            note_input(u, what, b);
+        }
+        if (b != B_NONE) set_button(u, b, e->type == SDL_CONTROLLERBUTTONDOWN);
+        break;
+    case SDL_CONTROLLERAXISMOTION:
+        if (!(d = find_dev(devs, e->caxis.which)) || !d->gc || e->caxis.axis >= SDL_CONTROLLER_AXIS_MAX) break;
+        snprintf(what, sizeof what, "PAD %s", SDL_GameControllerGetStringForAxis((SDL_GameControllerAxis)e->caxis.axis));
+        axis_change(u, &d->pad_axis[e->caxis.axis], axis_bits(e->caxis.value, m->axis_threshold), m->pad_axis[e->caxis.axis], what);
+        break;
     }
 }
 
@@ -259,12 +432,16 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     snprintf(buf, sizeof buf, "SWING %d", s->swing);
     text(r, 270, 18, 2, DIM, buf);
     text(r, 440, 18, 2, s->playing ? (Col){90, 220, 120} : DIM, s->playing ? "PLAYING" : "STOPPED");
-    snprintf(buf, sizeof buf, "MIDI: %.30s", midi_desc ? midi_desc : "NONE");
-    text(r, 20, 46, 1, DIM, buf);
+    (void)midi_desc;
+    for (int i = 0, x = 20; i < P_COUNT; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
+        text(r, x, 46, 1, i == u->page ? YELLOW : DIM, PAGE_NAMES[i]);
+    snprintf(buf, sizeof buf, "T%d", u->track + 1);
+    text(r, 200, 46, 1, TRACK_COL[u->track], buf);
     static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     snprintf(buf, sizeof buf, "%s %s", R[s->root % 12], scale_name(s->scale));
     text(r, 260, 46, 1, DIM, buf);
     if (u->msg && SDL_GetTicks() < u->msg_until) text(r, 400, 46, 1, YELLOW, u->msg);
+    if (u->show_input) text(r, 400, 4, 1, u->input_msg[0] ? YELLOW : DIM, u->input_msg[0] ? u->input_msg : "IN: PRESS A BUTTON");
 }
 
 static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
@@ -310,50 +487,70 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     else snprintf(buf, sizeof buf, "GEN %s  EVOLVE OFF", gen_name(tr->gen.type));
     text(r, 20, y + 44, 2, DIM, buf);
 
-    text(r, 20, H - 62, 1, DIM, "A STEP  X MUTE  START PLAY/STOP  SELECT+START QUIT");
-    text(r, 20, H - 48, 1, DIM, "B+UP/DOWN NOTE  B+LEFT/RIGHT VEL  Y+UP/DOWN GATE  Y+LEFT/RIGHT PROB");
-    text(r, 20, H - 34, 1, DIM, "SELECT+LEFT/RIGHT LENGTH  SELECT+UP/DOWN CHANNEL  L/R BPM  Y+L/R SWING");
-    text(r, 20, H - 20, 1, DIM, "SELECT+A LOCK STEP  SELECT+B ROLL  SELECT+Y UNDO  SELECT+X GENERATE PAGE");
+    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A STEP ON/OFF  X EDIT STEP  Y LOCK STEP  START PLAY/STOP");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  B BACK TO GRID  SELECT+START QUIT");
 }
 
-static void draw_gen(SDL_Renderer *r, const Seq *sp, const Ui *u) {
-    const Seq s = *sp;
-    char label[24], val[24];
-    for (int row = 0; row < GEN_ROWS; row++) {
-        int y = 62 + row * 22;
-        gen_row_text(&s, u->track, row, label, val);
-        int sel = row == u->row;
-        if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
-        text(r, 22, y, 2, sel ? YELLOW : (row == 0 || row == 1 || row == 8 || row == 15 ? WHITE : DIM), label);
-        text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
-    }
-    /* live preview of the selected track: height = pitch, brightness = velocity */
-    const SeqTrack *tr = &s.track[u->track];
+/* Pattern preview of the current track: height = pitch, brightness = velocity.
+ * On the STEP page the step being edited is outlined. */
+static void draw_preview(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    const SeqTrack *tr = &s->track[u->track];
     Col base = TRACK_COL[u->track];
     int px = 392, py = 70, pw = 15, ph = 150;
     text(r, px, py - 14, 1, DIM, "PATTERN");
     rect(r, px - 4, py - 2, 16 * pw + 6, ph + 4, (Col){24, 26, 36});
     int lo = tr->gen.base, hi = tr->gen.base + 12 * tr->gen.span;
-    int head = seq_playhead(&s, u->track);
+    for (int i = 0; i < tr->len; i++) {
+        const SeqStep *st = &tr->step[i];
+        if (st->on) { if (st->note < lo) lo = st->note; if (st->note > hi) hi = st->note; }
+    }
+    int head = seq_playhead(s, u->track);
     for (int i = 0; i < tr->len; i++) {
         const SeqStep *st = &tr->step[i];
         if (st->on) {
-            int n = clampi(st->note, lo, hi);
-            int yy = py + ph - 8 - (n - lo) * (ph - 8) / (hi > lo ? hi - lo : 1);
+            int yy = py + ph - 8 - (st->note - lo) * (ph - 8) / (hi > lo ? hi - lo : 1);
             rect(r, px + i * pw, yy, pw - 3, 8, scale(base, 35 + 65 * st->vel / 127));
         }
         if (st->lock) rect(r, px + i * pw, py + ph - 2, pw - 3, 2, YELLOW);
         if (i == head) frame(r, px + i * pw - 1, py, pw - 1, ph, 1, WHITE);
+        if (u->page == P_STEP && i == u->step) frame(r, px + i * pw - 2, py - 1, pw + 1, ph + 2, 2, YELLOW);
     }
-    text(r, 392, 240, 1, DIM, "GENERATORS WRITE INTO THE GRID, SO");
-    text(r, 392, 252, 1, DIM, "YOU CAN EDIT THE RESULT. LOCKED STEPS");
-    text(r, 392, 264, 1, DIM, "(SELECT+A ON THE GRID) ARE NEVER");
-    text(r, 392, 276, 1, DIM, "CHANGED BY ROLL OR EVOLVE.");
-    text(r, 392, 300, 1, DIM, "EVOLVE CHANGES THE PATTERN EVERY N");
-    text(r, 392, 312, 1, DIM, "BARS: AMOUNT = CHANCE PER STEP.");
-    text(r, 392, 324, 1, DIM, "REGEN RE-RUNS THE GENERATOR.");
-    text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT VALUE (HOLD B = BIG STEP)  A ROLL NEW PATTERN");
-    text(r, 20, H - 20, 1, DIM, "SELECT+Y UNDO ROLL  SELECT+X BACK TO GRID  START PLAY/STOP");
+}
+
+static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *midi_desc) {
+    const Seq s = *sp;
+    char label[24], val[24];
+    int n = page_rows(u->page), pitch = n > 12 ? 22 : 30;
+    for (int row = 0; row < n; row++) {
+        int y = 62 + row * pitch, head = 1;
+        label[0] = val[0] = 0;
+        if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
+        else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 4; }
+        else { gen_row_text(&s, u->track, row, label, val); head = row == 0 || row == 1 || row == 8 || row == 15; }
+        int sel = row == u->row[u->page];
+        if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
+        text(r, 22, y, 2, sel ? YELLOW : head ? WHITE : DIM, label);
+        text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
+    }
+    draw_preview(r, &s, u);
+    if (u->page == P_GEN) {
+        text(r, 392, 240, 1, DIM, "GENERATORS WRITE INTO THE GRID, SO");
+        text(r, 392, 252, 1, DIM, "YOU CAN EDIT THE RESULT. LOCKED STEPS");
+        text(r, 392, 264, 1, DIM, "(Y ON THE GRID) ARE NEVER CHANGED");
+        text(r, 392, 276, 1, DIM, "BY ROLL OR EVOLVE.");
+        text(r, 392, 300, 1, DIM, "EVOLVE CHANGES THE PATTERN EVERY N");
+        text(r, 392, 312, 1, DIM, "BARS: AMOUNT = CHANCE PER STEP.");
+        text(r, 392, 324, 1, DIM, "REGEN RE-RUNS THE GENERATOR.");
+    } else if (u->page == P_STEP) {
+        text(r, 392, 240, 1, DIM, "NOTE MOVES BY SCALE DEGREE;");
+        text(r, 392, 252, 1, DIM, "HOLD Y TO MOVE BY OCTAVE.");
+        text(r, 392, 276, 1, DIM, "LOCKED STEPS ARE NEVER CHANGED");
+        text(r, 392, 288, 1, DIM, "BY ROLL OR EVOLVE.");
+    }
+    text(r, 20, H - 34, 1, DIM, u->page == P_GEN ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)  A ROLL  X UNDO ROLL"
+                              : u->page == P_STEP ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)  A STEP ON/OFF"
+                              : "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  B BACK TO GRID  START PLAY/STOP");
 }
 
 static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
@@ -366,8 +563,8 @@ static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     color(r, (Col){16, 17, 24});
     SDL_RenderClear(r);
     draw_header(r, &s, u, midi_desc);
-    if (u->page == 1) draw_gen(r, &s, u);
-    else draw_grid(r, &s, u);
+    if (u->page == P_GRID) draw_grid(r, &s, u);
+    else draw_list(r, &s, u, midi_desc);
 }
 
 int ui_run(Player *p, const UiOptions *opt) {
@@ -384,11 +581,11 @@ int ui_run(Player *p, const UiOptions *opt) {
     SDL_RenderSetLogicalSize(r, W, H);
     SDL_ShowCursor(SDL_DISABLE);
 
-    SDL_GameController *pads[8] = {0};
-    for (int i = 0; i < SDL_NumJoysticks() && i < 8; i++)
-        if (SDL_IsGameController(i)) pads[i] = SDL_GameControllerOpen(i);
-
-    Ui u = {.p = p, .undo_track = -1, .midi_up = -1};
+    InputMap defaults;
+    if (!opt->input) input_defaults(&defaults);
+    Dev devs[MAX_DEVS] = {0};   /* opened as SDL_JOYDEVICEADDED arrives, which includes devices present at start */
+    Ui u = {.p = p, .undo_track = -1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
+           .midi_up = -1};
     if (opt->keys) {
         char tmp[256];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);
@@ -410,18 +607,8 @@ int ui_run(Player *p, const UiOptions *opt) {
     while (!u.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            Btn b;
             if (e.type == SDL_QUIT) u.quit = 1;
-            else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) u.quit = 1;
-            else if ((e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) && !e.key.repeat && map_key(e.key.keysym.sym, &b))
-                set_button(&u, b, e.type == SDL_KEYDOWN);
-            else if ((e.type == SDL_CONTROLLERBUTTONDOWN || e.type == SDL_CONTROLLERBUTTONUP) && map_pad(e.cbutton.button, &b))
-                set_button(&u, b, e.type == SDL_CONTROLLERBUTTONDOWN);
-            else if (e.type == SDL_CONTROLLERAXISMOTION &&
-                     (e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT))
-                set_button(&u, e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ? B_PAGE : B_ROLL, e.caxis.value > 16000);
-            else if (e.type == SDL_CONTROLLERDEVICEADDED && e.cdevice.which < 8 && !pads[e.cdevice.which])
-                pads[e.cdevice.which] = SDL_GameControllerOpen(e.cdevice.which);
+            else handle_input(&u, devs, &e, opt->verbose);
         }
         Uint32 now = SDL_GetTicks();
         for (int b = 0; b < B_COUNT; b++)
@@ -455,7 +642,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         SDL_Delay(16);
     }
 
-    for (int i = 0; i < 8; i++) if (pads[i]) SDL_GameControllerClose(pads[i]);
+    for (int i = 0; i < MAX_DEVS; i++) close_dev(&devs[i]);
     SDL_DestroyRenderer(r);
     SDL_DestroyWindow(win);
     SDL_Quit();
