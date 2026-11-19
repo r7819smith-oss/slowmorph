@@ -243,7 +243,8 @@ make CC=aarch64-linux-gnu-gcc PKG=aarch64-linux-gnu-pkg-config
 ```
 
 Then copy `seq4h`, `knulli/seq4h.input`, `knulli/SEQ4H.sh` and
-`knulli/USB-MIDI-CHECK.sh` as described in the scripts. The CI binary is built against glibc 2.31 and links
+`knulli/USB-MIDI-CHECK.sh` as described in the scripts. The CI binary is
+built against glibc 2.36 (Debian bookworm) and links
 the device's own SDL2 and ALSA libraries; it has not been run on Knulli yet.
 
 ## Layout
