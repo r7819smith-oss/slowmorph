@@ -178,6 +178,39 @@ Works and tested on desktop Linux:
   devices and interfaces from `/sys/bus/usb/devices`, and syncs the log after
   every section.
 
+### Stopping the handheld charging the FM1 (researched 2026-11-19, not tested)
+
+Roy doesn't want the RG40XX-V's battery spent charging the FM1 (the M-VAVE
+FM-1 has its own 2000 mAh battery and takes power and data over one USB-C
+port). Findings:
+
+- **No supported switch.** The H700 Knulli kernel (4.9, sunxi USB) exposes no
+  documented sysfs control to turn off the 5 V it puts out in host mode or to
+  cap host current. `axp2202-usb/input_current_limit` is the *input* (charger)
+  limit, not output. `otg_role` can't usefully be changed: writing it is
+  blocked, and leaving host mode would stop MIDI anyway.
+- **The only known hack is unsafe.** On the RG35XX SP (same SoC and PMIC), a
+  Knulli user cut VBUS by clearing GPIO PI16 (`usb_drv_vbus`) through
+  `/dev/mem` ([knulli-linux#112](https://github.com/knulli-cfw/knulli-linux/issues/112)).
+  That is a raw register write, device-specific, unconfirmed on the
+  RG40XX-V, and the OTG manager may switch it back. Not built, and no menu
+  option: it could also stop the FM1 connecting at all, since many USB
+  devices only enumerate when they see VBUS.
+- **Practical options, safest first:**
+  1. Charge the FM1 fully before a session. A full battery draws little, so
+     the drain on the handheld is mostly the FM1 running, not charging.
+  2. Use a **powered USB hub** (already the fallback): the hub's own supply
+     feeds the FM1, and the handheld only talks data. Pick one that doesn't
+     back-feed the host.
+  3. A USB-C "data only"/power-blocker adapter would stop the charging, but
+     the FM1 may then not connect; try only as an experiment.
+- **Measuring it:** run `USB-MIDI-CHECK.sh` (v3 has a read-only *power*
+  section: each power supply's status, current and voltage, any VBUS
+  regulator, and what each USB device asks for in `bMaxPower`) with and
+  without the FM1 plugged in. seq4h's battery lines in `seq4h.log` give the
+  drain over a session; compare a run with the FM1 freshly charged against
+  one where it was low.
+
 ### Code changes for this
 
 - `src/midi_alsa.c` now **falls back to raw MIDI** (`/dev/snd/midiC*D*`) when
