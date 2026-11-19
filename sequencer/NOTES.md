@@ -26,6 +26,19 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   finger drumming / live performance shortcuts). Four pages: GRID, STEP,
   TRACK, GENERATE. L1/R1 = page, L2/R2 = track, B = back to grid; list pages
   use up/down = row, left/right = value, hold Y = big step.
+- **Mute and solo from the grid** (Roy, 2026-11-19, after testing build #68):
+  pressing left from step 1 puts the grid cursor on the track label column
+  (T1-T4). There A toggles mute, B toggles solo, up/down change track and
+  right goes back to step 1. Only on the label does B mean solo; everywhere
+  else B is still "back to grid". Several tracks can be soloed; while any
+  track is soloed only soloed, unmuted tracks play, and notes held by tracks
+  that go silent get a note-off at once (`seq_track_audible`,
+  `release_silenced` in `src/engine.c`). Labels show an M badge (white) and
+  an S badge (yellow); muted tracks are grey, tracks silenced by someone
+  else's solo are dimmed. The TRACK page MUTE row shows the same state
+  (`MUTED`, `OFF, SOLO`, `OFF, NOT SOLO`). **Mute is saved, solo is not**
+  (decision made without asking): solo is a temporary listen, and a saved
+  solo would make tracks seem broken the next time seq4h starts.
 - **M opens a main menu** for session-wide settings (Roy, 2026-11-19; a
   music-style choice will go there, added by the pattern engine work). Under
   Knulli M is joy 11. Knulli also uses M for its hotkeys (M + another
