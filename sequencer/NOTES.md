@@ -54,8 +54,17 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   fill, humanize. All skip locked steps and stay within the track length.
 - **Scale snap:** `seq_set_scale(s, scale, root, snap)` moves notes into the
   new scale. The UI still sets `s->scale` directly; wiring it is pending.
+- **32 steps, hold, slots, chains, styles:** `SEQ_STEPS` 32 (tracks start at
+  16), `SeqStep.hold` ties a note over extra steps, 8 slots per track with a
+  jump or morph chain advanced at bar boundaries (before evolution), and
+  `Style` (AMBIENT default, TECHNO, MELODIC) which sets `gen_set_type`
+  defaults; `style_apply` builds a full starting set and is used on first run.
+  UI: GENERATE page rows (list scrolls; A does the row's action), HOLD on the
+  STEP page, grid shows 16 steps at a time, MUSIC STYLE and NEW FROM STYLE in
+  the M menu.
 - **Save format** (still `seq4h 1`): new `gs` (generator state), `ev` (pull,
-  min, max) and `a` (anchor step) lines. Old files load with neutral defaults;
+  min, max), `a`/`ah` (anchor step/hold), `h` (hold), `sl`/`ss`/`sh` (slots),
+  `ch` (chain) and `style` lines. Old files load with neutral defaults;
   old binaries ignore the new lines.
   Deliberately not copied from SEQ-4: its matriceal multi-lane editor and its
   effects/CC features.
@@ -100,9 +109,8 @@ Works and tested on desktop Linux:
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (`SEQ4H_SHOW_INPUT=1`, then read `seq4h.log`) and
    fullscreen on the device; adjust `seq4h.input`.
-4. Generate-page UI for the new engine features (approved by Roy
-   2026-11-19): EVO PROB, PULL / SET ANCHOR, MIN/MAX HITS, transforms, slots
-   and chains, hold, scale snap, and a STYLE row in the M-button main menu.
+4. Try the ambient starting set on the FM1 and tune `STYLE_SET` /
+   `STYLE_DEF` in `src/gen.c` by ear (Roy's main style is ambient).
 5. Features discussed but not built:
    - painting per-note chances for WEIGHTED, closer to SEQ-4's stochastic mode
    - Program Change on pattern load (Felucca loads a track's sound by preset
