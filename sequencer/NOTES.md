@@ -123,6 +123,25 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   generators, evolution, mutes; save-load-save is byte-identical; old file
   loads) and the harness `persist` section (real binary, slots stored by
   replayed keys, SIGKILL, then relaunch and quit gives the same file).
+- **Slot names and the SLOTS page** (Roy, 2026-11-19: "a simple way to name
+  and pick saved slots from the M menu"). M > SLOTS lists the **current
+  track's** 8 slots (slots and chains are per track, so a per-track list
+  matches what CHAIN plays; L2/R2 switches track on the page). A load (undo
+  with X on GENERATE), X save here, Y rename, Select opens a COPY TO /
+  CLEAR SLOT / BACK panel. Decisions made without asking: a second press
+  confirms only what loses work (X onto a full slot, copying onto a full
+  slot, clearing); loading is immediate because it can be undone. Copy takes
+  the name along; clear resets the name. Select was free (only Select+Start
+  quits), so it opens the panel. Name editor: 8 characters from
+  ` A-Z 0-9 -`, up/down letter, left/right move, X space, A keep, B cancel;
+  Start still plays/stops and M cancels and closes the menu. Names live in
+  `SeqSlot.name` ("" = default "SLOT n") and are saved as `sn T K NAME`
+  lines (space as `_`), only for named slots, so the format stays
+  `seq4h 1`: older builds skip the line, older files load with default
+  names. The GENERATE page's SLOT row shows the name too. Tests:
+  `test_slot_names` (names, trimming, copy, clear, save/load, old file),
+  harness screenshots `slots-*` and a persist check that a rename made on
+  the page is autosaved. Not yet tried on hardware.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).

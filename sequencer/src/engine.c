@@ -259,6 +259,40 @@ int seq_slot_recall(Seq *s, int t, int k) {
     return 0;
 }
 
+void seq_slot_clear(Seq *s, int t, int k) {
+    if (k < 0 || k >= SEQ_SLOTS) return;
+    memset(&s->track[t].slot[k], 0, sizeof s->track[t].slot[k]);
+}
+
+int seq_slot_copy(Seq *s, int t, int from, int to) {
+    if (from < 0 || from >= SEQ_SLOTS || to < 0 || to >= SEQ_SLOTS || !s->track[t].slot[from].used) return -1;
+    if (from != to) s->track[t].slot[to] = s->track[t].slot[from];
+    return 0;
+}
+
+static void slot_default_name(int k, char *out) { snprintf(out, SEQ_SLOT_NAME + 1, "SLOT %d", (k & 7) + 1); }
+
+void seq_slot_set_name(Seq *s, int t, int k, const char *name) {
+    if (k < 0 || k >= SEQ_SLOTS) return;
+    char buf[SEQ_SLOT_NAME + 1], def[SEQ_SLOT_NAME + 1];
+    int n = 0;
+    for (; name && name[n] && n < SEQ_SLOT_NAME; n++) {
+        char c = name[n];
+        if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        buf[n] = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ? c : ' ';
+    }
+    while (n > 0 && buf[n - 1] == ' ') n--;
+    buf[n] = 0;
+    slot_default_name(k, def);
+    if (!strcmp(buf, def)) buf[0] = 0;
+    memcpy(s->track[t].slot[k].name, buf, sizeof buf);
+}
+
+void seq_slot_name(const Seq *s, int t, int k, char *out) {
+    if (k >= 0 && k < SEQ_SLOTS && s->track[t].slot[k].name[0]) snprintf(out, SEQ_SLOT_NAME + 1, "%s", s->track[t].slot[k].name);
+    else slot_default_name(k, out);
+}
+
 void seq_chain_set(Seq *s, int t, const uint8_t *seq, int n, int bars, int morph) {
     SeqTrack *tr = &s->track[t];
     n = clampi(n, 0, SEQ_SLOTS);
@@ -303,6 +337,12 @@ void seq_save(const Seq *s, FILE *f) {
         fprintf(f, "gs %d %u\n", t, (unsigned)tr->gen.state);
         for (int k = 0; k < SEQ_SLOTS; k++) {
             const SeqSlot *sl = &tr->slot[k];
+            if (sl->name[0]) {   /* "sn TRACK SLOT NAME", spaces written as '_'; older versions skip this line */
+                char nm[SEQ_SLOT_NAME + 1];
+                snprintf(nm, sizeof nm, "%s", sl->name);
+                for (char *c = nm; *c; c++) if (*c == ' ') *c = '_';
+                fprintf(f, "sn %d %d %s\n", t, k, nm);
+            }
             if (!sl->used) continue;
             fprintf(f, "sl %d %d %d\n", t, k, sl->len);
             for (int i = 0; i < SEQ_STEPS; i++) {
@@ -355,7 +395,7 @@ int seq_slots_used(const Seq *s) {
 }
 
 int seq_load(Seq *s, FILE *f) {
-    char line[128];
+    char line[128], nm[16];
     int a, b, c, d, e, g, h, k, m, n;
     unsigned u;
     if (!fgets(line, sizeof line, f) || strncmp(line, "seq4h ", 6) != 0) return -1;
@@ -372,6 +412,11 @@ int seq_load(Seq *s, FILE *f) {
         } else if (sscanf(line, "sh %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
                 s->track[a].slot[b].step[c].hold = (uint8_t)clampi(d, 0, SEQ_MAX_HOLD);
+        }
+        else if (sscanf(line, "sn %d %d %15s", &a, &b, nm) == 3) {
+            if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS) continue;
+            for (char *q = nm; *q; q++) if (*q == '_') *q = ' ';
+            seq_slot_set_name(s, a, b, nm);
         }
         else if (sscanf(line, "sl %d %d %d", &a, &b, &c) == 3) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS) continue;
