@@ -158,7 +158,7 @@ full mapping in use, which is a good starting point.
 Under Knulli the RG40XX-V's built-in pad is a joystick called `Deeplay-keys`.
 These are the raw SDL joystick codes it sends, taken from the mapping other
 Knulli ports use for this pad, and matching every button in the first test on a Knulli
-RG40XX-V showed (with the older stock-firmware table, L1 started playback and
+RG40XX-V (with the older stock-firmware table, L1 started playback and
 Start moved between tracks). Press **M > BUTTON CODES** to check them on
 your unit (below).
 
