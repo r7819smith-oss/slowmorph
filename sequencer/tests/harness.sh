@@ -7,6 +7,8 @@
 #   tests/harness.sh live         the real binary and timing thread, headless,
 #                                 MIDI captured to a file
 #   tests/harness.sh screenshots  UI screenshots with the dummy video driver
+#   tests/harness.sh persist      pattern slots survive a killed process and a
+#                                 quit-and-relaunch (the real binary, keys replayed)
 #   tests/harness.sh alsa         real ALSA sequencer output into aseqdump
 #                                 (skipped if /dev/snd/seq or aseqdump is missing)
 #
@@ -22,7 +24,7 @@ LIVE_TOL_MS="${LIVE_TOL_MS:-3}"
 LIVE_MAX_MS="${LIVE_MAX_MS:-20}"
 PY="${PYTHON:-python3}"
 fails=0
-sections="${*:-render live screenshots alsa}"
+sections="${*:-render live screenshots persist alsa}"
 
 note() { printf '%s\n' "$*" | tee -a "$SUMMARY"; }
 result() {   # name status
@@ -109,6 +111,8 @@ grid-label-solo|Down,Left,x,Down,x
 grid-label-back|Left,Right
 track-page-solo|Left,x,Down,x,w,w,Down,Down,Down
 bat17-grid|
+menu-style-blank|m,Down,Right,Right,Right
+grid-blank|m,Down,Right,Right,Right,Down,z,z
 EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
@@ -119,11 +123,43 @@ EOF
         --differ grid-demo grid-after-euclid-roll --differ grid-demo bat17-grid \
         --differ grid-demo grid-label-cursor --differ grid-label-cursor grid-label-muted \
         --differ grid-label-cursor grid-label-solo --differ grid-label-cursor grid-label-back \
-        --differ track-page track-page-solo \
+        --differ track-page track-page-solo --differ grid-demo grid-blank \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"
     result "$(ls "$OUT"/shots/*.png 2>/dev/null | wc -l) screenshots are 640x480, not blank, and each key sequence changed the screen" $rc
+    note ""
+    ;;
+persist)
+    note "### Saving (out/persist/)"
+    P="$OUT/persist"
+    rm -rf "$P"; mkdir -p "$P"
+    # Generate page (w,w,w), down to SAVE TO SLOT, store slots 1-8 on track 1,
+    # then slot 8 on track 2 (R2 = 2): nine stored slots.
+    keys="w,w,w"
+    i=0; while [ $i -lt 23 ]; do keys="$keys,Down"; i=$((i + 1)); done
+    keys="$keys,z"
+    i=0; while [ $i -lt 7 ]; do keys="$keys,Right,z"; i=$((i + 1)); done
+    keys="$keys,2,z"
+    # Killed with SIGKILL (as a system exit hotkey or a flat battery would):
+    # nothing runs at exit, so only the autosave two seconds after the edits
+    # can have written the file.
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./seq4h --midi none --demo --pattern "$P/seq4h.pat" --keys "$keys" 2> "$P/run1.log" &
+    pid=$!
+    sleep 5
+    kill -9 $pid 2>/dev/null; wait $pid 2>/dev/null
+    cat "$P/run1.log"
+    n=$(grep -c '^sl ' "$P/seq4h.pat" 2>/dev/null || echo 0)
+    [ "$n" = 9 ] && [ ! -e "$P/seq4h.pat.tmp" ]
+    result "autosave kept all 9 stored slots when the process was killed (found $n)" $?
+    # Relaunch, quit straight away (Escape): every slot loads, and the file
+    # written at quit is byte-for-byte the one loaded.
+    cp "$P/seq4h.pat" "$P/before.pat"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys Escape 2> "$P/run2.log"
+    rc=$?
+    cat "$P/run2.log"
+    [ $rc = 0 ] && grep -q 'loaded .*(9 stored slots)' "$P/run2.log" && cmp -s "$P/before.pat" "$P/seq4h.pat"
+    result "relaunch loads all 9 slots and quit saves the same file" $?
     note ""
     ;;
 alsa)

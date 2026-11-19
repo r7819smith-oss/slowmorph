@@ -158,5 +158,9 @@ void seq_note_name(int note, char out[8]);   /* 60 -> "C4" */
 
 void seq_save(const Seq *s, FILE *f);
 int  seq_load(Seq *s, FILE *f);              /* 0 on success */
+/* Save to `path` safely: write path.tmp, sync it to disk, then rename it over
+ * path. Returns 0 on success. */
+int  seq_save_file(const Seq *s, const char *path);
+int  seq_slots_used(const Seq *s);           /* stored slots across all tracks */
 
 #endif

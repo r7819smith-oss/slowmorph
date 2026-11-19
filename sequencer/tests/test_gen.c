@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
@@ -613,9 +614,10 @@ static void test_hold(void) {
 }
 
 static void test_styles(void) {
-    CHECK(style_count() == 3 && strcmp(style_name(STYLE_AMBIENT), "AMBIENT") == 0);
+    CHECK(style_count() == 4 && strcmp(style_name(STYLE_AMBIENT), "AMBIENT") == 0);
+    CHECK(strcmp(style_name(STYLE_BLANK), "BLANK") == 0);
     int density[STYLE_COUNT] = {0};
-    for (int st = 0; st < style_count(); st++) {
+    for (int st = 0; st < STYLE_BLANK; st++) {   /* the generative styles */
         Seq s;
         Count c;
         memset(&c, 0, sizeof c);
@@ -690,6 +692,136 @@ static void test_styles(void) {
     CHECK(s.track[0].gen.p[2] == 7);                  /* the table default */
 }
 
+/* BLANK: four empty MANUAL tracks; tempo, key, channels and stored slots stay. */
+static void test_blank_style(void) {
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    style_apply(&s, STYLE_AMBIENT, 0);
+    s.bpm = 84; s.swing = 3; seq_set_scale(&s, 3, 4, 0);
+    s.track[2].channel = 9; s.track[1].mute = 1;
+    s.track[0].chain_len = 2;
+    seq_slot_store(&s, 0, 5);
+    SeqSlot kept = s.track[0].slot[5];
+    gen_set_anchor(&s, 0);
+    CHECK(style_apply(&s, STYLE_BLANK, 1) == 0);   /* keep_manual is ignored: everything is cleared */
+    CHECK(s.style == STYLE_BLANK && s.bpm == 84 && s.swing == 3 && s.scale == 3 && s.root == 4);
+    CHECK(s.track[2].channel == 9);
+    CHECK(memcmp(&s.track[0].slot[5], &kept, sizeof kept) == 0);
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        const SeqTrack *tr = &s.track[t];
+        CHECK(tr->gen.type == GEN_NONE && tr->len == SEQ_DEFAULT_LEN && hits(&s, t) == 0);
+        CHECK(tr->evo.every == 0 && !tr->has_anchor && tr->chain_len == 0 && !tr->mute && !tr->solo);
+        for (int i = 0; i < SEQ_STEPS; i++) CHECK(!tr->step[i].lock && seq_in_scale(&s, tr->step[i].note));
+    }
+    /* rolling a MANUAL track does nothing, and nothing evolves */
+    gen_roll(&s, 0);
+    seq_start(&s);
+    for (int i = 0; i < 384 * 8; i++) seq_tick(&s);
+    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(hits(&s, t) == 0);
+    /* turning a step on gives an in-key note at the track's register */
+    seq_step_toggle(&s, 1, 0);
+    CHECK(s.track[1].step[0].on && s.track[1].step[0].note >= 44 && s.track[1].step[0].note < 60);
+    /* with no style, a generator picks its table defaults (as MELODIC does) */
+    gen_set_type(&s, 0, GEN_WALK);
+    CHECK(s.track[0].gen.p[2] == 7);
+    /* the choice is saved */
+    FILE *f = tmpfile();
+    seq_save(&s, f); rewind(f);
+    Seq b;
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0 && b.style == STYLE_BLANK);
+    fclose(f);
+}
+
+/* Every slot on every track, chains, generators, evolution and mutes survive
+ * a save and load (what seq4h writes to seq4h.pat at quit and while running),
+ * and saving the loaded state gives the same file. */
+static void test_save_all_slots(void) {
+    Seq a, b;
+    seq_init(&a, NULL, NULL);
+    style_apply(&a, STYLE_AMBIENT, 0);
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        for (int k = 0; k < SEQ_SLOTS; k++) {
+            gen_roll(&a, t);
+            a.track[t].len = (uint8_t)(5 + t * 6 + k);       /* every slot a different length */
+            a.track[t].step[k].hold = (uint8_t)k;
+            a.track[t].step[(k + 3) % SEQ_STEPS].lock = 1;
+            seq_slot_store(&a, t, k);
+        }
+    }
+    static const GenType gens[SEQ_TRACKS] = {GEN_EUCLID, GEN_TURING, GEN_NONE, GEN_MOTIF};
+    for (int t = 0; t < SEQ_TRACKS; t++) gen_set_type(&a, t, gens[t]);
+    uint8_t order[SEQ_SLOTS] = {7, 2, 5, 0, 1, 6, 3, 4};
+    seq_chain_set(&a, 0, order, 8, 2, 0);
+    seq_chain_set(&a, 1, order + 2, 3, 16, 35);
+    a.track[1].chain_pos = 2;
+    seq_slot_recall(&a, 3, 6);
+    a.track[1].mute = 1; a.track[3].mute = 1;
+    a.track[2].solo = 1;                                     /* solo is a live control: not saved */
+    a.track[2].channel = 12;
+
+    char *buf1 = NULL, *buf2 = NULL;
+    size_t len1 = 0, len2 = 0;
+    FILE *f = open_memstream(&buf1, &len1);
+    seq_save(&a, f); fclose(f);
+    f = fmemopen(buf1, len1, "r");
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(seq_slots_used(&b) == SEQ_TRACKS * SEQ_SLOTS);
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        const SeqTrack *x = &a.track[t], *y = &b.track[t];
+        for (int k = 0; k < SEQ_SLOTS; k++) {
+            CHECK(y->slot[k].used && y->slot[k].len == x->slot[k].len);
+            CHECK(memcmp(y->slot[k].step, x->slot[k].step, sizeof x->slot[k].step) == 0);
+        }
+        CHECK(y->gen.type == gens[t] && memcmp(y->gen.p, x->gen.p, sizeof x->gen.p) == 0);
+        CHECK(y->gen.state == x->gen.state && y->gen.base == x->gen.base && y->gen.span == x->gen.span);
+        CHECK(memcmp(&y->evo, &x->evo, sizeof x->evo) == 0);
+        CHECK(y->cur_slot == x->cur_slot && y->chain_len == x->chain_len && y->chain_pos == x->chain_pos);
+        CHECK(y->chain_bars == x->chain_bars && y->chain_morph == x->chain_morph);
+        CHECK(memcmp(y->chain, x->chain, x->chain_len) == 0);
+        CHECK(y->mute == x->mute && y->channel == x->channel && y->len == x->len);
+        CHECK(memcmp(y->step, x->step, sizeof x->step) == 0);
+        CHECK(y->has_anchor == x->has_anchor);
+        CHECK(!y->solo);
+    }
+    CHECK(b.track[0].chain_len == 8 && b.track[0].chain[0] == 7 && b.track[0].chain_bars == 2);
+    CHECK(b.track[1].chain_len == 3 && b.track[1].chain_pos == 2 && b.track[1].chain_morph == 35);
+    CHECK(b.track[3].cur_slot == 6 && b.track[1].mute && !b.track[0].mute);
+    f = open_memstream(&buf2, &len2);
+    seq_save(&b, f); fclose(f);
+    CHECK(len1 == len2 && memcmp(buf1, buf2, len1) == 0);
+    free(buf1); free(buf2);
+
+    /* seq_save_file writes the same, replacing the old file in one step */
+    char path[] = "/tmp/seq4h-test-XXXXXX";
+    int fd = mkstemp(path);
+    CHECK(fd >= 0);
+    close(fd);
+    CHECK(seq_save_file(&a, path) == 0);
+    f = fopen(path, "r");
+    seq_init(&b, NULL, NULL);
+    CHECK(f && seq_load(&b, f) == 0);
+    if (f) fclose(f);
+    CHECK(seq_slots_used(&b) == SEQ_TRACKS * SEQ_SLOTS);
+    char tmp[64];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    CHECK(access(tmp, F_OK) != 0);                          /* no temporary file left behind */
+    remove(path);
+    CHECK(seq_save_file(&a, "/nonexistent-dir/seq4h.pat") != 0);
+
+    /* a save from before slots existed still loads, with every slot empty */
+    f = tmpfile();
+    fputs("seq4h 1\nbpm 90\nscale 8 2\nt 0 0 16 1\ng 0 1 4 0 0 0 36 1\ns 0 0 1 36 100 50 100 0\n", f);
+    rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(b.bpm == 90 && b.track[0].mute && b.track[0].gen.type == GEN_EUCLID && b.track[0].step[0].on);
+    CHECK(seq_slots_used(&b) == 0 && b.track[0].chain_len == 0);
+}
+
 int main(void) {
     test_scale_helpers();
     test_follow();
@@ -704,6 +836,8 @@ int main(void) {
     test_slots_and_chain();
     test_styles();
     test_hold();
+    test_blank_style();
+    test_save_all_slots();
     if (fails) { fprintf(stderr, "%d generator check(s) failed\n", fails); return 1; }
     puts("generator tests passed");
     return 0;
