@@ -24,6 +24,7 @@ typedef struct {
     /* raw MIDI */
     snd_rawmidi_t *raw;
     int dropped;            /* raw bytes dropped because the output was full */
+    int logged;             /* last connection state written to the log: 0 unknown, 1 up, 2 waiting */
 } AlsaMidi;
 
 static void set_desc(AlsaMidi *a, const char *s) { snprintf(a->base.desc, sizeof a->base.desc, "%s", s); }
@@ -193,9 +194,11 @@ static int alsa_poll(Midi *m) {
     if (!connected(a)) {
         if (!(a->seq && seq_connect(a)) && !raw_connect(a)) {
             snprintf(a->base.desc, sizeof a->base.desc, "WAITING FOR %s", a->match[0] ? a->match : "DEVICE");
+            if (a->logged != 2) { fprintf(stderr, "seq4h: MIDI %s\n", a->base.desc); a->logged = 2; }
             return 0;
         }
     }
+    if (a->logged != 1) { fprintf(stderr, "seq4h: MIDI connected to %s\n", a->base.desc); a->logged = 1; }
     return 1;
 }
 

@@ -153,6 +153,22 @@ Works and tested on desktop Linux:
   Change loads a track's sound (since 1.5.1). Response to Start/Stop is not
   documented. Stable line is 1.8.x (1.9.0 is a beta).
 
+### Hardware results (Roy's RG40XX-V, 2026-11-19)
+
+- Knulli on Batocera 42, kernel **4.9.170** (`#14 SMP PREEMPT Thu Dec 25
+  12:29:54 CST 2025`), aarch64. Same kernel line as the 2024 H700 SDK, so
+  `snd-usb-audio` may still be missing; the next check log answers it.
+- `/sys/devices/platform/soc/usbc0/otg_role` reads **`usb_host`**: the USB-C
+  port is already in host mode with nothing plugged in.
+- The first `USB-MIDI-CHECK.sh` stopped right after that line. Its next read
+  was `usbc0/usb_host`, a sunxi control attribute, which blocked (or the
+  launcher killed the script) and nothing after it reached the log. v2 of the
+  script (`script: USB-MIDI-CHECK v2` at the top of the log) no longer reads
+  that file, puts every command under a time limit, has fallbacks for
+  missing tools (`lsusb`, `zcat`, `aconnect`, `amidi`, `modprobe`), reads USB
+  devices and interfaces from `/sys/bus/usb/devices`, and syncs the log after
+  every section.
+
 ### Code changes for this
 
 - `src/midi_alsa.c` now **falls back to raw MIDI** (`/dev/snd/midiC*D*`) when
@@ -163,13 +179,20 @@ Works and tested on desktop Linux:
   running, shows `MIDI: WAITING FOR ...` in the header, and reconnects within
   about a second when it appears. If that happens while playing, it restarts
   from step 1 with a fresh Start so the FM1's clock is back in phase.
+- **Header status:** top right shows `MIDI: OK` (green) with the port name,
+  `MIDI: WAITING` (yellow) with the name it looks for, or `MIDI: NONE`. Each
+  connect and disconnect is written to `seq4h/seq4h.log` as
+  `seq4h: MIDI connected to ...` / `seq4h: MIDI WAITING FOR ...`. (Roy's
+  2026-11-19 photo showed no status; the header had stopped drawing it.)
 - **Clock master:** MIDI clock now runs continuously, also while stopped, so
   the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four
   together, then sends All Notes Off and exits.
 - `knulli/USB-MIDI-CHECK.sh`: a Ports-menu diagnostic that logs USB role,
-  devices, kernel sound config, modules, ALSA cards and MIDI ports to
-  `seq4h/usb-midi-check.log`.
+  devices (with interface class and bound driver), kernel sound config,
+  modules, ALSA cards, raw MIDI and sequencer ports to
+  `seq4h/usb-midi-check.log`. Every section runs even if one fails, and the
+  last line of a complete log is `--- end`.
 - `knulli/SEQ4H.sh` logs to `seq4h/seq4h.log`, runs `modprobe` for the USB
   MIDI modules, and loads `.ko` files from `seq4h/modules/` if you add them.
 - CI (`.github/workflows/seq4h.yml`) runs `knulli/build.sh` and uploads

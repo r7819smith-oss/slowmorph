@@ -598,7 +598,16 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     snprintf(buf, sizeof buf, "SWING %d", s->swing);
     text(r, 270, 18, 2, DIM, buf);
     text(r, 440, 18, 2, s->playing ? (Col){90, 220, 120} : DIM, s->playing ? "PLAYING" : "STOPPED");
-    (void)midi_desc;
+    {   /* MIDI connection status, top right: green = connected, yellow = waiting, dim = none */
+        const char *d = midi_desc ? midi_desc : "NONE";
+        int waiting = !strncmp(d, "WAITING", 7), none = !strcmp(d, "NONE");
+        Col c = none ? DIM : waiting ? YELLOW : (Col){90, 220, 120};
+        text(r, 540, 14, 1, c, none ? "MIDI: NONE" : waiting ? "MIDI: WAITING" : "MIDI: OK");
+        if (!none) {
+            snprintf(buf, sizeof buf, "%.16s", waiting && strlen(d) > 12 ? d + 12 : d);   /* drop "WAITING FOR " */
+            text(r, 540, 26, 1, c, buf);
+        }
+    }
     for (int i = 0, x = 20; i < P_TABS; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
         text(r, x, 46, 1, i == u->page ? YELLOW : DIM, PAGE_NAMES[i]);
     snprintf(buf, sizeof buf, "T%d", u->track + 1);
