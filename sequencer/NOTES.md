@@ -21,6 +21,10 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   as ALSA ports.
 - **Timing:** a dedicated thread ticks at 96 PPQN using absolute
   `clock_nanosleep`. Measured 0.1 ms deviation on desktop Linux.
+- **Controls are for navigation and editing only** (Roy, 2026-11-19: no
+  finger drumming / live performance shortcuts). Four pages: GRID, STEP,
+  TRACK, GENERATE. L1/R1 = page, L2/R2 = track, B = back to grid; list pages
+  use up/down = row, left/right = value, hold Y = big step.
 - **Input** goes through `src/input.c`: a table from keyboard keys, raw
   joystick buttons/hats/axes and SDL game-controller buttons/axes to seq4h
   buttons and actions, overridable from `seq4h.input`. On Knulli the shipped
@@ -206,7 +210,7 @@ Checks:
 
 - [ ] Start *SEQ4H* from Ports, with seq4h **stopped**. The FM1's BPM already
       shows seq4h's tempo (120 for the demo), because clock runs while stopped.
-- [ ] Change BPM with L/R (hold B for steps of 10). The FM1's BPM follows
+- [ ] Change BPM on the TRACK page (hold Y for steps of 10). The FM1's BPM follows
       within a second or so.
 - [ ] Press Start: all four tracks play on the matching Felucca tracks.
       Anything tempo-synced on the FM1 (arpeggiator, LFO SYNC, delay) locks
@@ -241,11 +245,12 @@ Checks:
 
 - [ ] Fullscreen fills the screen; text is readable.
 - [ ] Start once with `SEQ4H_SHOW_INPUT=1` and press every button. The top
-      right shows the code (`IN: JOY 10 > PAGE`); `seq4h.log` lists them and
+      right shows the code (`IN: JOY 10 > L2`); `seq4h.log` lists them and
       the pad's name and GUID. Note any code that differs from the table in
       README "Button mapping" and fix it in `seq4h.input`.
-- [ ] Face buttons: A toggles a step, B is the note modifier.
-- [ ] L2/R2 switch page and roll.
+- [ ] Face buttons: on the grid A toggles a step, X opens the STEP page,
+      Y locks, B returns to the grid.
+- [ ] L1/R1 change page, L2/R2 change track.
 - [ ] Select+Start quits and the pattern is saved (`seq4h.pat` updated).
 
 **Results**
@@ -285,12 +290,13 @@ make                           # needs libsdl2-dev and libasound2-dev
 ./seq4h --midi list                                 # sequencer and raw MIDI ports
 ./seq4h --midi FM --midi-test                       # one note per channel 1-4
 SDL_VIDEODRIVER=dummy ./seq4h --midi none --demo --screenshot out.bmp \
-    --keys "Up,+Tab,c,-Tab"    # replay key names, save a screenshot
+    --keys "Down,c,Down,Right"  # replay key names, save a screenshot
 ```
 
 `--keys` takes comma-separated SDL key names; `+name` presses only and
 `-name` releases only. Keyboard map: arrows = D-pad, Z = A, X = B, C = X,
-V = Y, Q/W = L/R, Tab = Select, Space = Start, E/R/U/K = page/roll/undo/lock,
+V = Y, Q/W = L1/R1, 1/2 = L2/R2, Tab = Select, Space = Start,
+E/R/U/K = page/roll/undo/lock,
 Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 ## Files

@@ -1,6 +1,6 @@
 # seq4h button map for the Anbernic RG40XX-V under Knulli.
 # Copy next to the seq4h binary. Each line: SOURCE CODE BUTTON. Later lines win.
-# Buttons: up down left right a b x y l r select start page roll undo lock quit none
+# Buttons: up down left right a b x y l r l2 r2 select start page roll undo lock quit none
 # Run "./seq4h --show-input" to see the code each button sends.
 
 # Read the pad as a raw joystick. Some H700 pads report a GUID that SDL
@@ -14,12 +14,13 @@ joy 2  y
 joy 3  x
 joy 4  l          # L1
 joy 5  r          # R1
-joy 10 page       # L2: grid / generate page
-joy 11 roll       # R2: roll a new pattern
+joy 10 l2         # L2: previous track
+joy 11 r2         # R2: next track
 joy 6  select
 joy 7  start
 # joy 8           # Menu (held), joy 13 = Menu (short press), joy 9 = stick press
 # joy 9 undo      # example: stick press undoes the last roll
+# joy 13 quit     # example: short Menu press quits
 
 # The D-pad is hat 0.
 hat up    up

@@ -10,8 +10,8 @@
 #include <stdio.h>
 
 typedef enum {
-    B_UP, B_DOWN, B_LEFT, B_RIGHT, B_A, B_B, B_X, B_Y, B_L, B_R, B_SEL, B_START,
-    /* actions a button can be mapped to directly. Select+X/B/Y/A also reach them. */
+    B_UP, B_DOWN, B_LEFT, B_RIGHT, B_A, B_B, B_X, B_Y, B_L, B_R, B_L2, B_R2, B_SEL, B_START,
+    /* actions a button can be mapped to directly (shortcuts, e.g. for a keyboard) */
     B_PAGE, B_ROLL, B_UNDO, B_LOCK, B_QUIT,
     B_COUNT,
     B_NONE = -1

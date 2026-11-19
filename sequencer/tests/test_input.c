@@ -13,9 +13,10 @@ int main(void) {
     CHECK(m.mode == INPUT_AUTO);
     CHECK(m.joy[0] == B_A && m.joy[1] == B_B && m.joy[2] == B_Y && m.joy[3] == B_X);
     CHECK(m.joy[4] == B_L && m.joy[5] == B_R && m.joy[6] == B_SEL && m.joy[7] == B_START);
-    CHECK(m.joy[10] == B_PAGE && m.joy[11] == B_ROLL && m.joy[8] == B_NONE);
+    CHECK(m.joy[10] == B_L2 && m.joy[11] == B_R2 && m.joy[8] == B_NONE);
     CHECK(m.hat[0] == B_UP && m.hat[3] == B_LEFT);
-    CHECK(m.pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] == B_ROLL);
+    CHECK(m.pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] == B_R2);
+    CHECK(input_key(&m, SDLK_1) == B_L2 && input_btn_from_name("r2") == B_R2);
     CHECK(input_key(&m, SDLK_z) == B_A && input_key(&m, SDLK_ESCAPE) == B_QUIT);
 
     /* each source */
@@ -67,7 +68,7 @@ int main(void) {
     input_defaults(&n);
     CHECK(input_load(&n, f, "knulli/seq4h.input", stderr) == 0);
     fclose(f);
-    CHECK(n.mode == INPUT_JOYSTICK && n.joy[10] == B_PAGE && n.joy[11] == B_ROLL);
+    CHECK(n.mode == INPUT_JOYSTICK && n.joy[10] == B_L2 && n.joy[11] == B_R2);
 
     puts("input tests passed");
     return 0;

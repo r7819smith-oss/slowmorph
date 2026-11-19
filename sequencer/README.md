@@ -26,10 +26,10 @@ are left to the FM1.
 ## Making and evolving patterns
 
 Generators **write into the step grid**, so you can always edit the result by
-hand. Press **Select+X** to open the generate page for the current track, pick a
-generator, set its parameters and press **A** to roll a new pattern. **Select+Y**
-undoes the last roll. Steps you lock (**Select+A** on the grid, shown as a
-yellow square) are never touched by a roll or by evolution.
+hand. Go to the **GENERATE** page for the current track (L1/R1), pick a
+generator, set its parameters and press **A** to roll a new pattern. **X**
+undoes the last roll. Steps you lock (**Y** on the grid, shown as a yellow
+square) are never touched by a roll or by evolution.
 
 | Generator | What it does | Parameters |
 |---|---|---|
@@ -52,35 +52,43 @@ in the chosen scale.
 
 ## Controls
 
-Handheld buttons (keyboard in brackets). **Grid page:**
+The controls are for moving around and editing values; there are no live
+performance shortcuts. Four pages, in this order: **GRID**, **STEP**,
+**TRACK** and **GENERATE**. The tabs under the title show where you are and
+which track you are on. Keyboard keys are in brackets.
+
+**Everywhere**
 
 | Input | Action |
 |---|---|
-| D-pad | move cursor (up/down = track, left/right = step) |
-| A [Z] | step on/off |
-| X [C] | mute track |
-| B [X] + up/down | note up/down by scale degree |
-| B + left/right | velocity -/+ 8 |
-| Y [V] + up/down | gate +/- 10% |
-| Y + left/right | probability -/+ 10% |
-| Select [Tab] + left/right | track length |
-| Select + up/down | track MIDI channel |
-| Select + A | lock/unlock the step |
-| Select + B [R] | roll a new pattern with the track's generator |
-| Select + Y [U] | undo the last roll |
-| Select + X [E] | switch between grid and generate page |
-| L/R [Q/W] | BPM -/+ 1 (hold B for 10) |
-| Y + L/R | swing |
-| Start [Space] | play/stop |
-| Select + Start [Esc] | quit |
+| L1 / R1 [Q / W] | previous / next page |
+| L2 / R2 [1 / 2] | previous / next track |
+| B [X] | back to the grid |
+| Start [Space] | play / stop |
+| Select + Start [Tab + Space, or Esc] | quit (the pattern is saved) |
 
-**Generate page:** up/down chooses a row (track, generator, its parameters,
-lowest note, range, evolve settings, scale, root), left/right changes the
-value (hold B for bigger steps), A rolls, Select+Y undoes, Select+X returns to
-the grid.
+**GRID page**: all four tracks.
 
-On the handheld, **L2** switches between grid and generate page and **R2**
-rolls a new pattern (keyboard: E and R). **Select + Start** or **Esc** quits.
+| Input | Action |
+|---|---|
+| D-pad [arrows] | move the cursor (up/down = track, left/right = step) |
+| A [Z] | step on / off |
+| X [C] | edit this step (opens the STEP page) |
+| Y [V] | lock / unlock this step |
+
+**STEP, TRACK and GENERATE pages**: a list of values for the current track.
+Up/down picks a row, left/right changes it, and holding **Y** makes the
+change bigger.
+
+| Page | Rows | Also |
+|---|---|---|
+| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, probability, lock | A = step on/off |
+| TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
+| GENERATE | track, generator and its parameters, lowest note, range, evolve settings, scale, root | A = roll a new pattern, X = undo the roll |
+
+The STEP page edits the step under the grid cursor, and its STEP row moves
+that cursor, so you can walk through a pattern without going back to the
+grid. A preview of the current track sits on the right of each list page.
 
 ## Button mapping
 
@@ -111,8 +119,8 @@ a Knulli unit**; run
 | Start | joy 7 | start |
 | Menu (held) | joy 8 | not used |
 | Stick press | joy 9 | not used |
-| **L2** | **joy 10** | **page** |
-| **R2** | **joy 11** | **roll** |
+| **L2** | **joy 10** | **l2** (previous track) |
+| **R2** | **joy 11** | **r2** (next track) |
 | Menu (short press) | joy 13 | not used |
 | D-pad | hat 0 (up/right/down/left) | up/right/down/left |
 | Left stick | axes 0 (x) and 1 (y) | not used |
@@ -148,8 +156,9 @@ not matter and later lines win.
 | `pad` | SDL game-controller button or axis name (`a`, `leftshoulder`, `back`, `lefttrigger`, `leftx-` ...) | `pad righttrigger roll` |
 | `key` | SDL key name, `_` for spaces | `key Left_Shift lock` |
 
-`BUTTON` is one of `up down left right a b x y l r select start`, an action
-`page roll undo lock quit`, or `none` to unmap. Two settings also go in the
+`BUTTON` is one of `up down left right a b x y l r l2 r2 select start`, a
+shortcut action `page` (next page), `roll`, `undo`, `lock` (this step) or
+`quit`, or `none` to unmap. Two settings also go in the
 file:
 
 - `mode auto` (default): pads SDL recognises use the `pad` lines, other
@@ -158,12 +167,12 @@ file:
 - `threshold N` (default 16000, out of 32767): how far an axis must move to
   count as a press.
 
-Examples: swap A and B with `joy 0 b` and `joy 1 a`; make R2 undo instead
-of roll with `joy 11 undo`; quit with a short Menu press with `joy 13 quit`.
+Examples: swap A and B with `joy 0 b` and `joy 1 a`; make the stick press
+undo the last roll with `joy 9 undo`; quit with a short Menu press with `joy 13 quit`.
 
 On a desktop, the `pad` defaults use SDL's names (A = the bottom face button)
-with the triggers on page and roll; keyboard defaults are listed in the
-Controls table.
+with the triggers as L2/R2; keyboard defaults are listed in the Controls
+tables, plus E/R/U/K for page/roll/undo/lock.
 
 ## Build and run on a desktop Linux machine
 
@@ -220,8 +229,8 @@ sequencer in the kernel, seq4h uses raw MIDI devices (`hw:C,D,S`) instead.
 
 For the other `MIDI IN` modes:
 
-- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` with
-  Select + up/down.
+- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` on the
+  TRACK page.
 - **SEL:** run `./seq4h --channel N` so all four tracks use one channel. The
   FM1 then plays them all on the track you've selected on the device.
 - **TRACK:** set the matching channels in `seq4h` the same way.
