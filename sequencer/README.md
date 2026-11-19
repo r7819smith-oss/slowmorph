@@ -152,7 +152,7 @@ change bigger.
 |---|---|---|
 | STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, probability, lock | A = step on/off |
 | TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
-| GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
+| GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 
 **Main menu** (M): settings for the whole session. Up/down picks a row,
 left/right changes it, A selects; M or B closes it and returns to the page
