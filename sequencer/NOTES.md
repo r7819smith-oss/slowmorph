@@ -108,8 +108,11 @@ Works and tested on desktop Linux:
   playback and Start acted like L2. Knulli numbers the pad ("Deeplay-keys")
   3 higher: vol-=1 vol+=2 A=3 B=4 Y=5 X=6 L1=7 R1=8 Select=9 Start=10 M=11
   stick=12 L2=13 R2=14, D-pad hat 0 (the SDL mapping other Knulli ports such
-  as m8c use for this pad). Those are now the defaults. L1 and Start match
-  Roy's report; the rest still needs a check with M > BUTTON CODES.
+  as m8c use for this pad). Those are now the defaults. Roy's press-by-press
+  report on the old build fits this table for every button (A acted as X,
+  B/Y as L1/R1, X as Select, L1 as Start, Start as L2, M as R2, L2 as M;
+  R1, R2, Select and the stick did nothing). Confirm on the new build with
+  M > BUTTON CODES.
 - **Felucca's clock-source labels.** The wiki puts the clock source on the
   CLOCK page (tap HOME: HOME > MIXER > CLOCK) but does not name the options.
   Whether Felucca follows MIDI Start/Stop is not documented.
@@ -315,7 +318,7 @@ Checks:
 | FM1 follows tempo while stopped / on Start / Stop | |
 | Hot-plug | |
 | 30 min run | |
-| Button mapping, L2/R2 | stock table wrong (L1 = joy 7, Start = joy 10); Knulli table now default, to confirm |
+| Button mapping, L2/R2 | stock table wrong; old-build report fits the Knulli table for every button; recheck on new build |
 
 ### If the driver is missing
 
