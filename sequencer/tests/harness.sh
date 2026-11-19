@@ -113,6 +113,11 @@ track-page-solo|Left,x,Down,x,w,w,Down,Down,Down
 bat17-grid|
 menu-style-blank|m,Down,Right,Right,Right
 grid-blank|m,Down,Right,Right,Right,Down,z,z
+slots-page|m,Down,Down,Down,z
+slots-saved|m,Down,Down,Down,z,c,Down,c,c,c
+slots-rename|m,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
+slots-named|m,Down,Down,Down,z,c,v,Down,Down,Down,Down,Right,Down,z
+slots-copy-panel|m,Down,Down,Down,z,c,Tab,Right
 EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
@@ -124,6 +129,8 @@ EOF
         --differ grid-demo grid-label-cursor --differ grid-label-cursor grid-label-muted \
         --differ grid-label-cursor grid-label-solo --differ grid-label-cursor grid-label-back \
         --differ track-page track-page-solo --differ grid-demo grid-blank \
+        --differ grid-demo slots-page --differ slots-page slots-saved --differ slots-saved slots-rename \
+        --differ slots-rename slots-named --differ slots-saved slots-copy-panel \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"
@@ -141,6 +148,9 @@ persist)
     keys="$keys,z"
     i=0; while [ $i -lt 7 ]; do keys="$keys,Right,z"; i=$((i + 1)); done
     keys="$keys,2,z"
+    # Then M > SLOTS on track 2 (opens on slot 8), Y rename, up turns the S
+    # of "SLOT 8" into T, A keeps it: saved as "sn 1 7 TLOT_8".
+    keys="$keys,m,Down,Down,Down,z,v,Up,z"
     # Killed with SIGKILL (as a system exit hotkey or a flat battery would):
     # nothing runs at exit, so only the autosave two seconds after the edits
     # can have written the file.
@@ -152,6 +162,8 @@ persist)
     n=$(grep -c '^sl ' "$P/seq4h.pat" 2>/dev/null || echo 0)
     [ "$n" = 9 ] && [ ! -e "$P/seq4h.pat.tmp" ]
     result "autosave kept all 9 stored slots when the process was killed (found $n)" $?
+    grep -q '^sn 1 7 TLOT_8$' "$P/seq4h.pat"
+    result "a slot renamed on the SLOTS page was autosaved" $?
     # Relaunch, quit straight away (Escape): every slot loads, and the file
     # written at quit is byte-for-byte the one loaded.
     cp "$P/seq4h.pat" "$P/before.pat"
@@ -159,7 +171,7 @@ persist)
     rc=$?
     cat "$P/run2.log"
     [ $rc = 0 ] && grep -q 'loaded .*(9 stored slots)' "$P/run2.log" && cmp -s "$P/before.pat" "$P/seq4h.pat"
-    result "relaunch loads all 9 slots and quit saves the same file" $?
+    result "relaunch loads all 9 slots and the slot name, and quit saves the same file" $?
     note ""
     ;;
 alsa)

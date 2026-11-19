@@ -568,6 +568,54 @@ static void test_slots_and_chain(void) {
     CHECK(b.track[2].chain_bars == 8 && b.track[2].chain_morph == 40 && b.track[2].cur_slot == 6);
 }
 
+static void test_slot_names(void) {
+    Seq a, b;
+    char nm[SEQ_SLOT_NAME + 1];
+    seq_init(&a, NULL, NULL);
+    seq_slot_name(&a, 1, 2, nm);
+    CHECK(!strcmp(nm, "SLOT 3"));                         /* default name */
+    seq_slot_set_name(&a, 1, 2, "drone a!xyz");           /* upper case, odd characters to spaces, 8 max */
+    seq_slot_name(&a, 1, 2, nm);
+    CHECK(!strcmp(nm, "DRONE A"));                        /* "DRONE A " trimmed */
+    seq_slot_set_name(&a, 1, 3, "SLOT 4   ");             /* the default is stored as "" */
+    CHECK(a.track[1].slot[3].name[0] == 0);
+    seq_slot_set_name(&a, 0, 0, "  -9");
+    seq_slot_set_name(&a, 0, 7, "EMPTY OK");              /* an empty slot can carry a name */
+
+    /* copy takes pattern and name; an empty source copies nothing */
+    a.track[1].step[3].on = 1; a.track[1].step[3].note = 50; a.track[1].len = 24;
+    seq_slot_store(&a, 1, 2);
+    CHECK(seq_slot_copy(&a, 1, 2, 5) == 0);
+    CHECK(a.track[1].slot[5].used && a.track[1].slot[5].len == 24 && a.track[1].slot[5].step[3].note == 50);
+    CHECK(!strcmp(a.track[1].slot[5].name, "DRONE A"));
+    CHECK(seq_slot_copy(&a, 1, 6, 5) == -1 && a.track[1].slot[5].used);
+
+    /* names survive save/load; spaces are kept */
+    FILE *f = tmpfile();
+    seq_save(&a, f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(!strcmp(b.track[1].slot[2].name, "DRONE A") && !strcmp(b.track[1].slot[5].name, "DRONE A"));
+    CHECK(!strcmp(b.track[0].slot[0].name, "  -9") && !strcmp(b.track[0].slot[7].name, "EMPTY OK"));
+    CHECK(!b.track[0].slot[7].used && b.track[1].slot[5].used && b.track[1].slot[3].name[0] == 0);
+
+    /* clear empties the slot and resets its name */
+    seq_slot_clear(&b, 1, 5);
+    CHECK(!b.track[1].slot[5].used && b.track[1].slot[5].name[0] == 0);
+    CHECK(seq_slot_recall(&b, 1, 5) == -1);
+
+    /* a file from before slot names loads, with default names */
+    const char *old = "seq4h 1\nbpm 90\nsl 0 1 16\nss 0 1 0 1 60 100 50 100 0\n";
+    f = tmpfile();
+    fputs(old, f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    seq_slot_name(&b, 0, 1, nm);
+    CHECK(b.bpm == 90 && b.track[0].slot[1].used && !strcmp(nm, "SLOT 2"));
+}
+
 static void test_hold(void) {
     /* hold 3 at gate 50%: note off 3.5 steps (84 ticks) after note on */
     Seq s;
@@ -834,6 +882,7 @@ int main(void) {
     test_save_load();
     test_long_patterns();
     test_slots_and_chain();
+    test_slot_names();
     test_styles();
     test_hold();
     test_blank_style();
