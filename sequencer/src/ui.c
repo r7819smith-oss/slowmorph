@@ -78,8 +78,14 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 /* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
-               P_MENU = P_TABS, P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU"};
+               P_MENU = P_TABS, P_SLOTS, P_COUNT } Page;      /* SLOTS opens from the main menu */
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS"};
+
+/* SLOTS page: a second press confirms anything that overwrites or empties a slot. */
+enum { CF_NONE, CF_SAVE, CF_COPY, CF_CLEAR };
+enum { MORE_COPY, MORE_CLEAR, MORE_BACK, MORE_ROWS };   /* rows of the Select panel */
+/* Letters for slot names, in up/down order. */
+static const char NAME_CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 
 typedef struct {
     Player *p;
@@ -99,6 +105,13 @@ typedef struct {
     int slot;                 /* slot chosen on the generate page */
     int snap;                 /* changing scale moves notes into it */
     int confirm_new;          /* NEW FROM STYLE was pressed once */
+    int slot_confirm;         /* SLOTS page: CF_* waiting for a second press */
+    int slot_more;            /* SLOTS page: the Select panel (copy / clear) is open */
+    int more_row;             /* selected row of that panel (MORE_*) */
+    int copy_to;              /* slot to copy into */
+    int naming;               /* SLOTS page: the name editor is open */
+    char name_buf[SEQ_SLOT_NAME + 1];
+    int name_pos;             /* character being edited */
     const char *msg;
     Uint32 msg_until;
     char msg_buf[48];         /* for messages built on the fly */
@@ -193,7 +206,9 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     }
     else if (row == GR_SLOT) {
         snprintf(label, 24, "SLOT");
-        snprintf(val, 24, "%d %s", u->slot + 1, tr->slot[u->slot].used ? "(A: LOAD)" : "EMPTY");
+        char nm[SEQ_SLOT_NAME + 1];
+        seq_slot_name(s, t, u->slot, nm);
+        if (tr->slot[u->slot].used) snprintf(val, 24, "%s", nm); else snprintf(val, 24, "%d EMPTY", u->slot + 1);
     }
     else if (row == GR_STORE) { snprintf(label, 24, "  SAVE TO SLOT"); snprintf(val, 24, "A: SAVE %d", u->slot + 1); }
     else if (row == GR_CHAIN) {
@@ -342,8 +357,8 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 5
-enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_CODES, MENU_QUIT };
+#define MENU_ROWS 6
+enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_SLOTS, MENU_CODES, MENU_QUIT };
 
 static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     val[0] = 0;
@@ -353,6 +368,7 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         snprintf(label, 24, "NEW FROM STYLE");
         snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
     }
+    else if (row == MENU_SLOTS) { snprintf(label, 24, "SLOTS"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_CODES) { snprintf(label, 24, "BUTTON CODES"); snprintf(val, 24, "%s", u->show_input ? "ON" : "OFF"); }
     else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
 }
@@ -383,12 +399,18 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         say(u, s->style == STYLE_BLANK ? "BLANK: FOUR EMPTY MANUAL TRACKS"
                : kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
     }
+    else if (row == MENU_SLOTS) {
+        u->page = P_SLOTS;
+        u->row[P_SLOTS] = s->track[u->track].cur_slot;
+        u->slot_confirm = u->slot_more = u->naming = 0;
+    }
     else if (row == MENU_CODES) toggle_codes(u);
     else if (row == MENU_QUIT) u->quit = 1;
 }
 
 static int page_rows(int page) {
-    return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS : GEN_ROWS;
+    return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
+         : page == P_SLOTS ? SEQ_SLOTS : GEN_ROWS;
 }
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
@@ -458,6 +480,106 @@ static void label_solo(Seq *s, Ui *u) {
     say(u, u->msg_buf);
 }
 
+/* SLOTS page (M > SLOTS): the current track's 8 slots. A loads, X saves the
+ * live pattern into the slot, Y renames it, Select opens copy / clear. */
+static void slots_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    const SeqTrack *tr = &s->track[u->track];
+    char nm[SEQ_SLOT_NAME + 1];
+    seq_slot_name(s, u->track, row, nm);
+    snprintf(label, 24, "%d %s", row + 1, nm);
+    if (tr->slot[row].used) snprintf(val, 24, "%d STEPS%s", tr->slot[row].len, row == tr->cur_slot ? " <" : "");
+    else snprintf(val, 24, "EMPTY");
+}
+
+static void name_slot_start(const Seq *s, Ui *u, int k) {
+    char nm[SEQ_SLOT_NAME + 1];
+    seq_slot_name(s, u->track, k, nm);
+    snprintf(u->name_buf, sizeof u->name_buf, "%-*s", SEQ_SLOT_NAME, nm);   /* pad with spaces to 8 */
+    u->name_pos = 0;
+    u->naming = 1;
+}
+
+/* The name editor: up/down letter, left/right move, X space, A keep, B cancel. */
+static void name_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    int k = u->row[P_SLOTS];
+    char *c = &u->name_buf[u->name_pos];
+    if (dy) {
+        const char *at = strchr(NAME_CHARS, *c);
+        int i = at && *c ? (int)(at - NAME_CHARS) : 0, n = (int)strlen(NAME_CHARS);
+        *c = NAME_CHARS[wrap(i - dy, n)];   /* up = next letter */
+    }
+    else if (dx) u->name_pos = clampi(u->name_pos + dx, 0, SEQ_SLOT_NAME - 1);
+    else if (b == B_X) *c = ' ';
+    else if (b == B_A) {
+        seq_slot_set_name(s, u->track, k, u->name_buf);
+        u->naming = 0;
+        char nm[SEQ_SLOT_NAME + 1];
+        seq_slot_name(s, u->track, k, nm);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "NAMED %s", nm);
+        say(u, u->msg_buf);
+    }
+    else if (b == B_B) { u->naming = 0; say(u, "NAME NOT CHANGED"); }
+}
+
+static void slot_say(Ui *u, const char *what, const Seq *s, int k) {
+    char nm[SEQ_SLOT_NAME + 1];
+    seq_slot_name(s, u->track, k, nm);
+    snprintf(u->msg_buf, sizeof u->msg_buf, "%s %s", what, nm);
+    say(u, u->msg_buf);
+}
+
+static void slots_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    SeqTrack *tr = &s->track[u->track];
+    int *row = &u->row[P_SLOTS], k = *row;
+    int confirm = u->slot_confirm;
+    u->slot_confirm = CF_NONE;   /* any other press cancels a pending confirm */
+    if (u->naming) { name_press(s, u, b, dx, dy); return; }
+    if (u->slot_more) {
+        if (dy) u->more_row = wrap(u->more_row + dy, MORE_ROWS);
+        else if (dx && u->more_row == MORE_COPY) u->copy_to = wrap(u->copy_to + dx, SEQ_SLOTS);
+        else if (b == B_B || b == B_SEL || (b == B_A && u->more_row == MORE_BACK)) u->slot_more = 0;
+        else if (b == B_A && u->more_row == MORE_COPY) {
+            if (!tr->slot[k].used) { say(u, "SLOT IS EMPTY: NOTHING TO COPY"); return; }
+            if (u->copy_to == k) { say(u, "PICK ANOTHER SLOT TO COPY TO"); return; }
+            if (tr->slot[u->copy_to].used && confirm != CF_COPY) {
+                u->slot_confirm = CF_COPY;
+                snprintf(u->msg_buf, sizeof u->msg_buf, "A AGAIN: REPLACE SLOT %d", u->copy_to + 1);
+                say(u, u->msg_buf);
+                return;
+            }
+            seq_slot_copy(s, u->track, k, u->copy_to);
+            snprintf(u->msg_buf, sizeof u->msg_buf, "COPIED TO SLOT %d", u->copy_to + 1);
+            say(u, u->msg_buf);
+            *row = u->copy_to;
+            u->slot_more = 0;
+        }
+        else if (b == B_A && u->more_row == MORE_CLEAR) {
+            if (!tr->slot[k].used && !tr->slot[k].name[0]) { say(u, "SLOT IS ALREADY EMPTY"); return; }
+            if (confirm != CF_CLEAR) { u->slot_confirm = CF_CLEAR; say(u, "A AGAIN: CLEAR THIS SLOT"); return; }
+            seq_slot_clear(s, u->track, k);
+            snprintf(u->msg_buf, sizeof u->msg_buf, "SLOT %d CLEARED", k + 1);
+            say(u, u->msg_buf);
+            u->slot_more = 0;
+        }
+        return;
+    }
+    if (dy) *row = wrap(*row + dy, SEQ_SLOTS);
+    else if (b == B_B) u->page = P_MENU;
+    else if (b == B_A) {
+        if (!tr->slot[k].used) { say(u, "SLOT IS EMPTY"); return; }
+        remember(s, u);                  /* X on GENERATE undoes a load */
+        seq_slot_recall(s, u->track, k);
+        slot_say(u, "LOADED", s, k);
+    }
+    else if (b == B_X) {
+        if (tr->slot[k].used && confirm != CF_SAVE) { u->slot_confirm = CF_SAVE; say(u, "X AGAIN: REPLACE THIS SLOT"); return; }
+        seq_slot_store(s, u->track, k);
+        slot_say(u, "SAVED TO", s, k);
+    }
+    else if (b == B_Y) name_slot_start(s, u, k);
+    else if (b == B_SEL) { u->slot_more = 1; u->more_row = MORE_COPY; u->copy_to = (k + 1) % SEQ_SLOTS; }
+}
+
 /* Controls (same on every page unless noted):
  *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
  *   M main menu (B or M again closes it)
@@ -466,23 +588,34 @@ static void label_solo(Seq *s, Ui *u) {
  *         up/down track, right back to step 1
  *   lists: up/down row, left/right value (hold Y for big steps)
  *          STEP A step on/off; GENERATE A rolls, or does the selected row's action
- *          (set anchor, apply transform, load/save slot, snap notes), X undoes */
+ *          (set anchor, apply transform, load/save slot, snap notes), X undoes
+ *   SLOTS (M > SLOTS): up/down slot, A load, X save here, Y rename, Select copy/clear,
+ *          B back to the menu; renaming: up/down letter, left/right move, X space,
+ *          A keep, B cancel */
 static void press(Ui *u, Btn b) {
     Player *p = u->p;
     if (!u->save_due) u->save_due = SDL_GetTicks() + 2000;   /* autosave shortly after edits */
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS;
     if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
     else if (b == B_MENU) {
-        if (u->page == P_MENU) u->page = u->menu_from;
+        u->naming = u->slot_more = u->slot_confirm = 0;
+        if (in_menu) u->page = u->menu_from;
         else { u->menu_from = u->page; u->page = P_MENU; }
     }
+    else if (u->page == P_SLOTS && u->naming) slots_press(s, u, b, dx, dy);   /* the editor takes every button */
+    else if (u->page == P_SLOTS && (b == B_L2 || b == B_R2)) {
+        u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
+        u->slot_more = u->slot_confirm = 0;
+    }
+    else if (u->page == P_SLOTS && b != B_L && b != B_R && b != B_PAGE) slots_press(s, u, b, dx, dy);
     else if (u->page == P_MENU && b == B_B) u->page = u->menu_from;
     else if (u->page == P_MENU && b == B_A) menu_row_select(s, u, u->row[P_MENU]);
-    else if (b == B_L || b == B_R) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + (b == B_R ? 1 : -1), P_TABS);
-    else if (b == B_PAGE) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + 1, P_TABS);
+    else if (b == B_L || b == B_R) u->page = wrap((in_menu ? u->menu_from : u->page) + (b == B_R ? 1 : -1), P_TABS);
+    else if (b == B_PAGE) u->page = wrap((in_menu ? u->menu_from : u->page) + 1, P_TABS);
     else if (b == B_L2 || b == B_R2) u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
     else if (u->page == P_GRID && u->on_label && (b == B_A || b == B_B || b == B_X || b == B_Y || dx || dy)) {
         if (b == B_A) label_mute(s, u);
@@ -807,6 +940,76 @@ static void draw_preview(SDL_Renderer *r, const Seq *s, const Ui *u) {
     }
 }
 
+/* Right-hand side of the SLOTS page: the selected slot's pattern, then the name
+ * editor or the copy / clear panel when open, and the button help. */
+static void draw_slots_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    const SeqTrack *tr = &s->track[u->track];
+    int k = u->row[P_SLOTS];
+    const SeqSlot *sl = &tr->slot[k];
+    Col base = TRACK_COL[u->track];
+    char buf[64], nm[SEQ_SLOT_NAME + 1];
+    seq_slot_name(s, u->track, k, nm);
+    snprintf(buf, sizeof buf, "T%d SLOTS", u->track + 1);
+    text(r, 392, 62, 2, base, buf);
+    int px = 392, py = 100, len = sl->used ? sl->len : 16, pw = len > 16 ? 240 / len : 15, ph = 90;
+    snprintf(buf, sizeof buf, "%d %s: %s", k + 1, nm, sl->used ? "STORED PATTERN" : "EMPTY");
+    text(r, px, py - 14, 1, DIM, buf);
+    rect(r, px - 4, py - 2, 16 * 15 + 6, ph + 4, (Col){24, 26, 36});
+    if (sl->used) {
+        int lo = 127, hi = 0;
+        for (int i = 0; i < len; i++) if (sl->step[i].on) { if (sl->step[i].note < lo) lo = sl->step[i].note; if (sl->step[i].note > hi) hi = sl->step[i].note; }
+        for (int i = 0; i < len; i++) {
+            const SeqStep *st = &sl->step[i];
+            if (!st->on) continue;
+            int yy = py + ph - 8 - (st->note - lo) * (ph - 8) / (hi > lo ? hi - lo : 1);
+            rect(r, px + i * pw, yy, pw - 3, 8, scale(base, 35 + 65 * st->vel / 127));
+        }
+    }
+    int y = 204;
+    if (tr->chain_len > 1) {
+        snprintf(buf, sizeof buf, "CHAIN PLAYS SLOTS 1-%d", tr->chain_len);
+        text(r, 392, y, 1, DIM, buf);
+    }
+    y += 18;
+    if (u->naming) {
+        text(r, 392, y, 2, YELLOW, "RENAME");
+        for (int i = 0; i < SEQ_SLOT_NAME; i++) {
+            int x = 392 + i * 28;
+            char ch[2] = {u->name_buf[i], 0};
+            rect(r, x, y + 24, 24, 34, i == u->name_pos ? (Col){40, 44, 64} : (Col){24, 26, 36});
+            if (i == u->name_pos) frame(r, x, y + 24, 24, 34, 2, YELLOW);
+            text(r, x + 5, y + 30, 2, i == u->name_pos ? YELLOW : WHITE, ch[0] == ' ' ? "_" : ch);
+        }
+        text(r, 392, y + 70, 1, DIM, "UP/DOWN LETTER  LEFT/RIGHT MOVE");
+        text(r, 392, y + 82, 1, DIM, "X SPACE  A KEEP  B CANCEL");
+    } else if (u->slot_more) {
+        static const char *L[MORE_ROWS] = {"COPY TO", "CLEAR SLOT", "BACK"};
+        for (int i = 0; i < MORE_ROWS; i++) {
+            int yy = y + i * 24, sel = i == u->more_row;
+            if (sel) rect(r, 388, yy - 3, 244, 20, (Col){40, 44, 64});
+            text(r, 394, yy, 2, sel ? YELLOW : WHITE, L[i]);
+            if (i == MORE_COPY) {
+                char to[SEQ_SLOT_NAME + 1];
+                seq_slot_name(s, u->track, u->copy_to, to);
+                snprintf(buf, sizeof buf, "SLOT %d", u->copy_to + 1);
+                text(r, 494, yy, 2, sel ? YELLOW : WHITE, buf);
+                if (tr->slot[u->copy_to].name[0]) text(r, 578, yy + 4, 1, sel ? YELLOW : WHITE, to);
+            }
+        }
+        text(r, 392, y + 80, 1, DIM, "LEFT/RIGHT PICK THE SLOT TO COPY TO");
+        text(r, 392, y + 92, 1, DIM, "A DO IT (A AGAIN TO CONFIRM)  B CLOSE");
+    } else {
+        text(r, 392, y, 1, DIM, "A     LOAD INTO THE TRACK (X ON");
+        text(r, 392, y + 12, 1, DIM, "      GENERATE UNDOES IT)");
+        text(r, 392, y + 26, 1, DIM, "X     SAVE THE TRACK HERE");
+        text(r, 392, y + 40, 1, DIM, "Y     RENAME");
+        text(r, 392, y + 54, 1, DIM, "SELECT COPY OR CLEAR");
+        text(r, 392, y + 76, 1, DIM, "< = SLOT LAST LOADED OR SAVED");
+    }
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN SLOT  A LOAD  X SAVE HERE  Y RENAME  SELECT COPY/CLEAR");
+    text(r, 20, H - 20, 1, DIM, "L2/R2 TRACK  B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
+}
+
 static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *midi_desc) {
     const Seq s = *sp;
     char label[24], val[24];
@@ -819,6 +1022,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         label[0] = val[0] = 0;
         if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
         else if (u->page == P_MENU) menu_row_text(&s, u, row, label, val);
+        else if (u->page == P_SLOTS) { slots_row_text(&s, u, row, label, val); head = s.track[u->track].slot[row].used; }
         else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 4; }
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
@@ -826,6 +1030,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 22, y, 2, sel ? YELLOW : head ? WHITE : DIM, label);
         text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
     }
+    if (u->page == P_SLOTS) { draw_slots_side(r, &s, u); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
     else text(r, 392, 62, 2, YELLOW, "MAIN MENU");
     if (u->page == P_GEN) {

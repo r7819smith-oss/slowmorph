@@ -48,11 +48,13 @@ typedef struct {
 #define SEQ_SLOTS 8   /* stored patterns per track */
 #define SEQ_CHORD_MAX 3   /* notes a chord adds on top of the step's own note */
 #define SEQ_MAX_EVERY 64  /* longest evolution interval, in bars */
+#define SEQ_SLOT_NAME 8   /* characters in a slot name */
 
 typedef struct {
     SeqStep step[SEQ_STEPS];
     uint8_t len;
     uint8_t used;       /* 0 = empty slot */
+    char name[SEQ_SLOT_NAME + 1];   /* "" = default ("SLOT 3"); A-Z, 0-9, space, '-' */
 } SeqSlot;
 
 typedef struct {
@@ -148,6 +150,15 @@ void seq_set_scale(Seq *s, int scale, int root, int snap);
  * copies it back (returns -1 for an empty slot). */
 void seq_slot_store(Seq *s, int t, int k);
 int  seq_slot_recall(Seq *s, int t, int k);
+/* Empty slot k and reset its name. */
+void seq_slot_clear(Seq *s, int t, int k);
+/* Copy slot `from` (pattern and name) over slot `to`; -1 if `from` is empty. */
+int  seq_slot_copy(Seq *s, int t, int from, int to);
+/* Name a slot: lower case becomes upper case, other characters become spaces,
+ * trailing spaces go, and the default name ("SLOT 3") is stored as "". */
+void seq_slot_set_name(Seq *s, int t, int k, const char *name);
+/* The name to show: the slot's own name, or "SLOT 3". out holds SEQ_SLOT_NAME + 1. */
+void seq_slot_name(const Seq *s, int t, int k, char *out);
 /* Chain: play slots seq[0..n-1] in turn, `bars` bars each. morph 0 jumps,
  * otherwise steps drift towards the next slot (morph = % chance per bar). */
 void seq_chain_set(Seq *s, int t, const uint8_t *seq, int n, int bars, int morph);

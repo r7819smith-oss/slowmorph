@@ -90,7 +90,8 @@ More on the GENERATE page (press **A** on a row to do its action):
 - **Scale snap:** with `SNAP NOTES` on, changing scale or root moves every
   note into the new scale. A on that row snaps the notes now.
 - **Slots and chains:** each track has 8 pattern slots. `SAVE TO SLOT` stores
-  the live pattern; A on `SLOT` loads it back. `CHAIN` plays slots 1 to N in
+  the live pattern; A on `SLOT` loads it back. **M > SLOTS** lists them by
+  name, with load, save, rename, copy and clear (see *Slots page* below). `CHAIN` plays slots 1 to N in
   turn, `BARS PER SLOT` each, and `CHANGE BY` either jumps to the next slot or
   morphs into it a few steps per bar.
 - **Held notes:** `HOLD` on the STEP page ties a note over up to 31 more steps
@@ -179,7 +180,30 @@ you were on. Rows:
   tone now and then, a slowly drifting line (20 steps) and sparse soft bells
   (27 steps) that rest now and then, with slow swells and evolution every 4
   to 32 bars.
+- *Slots*: A opens the **Slots page** (below).
+- *Button codes*: show each button's raw code (see *Button mapping*).
 - *Save and quit*
+
+**Slots page** (M > SLOTS, A): the 8 slots of the current track, each with
+its name and length, or EMPTY. `<` marks the slot last loaded or saved. The
+right side shows the selected slot's pattern. L2/R2 changes track.
+
+| Input | Action |
+|---|---|
+| Up / down | pick a slot |
+| A [Z] | load the slot into the track (X on GENERATE undoes it) |
+| X [C] | save the track's pattern into the slot (a full slot asks for X again) |
+| Y [V] | rename the slot |
+| Select [Tab] | copy or clear: COPY TO (left/right picks the slot), CLEAR SLOT, BACK; A does it, and A again confirms replacing a full slot or clearing |
+| B [X] | back to the main menu (closes the copy/clear panel first) |
+| M [M] | close the menu |
+
+**Renaming**: names are up to 8 characters (A-Z, 0-9, space and `-`) and
+start as SLOT 1 to SLOT 8. Up/down changes the letter under the cursor,
+left/right moves along, X makes it a space, A keeps the name and B cancels.
+Names are saved in `seq4h.pat` (lines `sn TRACK SLOT NAME`, spaces written as
+`_`); a copy takes the name with it and clearing a slot resets its name.
+Older versions of seq4h load the file and ignore the names.
 
 On the first run (no saved `seq4h.pat` and no `--demo`), seq4h starts from the
 ambient set.
