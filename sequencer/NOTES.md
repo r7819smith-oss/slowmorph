@@ -446,7 +446,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Power | the handheld charges the FM1 over USB and drains its own battery; charge the FM1 first or use a powered hub |
 | Audio | quiet fluttering noise on the FM1 output with sparse tracks; probably USB power or ground noise, not investigated yet |
 | Styles, per-track generators, MANUAL, 32 steps, slots, chaining | work |
-| Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14), to retest |
+| Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14, merged), to retest on hardware |
 | 30-minute run | not tested yet |
 | Hub | not tested yet |
 
