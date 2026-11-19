@@ -243,20 +243,26 @@ Settings are saved in `seq4h.pat`, so you only set channels once.
 
 ## Building for Knulli
 
-Knulli (RG40XX-V, Allwinner H700) is 64-bit ARM Linux. GitHub Actions builds
-an aarch64 binary on every change (workflow *seq4h aarch64 build*, artifact
-`seq4h-knulli-aarch64`, which also holds the Ports scripts). To build it
-yourself, cross-compile with an aarch64 toolchain and the arm64 SDL2 and ALSA
-dev libraries, for example:
+Knulli (RG40XX-V, Allwinner H700) is 64-bit ARM Linux. One script builds,
+tests and packages it, locally or in CI. It needs only Docker:
 
 ```sh
-make CC=aarch64-linux-gnu-gcc PKG=aarch64-linux-gnu-pkg-config
+sequencer/knulli/build.sh
 ```
 
-Then copy `seq4h`, `knulli/seq4h.input`, `knulli/SEQ4H.sh` and
-`knulli/USB-MIDI-CHECK.sh` as described in the scripts. The CI binary is
-built against glibc 2.36 (Debian bookworm) and links
-the device's own SDL2 and ALSA libraries; it has not been run on Knulli yet.
+It cross-compiles in an Ubuntu 20.04 container (glibc 2.31, older than any
+Knulli release), links the device's own SDL2 and ALSA libraries, runs the unit
+tests natively and under qemu, draws one frame of the aarch64 binary under
+qemu as a smoke test, and writes:
+
+- `dist/seq4h`, the aarch64 binary
+- `dist/seq4h-knulli-aarch64.zip`, holding `SEQ4H.sh`, `USB-MIDI-CHECK.sh`,
+  `seq4h/seq4h` and `seq4h/seq4h.input`. Unzip it into `/userdata/roms/ports/` and refresh the
+  game list. The zip keeps the execute bits.
+
+The output is byte-for-byte reproducible. GitHub Actions runs the same script
+on every change (workflow *seq4h aarch64 build*, artifact
+`seq4h-knulli-aarch64`). The binary has not been run on Knulli yet.
 
 ## Layout
 

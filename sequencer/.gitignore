@@ -5,5 +5,6 @@ seq4h.pat
 seq4h-render
 tests/test_engine_asan
 out/
+dist/
 tests/test_input
 seq4h.log

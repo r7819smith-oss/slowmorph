@@ -60,8 +60,8 @@ Works and tested on desktop Linux:
   checklist.
 - **The ALSA output against real hardware.** The build container had no
   sound devices, so the code compiles and falls back cleanly, nothing more.
-- **Any run on the handheld.** The aarch64 build now runs in CI
-  (`.github/workflows/seq4h.yml`) but the binary has not been run on Knulli.
+- **Any run on the handheld.** The aarch64 build is settled (see *aarch64
+  build* below) and smoke-tested under qemu, but has not run on Knulli.
 - **Button codes on a Knulli unit.** The defaults (README, "Button mapping")
   come from a published log of an RG40XX-V on stock firmware: A=0 B=1 Y=2
   X=3 L1=4 R1=5 Select=6 Start=7 L2=10 R2=11, D-pad on hat 0. L2/R2 are
@@ -135,9 +135,8 @@ Works and tested on desktop Linux:
   `seq4h/usb-midi-check.log`.
 - `knulli/SEQ4H.sh` logs to `seq4h/seq4h.log`, runs `modprobe` for the USB
   MIDI modules, and loads `.ko` files from `seq4h/modules/` if you add them.
-- CI (`.github/workflows/seq4h.yml`) builds an aarch64 binary on Debian
-  bookworm (glibc 2.36, dynamic SDL2 and ALSA) and uploads
-  `seq4h-knulli-aarch64` with both scripts.
+- CI (`.github/workflows/seq4h.yml`) runs `knulli/build.sh` and uploads
+  `seq4h-knulli-aarch64` (see *aarch64 build*).
 
 ### Test checklist
 
@@ -146,11 +145,13 @@ Fill in the results table as you go. Tick each box or note what happened.
 **A. Install**
 
 - [ ] Download the `seq4h-knulli-aarch64` artifact from the latest
-      *seq4h aarch64 build* run on GitHub Actions and unzip it.
-- [ ] Copy `ports/SEQ4H.sh`, `ports/USB-MIDI-CHECK.sh` and the `ports/seq4h/`
-      folder to `/userdata/roms/ports/` (SHARE partition `roms/ports`, or over
-      SSH/SMB). Over SSH run `chmod +x` on both scripts and `seq4h/seq4h`
-      (the zip drops the execute bit).
+      *seq4h aarch64 build* run on GitHub Actions (or run
+      `knulli/build.sh`). Inside is `seq4h-knulli-aarch64.zip`.
+- [ ] Unzip `seq4h-knulli-aarch64.zip` into `/userdata/roms/ports/` (SHARE
+      partition `roms/ports`, or over SSH/SMB). You get `SEQ4H.sh`,
+      `USB-MIDI-CHECK.sh` and `seq4h/`. The zip keeps the execute bits; if
+      you copied the files some other way, run `chmod +x` on both scripts and
+      `seq4h/seq4h`.
 - [ ] Update the game list; both entries appear under Ports.
 
 **B. Driver check (no FM1)**
@@ -338,6 +339,39 @@ off the handheld with `scp root@<handheld-ip>:/tmp/h.cap .`.
 - **During G:** the same with `--capture` on the 30-minute run (a few MB).
 
 
+## aarch64 build
+
+Decided 2026-11-19. `knulli/build.sh` is the single build path, used locally
+and by CI:
+
+- **Cross-compile, not emulate.** An Ubuntu 20.04 container
+  (`knulli/Dockerfile`) with `gcc-aarch64-linux-gnu` and the arm64
+  `libsdl2-dev` and `libasound2-dev` from ports.ubuntu.com (multiarch). The
+  first CI version ran a native build in an emulated arm64 Debian container,
+  which was slow; Debian bullseye was also dropped there because its security
+  archive is gone.
+- **glibc 2.31 floor.** Ubuntu 20.04's glibc is older than any Knulli release.
+  In practice the binary needs only `GLIBC_2.17` symbols.
+- **Dynamic SDL2 and ALSA.** It needs `libSDL2-2.0.so.0`, `libasound.so.2`,
+  `libpthread.so.0` and `libc.so.6`, which Knulli ships. Using the device's
+  SDL means Knulli's own video and input backends are used. The code only
+  calls SDL functions from 2.0.5 or older, so the device's SDL version does
+  not matter. If a future Knulli lacked one of these, bundle the `.so` next to
+  the binary and set `LD_LIBRARY_PATH` in `SEQ4H.sh`.
+- `-mcpu=cortex-a53` for the H700. The script fails if the result is not
+  aarch64 or lacks ALSA.
+- **Tests:** unit tests natively, the same tests built for aarch64 under
+  `qemu-aarch64-static`, then the real binary draws a frame with
+  `SDL_VIDEODRIVER=dummy`. This proves it links and runs against arm64 SDL,
+  not that it works on the handheld.
+- **Reproducible:** `-ffile-prefix-map`, a stripped binary and a zip with
+  fixed timestamps give identical SHA-256s on every run.
+- **Package:** `dist/seq4h-knulli-aarch64.zip` in the Ports layout. CI
+  uploads the zip inside the artifact, because GitHub artifacts drop the
+  execute bit.
+- Behind a proxy that blocks plain HTTP, the apt sources need switching to
+  https (the cloud build container needed this; GitHub's runners do not).
+
 ## Handy commands
 
 ```sh
@@ -345,6 +379,7 @@ cd sequencer
 make test                      # engine and generator tests
 make check                     # whole hardware-free harness, results in out/
 make                           # needs libsdl2-dev and libasound2-dev
+knulli/build.sh                # aarch64 binary + Ports zip in dist/ (Docker)
 ./seq4h --midi none --demo --autoplay --verbose     # no hardware: print MIDI
 ./seq4h --midi list                                 # sequencer and raw MIDI ports
 ./seq4h --midi FM --midi-test                       # one note per channel 1-4
@@ -375,3 +410,4 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `knulli/SEQ4H.sh`: Ports launcher script
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
+- `knulli/build.sh`, `knulli/Dockerfile`: aarch64 cross-build and packaging
