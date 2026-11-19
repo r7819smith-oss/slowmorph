@@ -77,11 +77,93 @@ Handheld buttons (keyboard in brackets). **Grid page:**
 **Generate page:** up/down chooses a row (track, generator, its parameters,
 lowest note, range, evolve settings, scale, root), left/right changes the
 value (hold B for bigger steps), A rolls, Select+Y undoes, Select+X returns to
-the grid. L2 and R2, if your handheld reports them as triggers, also switch
-page and roll; this is untested.
+the grid.
 
-Face buttons follow SDL's naming (A = south button). If the RG40XX-V's labels
-are swapped on your build, swap them in `map_pad()` in `src/ui.c`.
+On the handheld, **L2** switches between grid and generate page and **R2**
+rolls a new pattern (keyboard: E and R). **Select + Start** or **Esc** quits.
+
+## Button mapping
+
+Every button can be remapped with a plain text file, `seq4h.input`, read from
+the working directory at start (or `--input FILE`). Lines you leave out keep
+their default, so the file only needs the changes. `--dump-input` prints the
+full mapping in use, which is a good starting point.
+
+### RG40XX-V under Knulli
+
+The RG40XX-V's built-in pad shows up as a joystick called `ANBERNIC-keys`.
+These are the raw SDL joystick codes it sends, from a published log of an
+RG40XX-V on Anbernic's stock firmware
+([source](https://github.com/swetoast/Anbernic-Firmware-Application-Development-Guide)).
+Knulli should report the same codes, but **they have not yet been checked on
+a Knulli unit**; run
+`./seq4h --show-input` once to confirm (below).
+
+| Button | Code | seq4h default |
+|---|---|---|
+| A | joy 0 | a |
+| B | joy 1 | b |
+| Y | joy 2 | y |
+| X | joy 3 | x |
+| L1 | joy 4 | l |
+| R1 | joy 5 | r |
+| Select | joy 6 | select |
+| Start | joy 7 | start |
+| Menu (held) | joy 8 | not used |
+| Stick press | joy 9 | not used |
+| **L2** | **joy 10** | **page** |
+| **R2** | **joy 11** | **roll** |
+| Menu (short press) | joy 13 | not used |
+| D-pad | hat 0 (up/right/down/left) | up/right/down/left |
+| Left stick | axes 0 (x) and 1 (y) | not used |
+
+L2 and R2 are plain on/off buttons, not analog trigger axes. Note X and Y
+are 3 and 2, not in label order.
+
+`knulli/seq4h.input` holds this map and sets `mode joystick`. Copy it next
+to the binary. Joystick mode matters: some H700 pads report an ID that SDL
+mistakes for a different controller, and SDL's game-controller layer would
+then scramble the buttons. Raw joystick mode reads the codes above directly.
+
+### Checking the codes on your device
+
+Run `./seq4h --show-input` (the Knulli launcher passes it when
+`SEQ4H_SHOW_INPUT=1`). The top right of the screen then shows the last input
+and what it does, for example `IN: JOY 10 > PAGE` or `IN: JOY 13 > NONE`, and
+the same lines go to stderr (the launcher writes them to `seq4h.log`). On
+start it also logs each pad's name, GUID and its numbers of buttons, hats and
+axes. Press every button once; if one shows a different code from the table,
+add a line for it to `seq4h.input`.
+
+### File format
+
+One mapping per line: `SOURCE CODE BUTTON`. `#` starts a comment, case does
+not matter and later lines win.
+
+| Source | Code | Example |
+|---|---|---|
+| `joy` | raw joystick button index, 0-31 | `joy 10 page` |
+| `hat` | `up`, `down`, `left`, `right` (any hat) | `hat up up` |
+| `axis` | raw axis index with `+` or `-`, 0-15 | `axis 1- up` |
+| `pad` | SDL game-controller button or axis name (`a`, `leftshoulder`, `back`, `lefttrigger`, `leftx-` ...) | `pad righttrigger roll` |
+| `key` | SDL key name, `_` for spaces | `key Left_Shift lock` |
+
+`BUTTON` is one of `up down left right a b x y l r select start`, an action
+`page roll undo lock quit`, or `none` to unmap. Two settings also go in the
+file:
+
+- `mode auto` (default): pads SDL recognises use the `pad` lines, other
+  joysticks use `joy`/`hat`/`axis`. `mode joystick` always uses the raw
+  lines; `mode controller` only opens recognised pads.
+- `threshold N` (default 16000, out of 32767): how far an axis must move to
+  count as a press.
+
+Examples: swap A and B with `joy 0 b` and `joy 1 a`; make R2 undo instead
+of roll with `joy 11 undo`; quit with a short Menu press with `joy 13 quit`.
+
+On a desktop, the `pad` defaults use SDL's names (A = the bottom face button)
+with the triggers on page and roll; keyboard defaults are listed in the
+Controls table.
 
 ## Build and run on a desktop Linux machine
 
@@ -150,7 +232,8 @@ for example:
 make CC=aarch64-linux-gnu-gcc PKG=aarch64-linux-gnu-pkg-config
 ```
 
-Then copy `seq4h` and `knulli/SEQ4H.sh` as described in the script. The binary
+Then copy `seq4h`, `knulli/seq4h.input` and `knulli/SEQ4H.sh` as described
+in the script. The binary
 needs a matching libc and SDL2 on the device; the toolchain choice is still to
 be settled and a CI build is a sensible next step.
 
@@ -161,5 +244,6 @@ be settled and a CI build is a sensible next step.
 - `src/player.c` timing thread
 - `src/midi_alsa.c` ALSA sequencer output; `src/midi_null.c` stub/logging output
 - `src/ui.c` SDL2 interface, built-in font, no extra libraries
+- `src/input.c` button mapping: defaults and the `seq4h.input` file (unit tested)
 
 See [NOTES.md](NOTES.md) for design decisions, what is untested, and next steps.

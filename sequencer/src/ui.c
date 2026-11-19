@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "gen.h"
+#include "input.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -70,10 +71,6 @@ static void text(SDL_Renderer *r, int x, int y, int sc, Col c, const char *s) {
 
 static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uint8_t)(c.g * pct / 100), (uint8_t)(c.b * pct / 100)}; }
 
-typedef enum { B_UP, B_DOWN, B_LEFT, B_RIGHT, B_A, B_B, B_X, B_Y, B_L, B_R, B_SEL, B_START,
-               B_PAGE, B_ROLL, B_UNDO, B_LOCK,   /* virtual: Select+X/B/Y/A, keys E/R/U/K, L2/R2 */
-               B_COUNT } Btn;
-
 typedef struct {
     Player *p;
     int track, step;
@@ -86,6 +83,9 @@ typedef struct {
     int undo_track;           /* -1 = nothing to undo */
     const char *msg;
     Uint32 msg_until;
+    const InputMap *map;
+    int show_input;
+    char input_msg[48];       /* last raw input, shown with --show-input */
 } Ui;
 
 #define GEN_ROWS 17
@@ -165,7 +165,7 @@ static void press(Ui *u, Btn b) {
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
-    if (b == B_START && u->held[B_SEL]) { u->quit = 1; }
+    if (b == B_QUIT || (b == B_START && u->held[B_SEL])) { u->quit = 1; }
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
     else if (b == B_PAGE) { u->page ^= 1; }
     else if (b == B_ROLL) {
@@ -218,35 +218,138 @@ static void set_button(Ui *u, Btn b, int down) {
     }
 }
 
-static int map_key(SDL_Keycode k, Btn *b) {
-    switch (k) {
-    case SDLK_UP: *b = B_UP; return 1;       case SDLK_DOWN: *b = B_DOWN; return 1;
-    case SDLK_LEFT: *b = B_LEFT; return 1;   case SDLK_RIGHT: *b = B_RIGHT; return 1;
-    case SDLK_z: *b = B_A; return 1;         case SDLK_x: *b = B_B; return 1;
-    case SDLK_c: *b = B_X; return 1;         case SDLK_v: *b = B_Y; return 1;
-    case SDLK_q: *b = B_L; return 1;         case SDLK_w: *b = B_R; return 1;
-    case SDLK_TAB: *b = B_SEL; return 1;     case SDLK_SPACE: *b = B_START; return 1;
-    case SDLK_e: *b = B_PAGE; return 1;      case SDLK_r: *b = B_ROLL; return 1;
-    case SDLK_u: *b = B_UNDO; return 1;      case SDLK_k: *b = B_LOCK; return 1;
-    default: return 0;
+/* One opened joystick: raw (joy set, gc NULL) or SDL game controller (gc set). */
+typedef struct {
+    SDL_JoystickID id;
+    SDL_Joystick *joy;
+    SDL_GameController *gc;
+    Uint8 hat[4];
+    Uint8 axis[IN_JOY_AXES];                  /* bit 0 = negative held, bit 1 = positive held */
+    Uint8 pad_axis[SDL_CONTROLLER_AXIS_MAX];
+} Dev;
+
+#define MAX_DEVS 8
+
+static Dev *find_dev(Dev *d, SDL_JoystickID id) {
+    for (int i = 0; i < MAX_DEVS; i++) if ((d[i].joy || d[i].gc) && d[i].id == id) return &d[i];
+    return NULL;
+}
+
+static void open_dev(Dev *devs, int index, const InputMap *m, int verbose) {
+    Dev *d = NULL;
+    for (int i = 0; i < MAX_DEVS && !d; i++) if (!devs[i].joy && !devs[i].gc) d = &devs[i];
+    if (!d || find_dev(devs, SDL_JoystickGetDeviceInstanceID(index))) return;
+    memset(d, 0, sizeof *d);
+    int as_pad = m->mode != INPUT_JOYSTICK && SDL_IsGameController(index);
+    if (as_pad) d->gc = SDL_GameControllerOpen(index);
+    else if (m->mode != INPUT_CONTROLLER) d->joy = SDL_JoystickOpen(index);
+    if (!d->gc && !d->joy) return;
+    d->id = SDL_JoystickGetDeviceInstanceID(index);
+    if (verbose) {
+        char guid[33];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(index), guid, sizeof guid);
+        SDL_Joystick *j = d->gc ? SDL_GameControllerGetJoystick(d->gc) : d->joy;
+        fprintf(stderr, "seq4h: input \"%s\" guid %s: %s, %d buttons, %d hats, %d axes\n",
+                SDL_JoystickNameForIndex(index), guid, d->gc ? "game controller" : "raw joystick",
+                SDL_JoystickNumButtons(j), SDL_JoystickNumHats(j), SDL_JoystickNumAxes(j));
     }
 }
 
-static int map_pad(Uint8 k, Btn *b) {
-    switch (k) {
-    case SDL_CONTROLLER_BUTTON_DPAD_UP: *b = B_UP; return 1;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: *b = B_DOWN; return 1;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: *b = B_LEFT; return 1;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: *b = B_RIGHT; return 1;
-    case SDL_CONTROLLER_BUTTON_A: *b = B_A; return 1;
-    case SDL_CONTROLLER_BUTTON_B: *b = B_B; return 1;
-    case SDL_CONTROLLER_BUTTON_X: *b = B_X; return 1;
-    case SDL_CONTROLLER_BUTTON_Y: *b = B_Y; return 1;
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: *b = B_L; return 1;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: *b = B_R; return 1;
-    case SDL_CONTROLLER_BUTTON_BACK: *b = B_SEL; return 1;
-    case SDL_CONTROLLER_BUTTON_START: *b = B_START; return 1;
-    default: return 0;
+static void close_dev(Dev *d) {
+    if (d->gc) SDL_GameControllerClose(d->gc);
+    else if (d->joy) SDL_JoystickClose(d->joy);
+    d->gc = NULL; d->joy = NULL;
+}
+
+/* Records what arrived and where it went, for --show-input. */
+static void note_input(Ui *u, const char *what, Btn b) {
+    if (!u->show_input) return;
+    snprintf(u->input_msg, sizeof u->input_msg, "IN: %.28s > %s", what, input_btn_name(b));
+    fprintf(stderr, "seq4h: input %s -> %s\n", what, input_btn_name(b));
+}
+
+/* Axis held state as a 2-bit mask (bit 0 = negative, bit 1 = positive). */
+static Uint8 axis_bits(int v, int thr) { return (Uint8)((v <= -thr) | ((v >= thr) << 1)); }
+
+static void axis_change(Ui *u, Uint8 *state, Uint8 now, const Btn dir[2], const char *label) {
+    for (int s = 0; s < 2; s++) {
+        int was = (*state >> s) & 1, is = (now >> s) & 1;
+        if (was == is) continue;
+        if (is) {
+            char what[32];
+            snprintf(what, sizeof what, "%s%c", label, s ? '+' : '-');
+            note_input(u, what, dir[s]);
+        }
+        if (dir[s] != B_NONE) set_button(u, dir[s], is);
+    }
+    *state = now;
+}
+
+static void handle_input(Ui *u, Dev *devs, const SDL_Event *e, int verbose) {
+    const InputMap *m = u->map;
+    char what[32];
+    Dev *d;
+    Btn b;
+    switch (e->type) {
+    case SDL_KEYDOWN: case SDL_KEYUP:
+        if (e->key.repeat) break;
+        b = input_key(m, e->key.keysym.sym);
+        if (e->type == SDL_KEYDOWN) {
+            snprintf(what, sizeof what, "KEY %s", SDL_GetKeyName(e->key.keysym.sym));
+            note_input(u, what, b);
+        }
+        if (b != B_NONE) set_button(u, b, e->type == SDL_KEYDOWN);
+        break;
+    case SDL_JOYDEVICEADDED:
+        open_dev(devs, e->jdevice.which, m, verbose);
+        break;
+    case SDL_JOYDEVICEREMOVED:
+        if ((d = find_dev(devs, e->jdevice.which))) close_dev(d);
+        break;
+    case SDL_JOYBUTTONDOWN: case SDL_JOYBUTTONUP:
+        if (!(d = find_dev(devs, e->jbutton.which)) || d->gc) break;
+        b = e->jbutton.button < IN_JOY_BUTTONS ? m->joy[e->jbutton.button] : B_NONE;
+        if (e->type == SDL_JOYBUTTONDOWN) {
+            snprintf(what, sizeof what, "JOY %d", e->jbutton.button);
+            note_input(u, what, b);
+        }
+        if (b != B_NONE) set_button(u, b, e->type == SDL_JOYBUTTONDOWN);
+        break;
+    case SDL_JOYHATMOTION: {
+        static const char *HAT[4] = {"UP", "RIGHT", "DOWN", "LEFT"};
+        if (!(d = find_dev(devs, e->jhat.which)) || d->gc || e->jhat.hat >= 4) break;
+        Uint8 *old = &d->hat[e->jhat.hat], now = e->jhat.value;
+        for (int i = 0; i < 4; i++) {           /* SDL_HAT_UP/RIGHT/DOWN/LEFT are bits 0..3 */
+            int was = (*old >> i) & 1, is = (now >> i) & 1;
+            if (was == is) continue;
+            if (is) {
+                snprintf(what, sizeof what, "HAT%d %s", e->jhat.hat, HAT[i]);
+                note_input(u, what, m->hat[i]);
+            }
+            if (m->hat[i] != B_NONE) set_button(u, m->hat[i], is);
+        }
+        *old = now;
+        break;
+    }
+    case SDL_JOYAXISMOTION:
+        if (!(d = find_dev(devs, e->jaxis.which)) || d->gc || e->jaxis.axis >= IN_JOY_AXES) break;
+        snprintf(what, sizeof what, "AXIS %d", e->jaxis.axis);
+        axis_change(u, &d->axis[e->jaxis.axis], axis_bits(e->jaxis.value, m->axis_threshold), m->axis[e->jaxis.axis], what);
+        break;
+    case SDL_CONTROLLERBUTTONDOWN: case SDL_CONTROLLERBUTTONUP:
+        if (!(d = find_dev(devs, e->cbutton.which)) || !d->gc || e->cbutton.button >= SDL_CONTROLLER_BUTTON_MAX) break;
+        b = m->pad[e->cbutton.button];
+        if (e->type == SDL_CONTROLLERBUTTONDOWN) {
+            snprintf(what, sizeof what, "PAD %s", SDL_GameControllerGetStringForButton((SDL_GameControllerButton)e->cbutton.button));
+            note_input(u, what, b);
+        }
+        if (b != B_NONE) set_button(u, b, e->type == SDL_CONTROLLERBUTTONDOWN);
+        break;
+    case SDL_CONTROLLERAXISMOTION:
+        if (!(d = find_dev(devs, e->caxis.which)) || !d->gc || e->caxis.axis >= SDL_CONTROLLER_AXIS_MAX) break;
+        snprintf(what, sizeof what, "PAD %s", SDL_GameControllerGetStringForAxis((SDL_GameControllerAxis)e->caxis.axis));
+        axis_change(u, &d->pad_axis[e->caxis.axis], axis_bits(e->caxis.value, m->axis_threshold), m->pad_axis[e->caxis.axis], what);
+        break;
     }
 }
 
@@ -264,6 +367,7 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     snprintf(buf, sizeof buf, "%s %s", R[s->root % 12], scale_name(s->scale));
     text(r, 260, 46, 1, DIM, buf);
     if (u->msg && SDL_GetTicks() < u->msg_until) text(r, 400, 46, 1, YELLOW, u->msg);
+    if (u->show_input) text(r, 400, 4, 1, u->input_msg[0] ? YELLOW : DIM, u->input_msg[0] ? u->input_msg : "IN: PRESS A BUTTON");
 }
 
 static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
@@ -381,11 +485,10 @@ int ui_run(Player *p, const UiOptions *opt) {
     SDL_RenderSetLogicalSize(r, W, H);
     SDL_ShowCursor(SDL_DISABLE);
 
-    SDL_GameController *pads[8] = {0};
-    for (int i = 0; i < SDL_NumJoysticks() && i < 8; i++)
-        if (SDL_IsGameController(i)) pads[i] = SDL_GameControllerOpen(i);
-
-    Ui u = {.p = p, .undo_track = -1};
+    InputMap defaults;
+    if (!opt->input) input_defaults(&defaults);
+    Dev devs[MAX_DEVS] = {0};   /* opened as SDL_JOYDEVICEADDED arrives, which includes devices present at start */
+    Ui u = {.p = p, .undo_track = -1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input};
     if (opt->keys) {
         char tmp[256];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);
@@ -406,18 +509,8 @@ int ui_run(Player *p, const UiOptions *opt) {
     while (!u.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            Btn b;
             if (e.type == SDL_QUIT) u.quit = 1;
-            else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) u.quit = 1;
-            else if ((e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) && !e.key.repeat && map_key(e.key.keysym.sym, &b))
-                set_button(&u, b, e.type == SDL_KEYDOWN);
-            else if ((e.type == SDL_CONTROLLERBUTTONDOWN || e.type == SDL_CONTROLLERBUTTONUP) && map_pad(e.cbutton.button, &b))
-                set_button(&u, b, e.type == SDL_CONTROLLERBUTTONDOWN);
-            else if (e.type == SDL_CONTROLLERAXISMOTION &&
-                     (e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT))
-                set_button(&u, e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ? B_PAGE : B_ROLL, e.caxis.value > 16000);
-            else if (e.type == SDL_CONTROLLERDEVICEADDED && e.cdevice.which < 8 && !pads[e.cdevice.which])
-                pads[e.cdevice.which] = SDL_GameControllerOpen(e.cdevice.which);
+            else handle_input(&u, devs, &e, opt->verbose);
         }
         Uint32 now = SDL_GetTicks();
         for (int b = 0; b < B_COUNT; b++)
@@ -439,7 +532,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         SDL_Delay(16);
     }
 
-    for (int i = 0; i < 8; i++) if (pads[i]) SDL_GameControllerClose(pads[i]);
+    for (int i = 0; i < MAX_DEVS; i++) close_dev(&devs[i]);
     SDL_DestroyRenderer(r);
     SDL_DestroyWindow(win);
     SDL_Quit();
