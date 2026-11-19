@@ -81,14 +81,19 @@ void gen_clear_anchor(Seq *s, int t);
 void gen_morph(Seq *s, int t, const SeqStep *target, int pct);
 
 /* Styles set generator defaults and can lay out a whole starting project. */
-typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_COUNT } Style;
+/* STYLE_BLANK is "no style": table generator defaults, and NEW FROM STYLE
+ * gives four empty MANUAL tracks to build from scratch. */
+typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_BLANK, STYLE_COUNT } Style;
 int         style_count(void);
 const char *style_name(int style);
 /* Set up the style's starting set: tempo, scale, and for each track its
  * generator, length, gates, holds, evolution and anchor. With keep_manual,
  * a MANUAL track that has notes is left exactly as it is (it's your own
  * pattern), and if any track is kept the scale and root stay too, so the new
- * tracks fit it. Returns how many tracks were kept. */
+ * tracks fit it. Returns how many tracks were kept.
+ * STYLE_BLANK clears all four tracks (keep_manual is ignored): MANUAL, 16
+ * steps, every step off, evolution off, no anchor, chaining off, unmuted.
+ * Tempo, swing, scale, root, MIDI channels and stored slots stay as they are. */
 int         style_apply(Seq *s, int style, int keep_manual);
 /* Short generator name for the grid ("MANUAL", "EUCLID", "CA", ...), <= 6 chars. */
 const char *gen_short_name(int type);

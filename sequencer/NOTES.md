@@ -92,6 +92,37 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   old binaries ignore the new lines.
   Deliberately not copied from SEQ-4: its matriceal multi-lane editor and its
   effects/CC features.
+- **BLANK style** (Roy, 2026-11-19, after testing build #84): a fourth
+  `Style`, `STYLE_BLANK` (appended, so saved style numbers stay valid).
+  NEW FROM STYLE with BLANK clears all four tracks to MANUAL, 16 steps, every
+  step off (notes preset to C2/C3/C4/C5 snapped into the scale, vel 100, gate
+  50, prob 100), evolution off, no anchor, chain off, mute and solo off.
+  Decisions made without asking: BLANK **keeps the current BPM, swing, scale,
+  root and MIDI channels** (so a blank page fits whatever key you were in;
+  set them on the TRACK/GENERATE pages), and **keeps stored slots** (they are
+  your saved work; overwrite them with SAVE TO SLOT). keep_manual is ignored:
+  BLANK is a full start-over. As a style for picking a generator, BLANK uses
+  the table defaults like MELODIC.
+- **Saving survives a kill** (Roy, 2026-11-19: after quit and relaunch the
+  current pattern came back but the stored slots did not). The save format
+  already held every slot, the chains, per-track generator and mute; the
+  file was only written when `ui_run` returned normally. Most likely the
+  process was being killed (Knulli/Batocera's exit hotkey on Ports kills the
+  process; SDL turns SIGTERM into a normal quit, SIGKILL leaves no chance),
+  so nothing was written, and because `seq_init` seeds the RNG with a fixed
+  value the first-run ambient set looked like "the last pattern". Now: the
+  UI autosaves two seconds after any button press and once a minute
+  (`autosave()` in `src/ui.c`), only writing when the file contents changed,
+  copying the state under the player lock and writing outside it so MIDI
+  timing is untouched. Every write goes through `seq_save_file()`: write
+  `seq4h.pat.tmp`, `fsync`, rename, so a power cut leaves the old or the new
+  file, never half. `seq4h.log` gets `loaded ... (N stored slots)` at start,
+  `autosaved ...` on the first autosave and `saved ...` at quit, so a log
+  shows whether a save happened. Format unchanged (`seq4h 1`); old saves
+  load as before. Tests: `test_save_all_slots` (all 32 slots, chains,
+  generators, evolution, mutes; save-load-save is byte-identical; old file
+  loads) and the harness `persist` section (real binary, slots stored by
+  replayed keys, SIGKILL, then relaunch and quit gives the same file).
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -493,6 +524,9 @@ screenshots and MIDI captures as the `seq4h-harness` artifact.
   generators + evolution in `tests/fixtures/evolve.pat`).
 - **`--headless SECS`**: the real binary and timing thread with no window;
   plays, stops cleanly, exits, does not autosave.
+- **Persist** (`tests/harness.sh persist`): stores nine slots through replayed
+  keys, kills seq4h with SIGKILL, checks the autosave has all nine, then
+  relaunches, quits with Esc and checks the file is byte-identical.
 - **`tools/midicheck.py`** checks a capture: Start first and Stop last, notes
   only on channels 1-4 (tracks 1-4), every note-on released, one note per
   channel at a time, all-notes-off at Stop, clock at 24 PPQN and the right
@@ -500,7 +534,7 @@ screenshots and MIDI captures as the `seq4h-harness` artifact.
   demo pattern plays as written. `tests/test_midicheck.py` proves it catches
   broken input (wrong channel, hung note, late note, slow clock and so on).
   It also reads `aseqdump` output (`--aseqdump`), without timing.
-- **Screenshots**: twelve UI states (all four pages) driven by `--keys` with
+- **Screenshots**: twenty UI states (all four pages) driven by `--keys` with
   `SDL_VIDEODRIVER=dummy`, checked for size, not blank, and that each key
   sequence changed the screen (`tools/shotcheck.py`, also converts to PNG).
 - **ALSA loopback**: if `/dev/snd/seq` exists, seq4h sends through the real

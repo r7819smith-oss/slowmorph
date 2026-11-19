@@ -11,6 +11,7 @@ typedef struct {
     const InputMap *input;    /* button mapping; NULL = built-in defaults */
     int show_input;           /* show the last raw input on screen and print it to stderr */
     int verbose;              /* print each input device as it is opened */
+    const char *autosave;     /* pattern file to keep saved while running (NULL = none); see autosave() */
 } UiOptions;
 
 /* Runs the interface until the user quits. Returns 0 on success. */

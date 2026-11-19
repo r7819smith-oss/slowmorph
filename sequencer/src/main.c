@@ -145,6 +145,7 @@ int main(int argc, char **argv) {
     FILE *f = demo ? NULL : fopen(pattern, "r");
     if (f) {
         if (seq_load(&p.seq, f) != 0) fprintf(stderr, "seq4h: ignoring unreadable %s\n", pattern);
+        else fprintf(stderr, "seq4h: loaded %s (%d stored slots)\n", pattern, seq_slots_used(&p.seq));
         fclose(f);
     } else if (demo) {
         seq_load_demo(&p.seq);
@@ -170,13 +171,14 @@ int main(int argc, char **argv) {
     }
 
     UiOptions opt = {.fullscreen = fullscreen, .screenshot = shot, .keys = keys,
-                     .input = &input, .show_input = show_input, .verbose = verbose || show_input};
+                     .input = &input, .show_input = show_input, .verbose = verbose || show_input,
+                     .autosave = shot ? NULL : pattern};
     int rc = ui_run(&p, &opt);
 
     if (!shot) {
         player_lock(&p);
-        FILE *o = fopen(pattern, "w");
-        if (o) { seq_save(&p.seq, o); fclose(o); }
+        if (seq_save_file(&p.seq, pattern) == 0)
+            fprintf(stderr, "seq4h: saved %s (%d stored slots)\n", pattern, seq_slots_used(&p.seq));
         else fprintf(stderr, "seq4h: cannot save %s\n", pattern);
         player_unlock(&p);
     }

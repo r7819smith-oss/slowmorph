@@ -1,6 +1,8 @@
 #include "engine.h"
 
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "gen.h"
 
@@ -324,6 +326,32 @@ void seq_save(const Seq *s, FILE *f) {
             if (st->hold) fprintf(f, "h %d %d %d\n", t, i, st->hold);
         }
     }
+}
+
+int seq_save_file(const Seq *s, const char *path) {
+    size_t n = strlen(path) + 5;
+    char *tmp = malloc(n);
+    if (!tmp) return -1;
+    snprintf(tmp, n, "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    int rc = -1;
+    if (f) {
+        seq_save(s, f);
+        /* on the SD card before the rename, so a power cut leaves the old or the new file, never half of one */
+        rc = (fflush(f) == 0 && fsync(fileno(f)) == 0) ? 0 : -1;
+        if (fclose(f) != 0) rc = -1;
+        if (rc == 0 && rename(tmp, path) != 0) rc = -1;
+        if (rc != 0) remove(tmp);
+    }
+    free(tmp);
+    return rc;
+}
+
+int seq_slots_used(const Seq *s) {
+    int n = 0;
+    for (int t = 0; t < SEQ_TRACKS; t++)
+        for (int k = 0; k < SEQ_SLOTS; k++) n += s->track[t].slot[k].used;
+    return n;
 }
 
 int seq_load(Seq *s, FILE *f) {
