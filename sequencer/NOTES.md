@@ -371,6 +371,51 @@ does: Knulli's `rg35xx-plush-sdk` aarch64 toolchain, the kernel source and
 Put the `.ko` files in `/userdata/roms/ports/seq4h/modules/`; `SEQ4H.sh` loads
 them. The `vermagic` must match `uname -r` on the device. This is not
 automated yet; it is the next job if check B shows the driver is absent.
+## Bluetooth MIDI and power (researched 2026-11-19, not tested)
+
+Problem: over direct USB-C the handheld powers the FM1, which also charges
+the FM1's 2000 mAh battery, so the handheld drains fast. Roy has no powered
+hub. USB stays the primary route; this section is about options.
+
+What is known (from web sources, not checked on the devices):
+
+- Stock FM-1 firmware lists Bluetooth MIDI, and USB, TRS MIDI and BLE can
+  run at once (Synthtopia, Synth Anatomy reviews). It has a 3.5 mm TRS MIDI
+  input (TRS type A, adapter not included) and no TRS MIDI output.
+- Felucca's wiki (Features page, 1.6) names only USB and TRS MIDI in, with
+  clock from internal, USB or TRS. It never mentions Bluetooth, so assume
+  Felucca has no BLE MIDI until a test shows otherwise. Quick test: with
+  Felucca running, scan for Bluetooth MIDI on a phone; if "FM-1" shows up,
+  BLE MIDI may still be there.
+- Knulli on the H700 kernel 4.9.170 has no snd-seq, and BlueZ's ALSA MIDI
+  bridge (`--enable-midi`) needs ALSA sequencer, so it is very unlikely to
+  work out of the box. seq4h could speak BLE MIDI itself through BlueZ D-Bus
+  (GATT client on the standard MIDI service 03B80E5A-...) if the Knulli
+  bluetoothd allows LE GATT clients. Unchecked, and a few days of work.
+- BLE MIDI timing: about 7.5 to 15 ms connection interval, so notes land in
+  bursts with a few ms of jitter. The packet timestamps can fix note timing
+  but Felucca's handling of them is unknown. Clock (24 ppqn) over BLE usually
+  wobbles by a few ms; fine for ambient, noticeable at high BPM.
+
+Options, cheapest first (prices rough, UK, 2026):
+
+1. Recommended: a bus-powered USB MIDI interface with TRS or DIN out on the
+   handheld (about 10 to 25 GBP) plus a TRS-A cable or DIN to TRS-A adapter
+   (about 5 GBP) into the FM1's TRS MIDI in. The FM1 then runs from its own
+   charger, Felucca clock source set to TRS. The handheld still uses its
+   only USB-C port, so it cannot charge, but it only powers a small
+   interface instead of the FM1 and its battery. seq4h needs no change if
+   the interface is class compliant (it shows up as a raw MIDI port).
+2. Wireless cable: a CME WIDI Bud Pro style USB BLE dongle on the handheld
+   (shows up as USB MIDI) paired to a WIDI Jack or Master on the FM1's TRS
+   in (about 90 to 110 GBP for both). Same handheld-charging limit as 1.
+3. Fully wireless, both on chargers: seq4h speaks BLE MIDI over BlueZ to a
+   WIDI Jack or Master on the FM1's TRS in (about 45 to 70 GBP). Needs the
+   Knulli BlueZ check and new code; most effort, most timing risk.
+4. A USB-C OTG Y adapter with a charge input. Behaviour with the RG40XX-V's
+   single port in host mode is unknown; some hosts refuse or back-feed
+   power. Not recommended without testing.
+
 ## Testing without hardware
 
 `make check` runs the whole hardware-free harness (`tests/harness.sh`) and
