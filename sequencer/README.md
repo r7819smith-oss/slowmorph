@@ -94,7 +94,9 @@ make
 ```
 
 Without hardware: `./seq4h --midi none --verbose --autoplay` prints the MIDI
-it would send.
+it would send. `make check` runs the hardware-free test harness: it captures
+the MIDI to files and checks notes, channels and timing, and renders UI
+screenshots into `out/`. See [NOTES.md](NOTES.md#testing-without-hardware).
 
 ## Connecting to the FM1 running Felucca
 
