@@ -141,7 +141,7 @@ void seq_tick(Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         if (tr->sounding >= 0 && (int32_t)(now - tr->off_tick) >= 0) release(s, tr);
-        if (tr->mute) continue;
+        if (!seq_track_audible(s, t)) continue;
 
         uint32_t gstep = now / SEQ_TICKS_PER_STEP;
         uint32_t idx = gstep % tr->len;
@@ -186,10 +186,30 @@ void seq_step_hold(Seq *s, int t, int i, int d) {
     st->hold = (uint8_t)clampi(st->hold + d, 0, SEQ_MAX_HOLD);
 }
 
+int seq_any_solo(const Seq *s) {
+    for (int t = 0; t < SEQ_TRACKS; t++) if (s->track[t].solo) return 1;
+    return 0;
+}
+
+int seq_track_audible(const Seq *s, int t) {
+    const SeqTrack *tr = &s->track[t];
+    return !tr->mute && (tr->solo || !seq_any_solo(s));
+}
+
+/* After a mute or solo change: note-off for anything that just went silent. */
+static void release_silenced(Seq *s) {
+    for (int t = 0; t < SEQ_TRACKS; t++)
+        if (!seq_track_audible(s, t)) release(s, &s->track[t]);
+}
+
 void seq_track_mute_toggle(Seq *s, int t) {
-    SeqTrack *tr = &s->track[t];
-    tr->mute ^= 1;
-    if (tr->mute) release(s, tr);
+    s->track[t].mute ^= 1;
+    release_silenced(s);
+}
+
+void seq_track_solo_toggle(Seq *s, int t) {
+    s->track[t].solo ^= 1;
+    release_silenced(s);
 }
 
 void seq_track_len(Seq *s, int t, int d) {

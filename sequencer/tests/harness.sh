@@ -103,6 +103,11 @@ track2-muted|2,w,w,Down,Down,Down,Right
 generate-page|w,w,w
 generate-euclid|w,w,w,Down,Right
 grid-after-euclid-roll|w,w,w,Down,Right,z,x
+grid-label-cursor|Left
+grid-label-muted|Left,z
+grid-label-solo|Down,Left,x,Down,x
+grid-label-back|Left,Right
+track-page-solo|Left,x,Down,x,w,w,Down,Down,Down
 bat17-grid|
 EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -112,6 +117,9 @@ EOF
         --differ track-page track-length-12 --differ track-page track2-muted \
         --differ grid-demo generate-page --differ generate-page generate-euclid \
         --differ grid-demo grid-after-euclid-roll --differ grid-demo bat17-grid \
+        --differ grid-demo grid-label-cursor --differ grid-label-cursor grid-label-muted \
+        --differ grid-label-cursor grid-label-solo --differ grid-label-cursor grid-label-back \
+        --differ track-page track-page-solo \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"

@@ -83,6 +83,7 @@ static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "
 typedef struct {
     Player *p;
     int track, step;
+    int on_label;             /* grid cursor is on the track label (left of step 1): A mute, B solo */
     int held[B_COUNT];
     Uint32 next_rep[B_COUNT];
     int quit;
@@ -99,6 +100,7 @@ typedef struct {
     int confirm_new;          /* NEW FROM STYLE was pressed once */
     const char *msg;
     Uint32 msg_until;
+    char msg_buf[48];         /* for messages built on the fly */
     const InputMap *map;
     int show_input;
     char input_msg[48];       /* last raw input, shown with --show-input */
@@ -290,7 +292,7 @@ static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char
     case 0: snprintf(val, 24, "%d", u->track + 1); break;
     case 1: snprintf(val, 24, "%d", tr->channel + 1); break;
     case 2: snprintf(val, 24, "%d STEPS", tr->len); break;
-    case 3: snprintf(val, 24, "%s", tr->mute ? "MUTED" : "OFF"); break;
+    case 3: snprintf(val, 24, "%s", tr->mute ? "MUTED" : tr->solo ? "OFF, SOLO" : seq_any_solo(s) ? "OFF, NOT SOLO" : "OFF"); break;
     case 4: snprintf(val, 24, "%d", s->bpm); break;
     case 5: snprintf(val, 24, "%d", s->swing); break;
     default: snprintf(val, 24, "%.14s", midi_desc ? midi_desc : "NONE"); break;
@@ -414,10 +416,25 @@ static void gen_action(Seq *s, Ui *u, int row) {
     else roll(s, u);
 }
 
+/* A and B with the grid cursor on a track label. */
+static void label_mute(Seq *s, Ui *u) {
+    seq_track_mute_toggle(s, u->track);
+    snprintf(u->msg_buf, sizeof u->msg_buf, "T%d %s", u->track + 1, s->track[u->track].mute ? "MUTED" : "UNMUTED");
+    say(u, u->msg_buf);
+}
+
+static void label_solo(Seq *s, Ui *u) {
+    seq_track_solo_toggle(s, u->track);
+    snprintf(u->msg_buf, sizeof u->msg_buf, "T%d %s", u->track + 1, s->track[u->track].solo ? "SOLO ON" : "SOLO OFF");
+    say(u, u->msg_buf);
+}
+
 /* Controls (same on every page unless noted):
  *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
  *   M main menu (B or M again closes it)
  *   GRID: d-pad moves the cursor, A step on/off, X edit the step, Y lock the step
+ *         left from step 1 puts the cursor on the track label: A mute, B solo,
+ *         up/down track, right back to step 1
  *   lists: up/down row, left/right value (hold Y for big steps)
  *          STEP A step on/off; GENERATE A rolls, or does the selected row's action
  *          (set anchor, apply transform, load/save slot, snap notes), X undoes */
@@ -437,6 +454,13 @@ static void press(Ui *u, Btn b) {
     else if (b == B_L || b == B_R) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + (b == B_R ? 1 : -1), P_TABS);
     else if (b == B_PAGE) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + 1, P_TABS);
     else if (b == B_L2 || b == B_R2) u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
+    else if (u->page == P_GRID && u->on_label && (b == B_A || b == B_B || b == B_X || b == B_Y || dx || dy)) {
+        if (b == B_A) label_mute(s, u);
+        else if (b == B_B) label_solo(s, u);
+        else if (dx > 0) { u->on_label = 0; u->step = 0; }
+        else if (dy) u->track = wrap(u->track + dy, SEQ_TRACKS);
+        /* X and Y do nothing here: there is no step under the cursor */
+    }
     else if (b == B_ROLL) roll(s, u);
     else if (b == B_UNDO) undo(s, u);
     else if (b == B_LOCK) s->track[u->track].step[u->step].lock ^= 1;
@@ -445,6 +469,7 @@ static void press(Ui *u, Btn b) {
         if (b == B_A) seq_step_toggle(s, u->track, u->step);
         else if (b == B_X) u->page = P_STEP;
         else if (b == B_Y) s->track[u->track].step[u->step].lock ^= 1;
+        else if (dx < 0 && u->step == 0) u->on_label = 1;   /* left of step 1: the track label */
         else if (dx || dy) { u->step = wrap(u->step + dx, grid_steps(s)); u->track = wrap(u->track + dy, SEQ_TRACKS); }
     } else {
         int *row = &u->row[u->page], big = u->held[B_Y];
@@ -654,15 +679,24 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         snprintf(buf, sizeof buf, "STEPS %d-%d", view + 1, view + GRID_COLS);
         text(r, 560, 46, 1, YELLOW, buf);
     }
+    const Col BG = {16, 17, 24}, MUTE_COL = {90, 90, 95};
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const SeqTrack *tr = &s.track[t];
         int y = ROW_Y0 + t * ROW_H;
-        Col base = tr->mute ? (Col){90, 90, 95} : TRACK_COL[t];
+        /* grey = muted; dimmed = silent because another track is soloed */
+        Col base = tr->mute ? MUTE_COL : seq_track_audible(&s, t) ? TRACK_COL[t] : scale(TRACK_COL[t], 40);
+        if (u->on_label && t == u->track) {   /* label cursor */
+            rect(r, 6, y - 2, 46, ROW_H - 4, (Col){40, 44, 64});
+            frame(r, 6, y - 2, 46, ROW_H - 4, 2, YELLOW);
+        }
         snprintf(buf, sizeof buf, "T%d", t + 1);
         text(r, 12, y + 4, 2, t == u->track ? YELLOW : base, buf);
         snprintf(buf, sizeof buf, "C%d", tr->channel + 1);
         text(r, 12, y + 24, 1, DIM, buf);
+        if (tr->mute) { rect(r, 29, y + 22, 9, 11, (Col){200, 200, 205}); text(r, 31, y + 24, 1, BG, "M"); }   /* badges */
+        if (tr->solo) { rect(r, 40, y + 22, 9, 11, YELLOW); text(r, 42, y + 24, 1, BG, "S"); }
         if (tr->mute) text(r, 12, y + 38, 1, DIM, "MUTE");
+        else if (tr->solo) text(r, 12, y + 38, 1, YELLOW, "SOLO");
         else text(r, 12, y + 38, 1, scale(base, tr->evo.every ? 100 : 60), gen_short_name(tr->gen.type));   /* bright = evolving */
         int head = seq_playhead(&s, t);
         for (int i = view; i < view + GRID_COLS; i++) {
@@ -681,7 +715,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
             }
             if (st->lock) rect(r, x + w - 9, y + 2, 6, 6, YELLOW);
             if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 2, WHITE);
-            if (t == u->track && i == u->step) frame(r, x - 2, y - 2, w + 4, h + 4, 2, YELLOW);
+            if (t == u->track && i == u->step && !u->on_label) frame(r, x - 2, y - 2, w + 4, h + 4, 2, YELLOW);
         }
     }
 
@@ -690,6 +724,21 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     char nn[8];
     seq_note_name(st->note, nn);
     int y = ROW_Y0 + SEQ_TRACKS * ROW_H + 10;
+    if (u->on_label) {
+        snprintf(buf, sizeof buf, "T%d  MUTE %s  SOLO %s  CH %d", u->track + 1, tr->mute ? "ON" : "OFF", tr->solo ? "ON" : "OFF", tr->channel + 1);
+        text(r, 20, y, 2, WHITE, buf);
+        if (seq_any_solo(&s)) {
+            int n = snprintf(buf, sizeof buf, "SOLO:");
+            for (int t = 0; t < SEQ_TRACKS; t++) if (s.track[t].solo) n += snprintf(buf + n, sizeof buf - n, " T%d", t + 1);
+            snprintf(buf + n, sizeof buf - n, "  (OTHERS SILENT)");
+        } else snprintf(buf, sizeof buf, "NO TRACK SOLOED");
+        text(r, 20, y + 22, 2, WHITE, buf);
+        snprintf(buf, sizeof buf, "T%d IS %s", u->track + 1, seq_track_audible(&s, u->track) ? "PLAYING" : "SILENT");
+        text(r, 20, y + 44, 2, DIM, buf);
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN TRACK  A MUTE  B SOLO  RIGHT BACK TO STEP 1  START PLAY/STOP");
+        text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  SELECT+START QUIT");
+        return;
+    }
     snprintf(buf, sizeof buf, "T%d STEP %02d %s%s  LEN %d  CH %d", u->track + 1, u->step + 1, st->on ? "ON" : "OFF", st->lock ? " LOCKED" : "", tr->len, tr->channel + 1);
     text(r, 20, y, 2, WHITE, buf);
     snprintf(buf, sizeof buf, "NOTE %s  VEL %d  GATE %d  PROB %d", nn, st->vel, st->gate, st->prob);
@@ -698,7 +747,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     else snprintf(buf, sizeof buf, "GEN %s  EVOLVE OFF", gen_name(tr->gen.type));
     text(r, 20, y + 44, 2, DIM, buf);
 
-    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A STEP ON/OFF  X EDIT STEP  Y LOCK STEP  START PLAY/STOP");
+    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A STEP ON/OFF  X EDIT STEP  Y LOCK STEP  START PLAY/STOP  LEFT OF STEP 1: MUTE/SOLO");
     text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  SELECT+START QUIT");
 }
 

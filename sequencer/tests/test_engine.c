@@ -117,6 +117,26 @@ int main(void) {
     run(&s, 384 * 2);
     CHECK(l.on[0] == 1);
 
+    /* solo: other tracks go quiet (held notes released), several can be soloed,
+     * a muted track stays quiet even when soloed, and unsoloing brings all back */
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    for (int t = 0; t < 3; t++) { s.track[t].step[0].on = 1; s.track[t].step[0].gate = 100; }
+    seq_start(&s); run(&s, 5);
+    CHECK(l.on[0] == 1 && l.on[1] == 1 && l.on[2] == 1);
+    seq_track_solo_toggle(&s, 1);
+    CHECK(l.off[0] == 1 && l.off[1] == 0 && l.off[2] == 1);
+    CHECK(seq_any_solo(&s) && seq_track_audible(&s, 1) && !seq_track_audible(&s, 0));
+    seq_track_solo_toggle(&s, 2);
+    CHECK(seq_track_audible(&s, 2));
+    seq_track_mute_toggle(&s, 2);
+    CHECK(!seq_track_audible(&s, 2) && l.off[2] == 1);
+    run(&s, 384 * 2);              /* two bars: only track 1 plays */
+    CHECK(l.on[0] == 1 && l.on[1] == 3 && l.on[2] == 1);
+    seq_track_solo_toggle(&s, 1); seq_track_solo_toggle(&s, 2); seq_track_mute_toggle(&s, 2);
+    CHECK(!seq_any_solo(&s) && seq_track_audible(&s, 0) && seq_track_audible(&s, 2));
+    run(&s, 384);
+    CHECK(l.on[0] == 2 && l.on[1] == 4 && l.on[2] == 2);
+
     /* stop releases notes and sends all-notes-off + STOP */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
     s.track[1].step[0].on = 1; s.track[1].step[0].gate = 100;
