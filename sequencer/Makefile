@@ -15,23 +15,27 @@ else
   $(warning ALSA not found: building without MIDI hardware output)
 endif
 
-SRC := src/main.c src/engine.c src/gen.c src/player.c src/midi_null.c src/midi_capture.c src/ui.c src/input.c $(MIDI_SRC)
+SRC := src/main.c src/engine.c src/gen.c src/player.c src/midi_null.c src/midi_capture.c src/ui.c src/input.c src/battery.c $(MIDI_SRC)
 
 all: seq4h
 
 seq4h: $(SRC) $(wildcard src/*.h)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(MIDI_CFLAGS) -o $@ $(SRC) $(SDL_LIBS) $(MIDI_LIBS) -lpthread
 
-test: tests/test_engine tests/test_gen tests/test_input
+test: tests/test_engine tests/test_gen tests/test_input tests/test_battery
 	./tests/test_engine
 	./tests/test_gen
 	./tests/test_input
+	./tests/test_battery
 
 tests/test_engine: tests/test_engine.c src/engine.c src/gen.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c src/gen.c
 
 tests/test_gen: tests/test_gen.c src/engine.c src/gen.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_gen.c src/engine.c src/gen.c
+
+tests/test_battery: tests/test_battery.c src/battery.c src/battery.h
+	$(CC) $(CFLAGS) -o $@ tests/test_battery.c src/battery.c
 
 tests/test_input: tests/test_input.c src/input.c src/input.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ tests/test_input.c src/input.c $(SDL_LIBS)
@@ -55,7 +59,7 @@ screenshots: seq4h
 	./tests/harness.sh screenshots
 
 clean:
-	rm -f seq4h seq4h-render tests/test_engine tests/test_engine_asan tests/test_gen tests/test_input
+	rm -f seq4h seq4h-render tests/test_engine tests/test_engine_asan tests/test_gen tests/test_input tests/test_battery
 	rm -rf out
 
 .PHONY: all test test-asan check screenshots clean

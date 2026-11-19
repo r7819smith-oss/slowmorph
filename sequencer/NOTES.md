@@ -191,6 +191,39 @@ Works and tested on desktop Linux:
   devices and interfaces from `/sys/bus/usb/devices`, and syncs the log after
   every section.
 
+### Stopping the handheld charging the FM1 (researched 2026-11-19, not tested)
+
+Roy doesn't want the RG40XX-V's battery spent charging the FM1 (the M-VAVE
+FM-1 has its own 2000 mAh battery and takes power and data over one USB-C
+port). Findings:
+
+- **No supported switch.** The H700 Knulli kernel (4.9, sunxi USB) exposes no
+  documented sysfs control to turn off the 5 V it puts out in host mode or to
+  cap host current. `axp2202-usb/input_current_limit` is the *input* (charger)
+  limit, not output. `otg_role` can't usefully be changed: writing it is
+  blocked, and leaving host mode would stop MIDI anyway.
+- **The only known hack is unsafe.** On the RG35XX SP (same SoC and PMIC), a
+  Knulli user cut VBUS by clearing GPIO PI16 (`usb_drv_vbus`) through
+  `/dev/mem` ([knulli-linux#112](https://github.com/knulli-cfw/knulli-linux/issues/112)).
+  That is a raw register write, device-specific, unconfirmed on the
+  RG40XX-V, and the OTG manager may switch it back. Not built, and no menu
+  option: it could also stop the FM1 connecting at all, since many USB
+  devices only enumerate when they see VBUS.
+- **Practical options, safest first:**
+  1. Charge the FM1 fully before a session. A full battery draws little, so
+     the drain on the handheld is mostly the FM1 running, not charging.
+  2. Use a **powered USB hub** (already the fallback): the hub's own supply
+     feeds the FM1, and the handheld only talks data. Pick one that doesn't
+     back-feed the host.
+  3. A USB-C "data only"/power-blocker adapter would stop the charging, but
+     the FM1 may then not connect; try only as an experiment.
+- **Measuring it:** run `USB-MIDI-CHECK.sh` (v3 has a read-only *power*
+  section: each power supply's status, current and voltage, any VBUS
+  regulator, and what each USB device asks for in `bMaxPower`) with and
+  without the FM1 plugged in. seq4h's battery lines in `seq4h.log` give the
+  drain over a session; compare a run with the FM1 freshly charged against
+  one where it was low.
+
 ### Code changes for this
 
 - `src/midi_alsa.c` now **falls back to raw MIDI** (`/dev/snd/midiC*D*`) when
@@ -212,6 +245,19 @@ Works and tested on desktop Linux:
   connect and disconnect is written to `seq4h/seq4h.log` as
   `seq4h: MIDI connected to ...` / `seq4h: MIDI WAITING FOR ...`. (Roy's
   2026-11-19 photo showed no status; the header had stopped drawing it.)
+- **Battery (2026-11-19, Roy asked):** the header shows `BAT 78%` between
+  SWING and the play state, with `+` while the charger is in (status
+  Charging or Full). Dim normally, amber below 20%, red below 10%; nothing is
+  drawn if no battery is found (desktop). `src/battery.c` scans
+  `/sys/class/power_supply/*/type` for `Battery` and reads `capacity` and
+  `status` every 10 s on the UI thread, outside the player lock, with
+  non-blocking opens, so a missing or slow file can't touch MIDI timing.
+  `seq4h.log` gets a line at start, every hour, when the charger goes in or
+  out, and at quit, e.g. `seq4h: 2026-11-19 21:00:05 battery 78%
+  Discharging, 1h00m since start`; start and quit lines bracket the 30-minute
+  test. `SEQ4H_POWER_SUPPLY_DIR` points it at a fake tree for tests
+  (`tests/test_battery.c`, harness shot `bat17-grid`). Not yet checked on the
+  RG40XX-V: the supply's name and whether Knulli reports `status`.
 - **Clock master:** MIDI clock now runs continuously, also while stopped, so
   the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four
@@ -329,6 +375,10 @@ Checks:
       clock-synced parts and seq4h, no stuck notes, no crash.
 - [ ] Listen at 200+ BPM with all four tracks busy: are steps even?
 - [ ] Check `seq4h/seq4h.log` for `raw MIDI messages dropped`.
+- [ ] Battery: header shows `BAT nn%` matching Knulli's own battery reading,
+      `+` appears within 10 s of plugging in a charger. After the 30-minute
+      run, the `battery ... start` and `battery ... quit` lines in
+      `seq4h.log` give the drain.
 
 **H. Handheld UI**
 
@@ -498,6 +548,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `tests/test_gen.c`: tests for the newer generators, transforms and evolution
 - `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
 - `tests/test_input.c`: mapping tests
+- `src/battery.c`, `battery.h`: battery level from sysfs; `tests/test_battery.c`
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `knulli/SEQ4H.sh`: Ports launcher script

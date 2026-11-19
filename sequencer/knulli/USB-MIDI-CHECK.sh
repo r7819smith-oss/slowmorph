@@ -50,7 +50,7 @@ section() {
 
 {
 echo "=== $(date 2>/dev/null)"
-echo "script: USB-MIDI-CHECK v2"
+echo "script: USB-MIDI-CHECK v3"
 
 section "system"
 uname -a 2>/dev/null
@@ -71,6 +71,24 @@ done
 echo "host controllers:"
 for h in /sys/bus/usb/devices/usb*; do
     [ -e "$h" ] && echo "  $(basename "$h") $(rd "$h/product") speed=$(rd "$h/speed")"
+done
+
+section "power (read only: battery, USB input, VBUS regulators, what devices ask for)"
+for ps in /sys/class/power_supply/*; do
+    [ -d "$ps" ] || continue
+    echo "$(basename "$ps"):"
+    for a in type online present status capacity voltage_now current_now input_current_limit \
+             constant_charge_current otg_id usb_type; do
+        v=$(rd "$ps/$a") && echo "  $a=$v"
+    done
+done
+for rg in /sys/class/regulator/*; do
+    [ -d "$rg" ] || continue
+    n=$(rd "$rg/name")
+    case "$n" in *vbus*|*VBUS*|*drivebus*|*usb*|*USB*|*otg*) echo "regulator $(basename "$rg") $n state=$(rd "$rg/state") microvolts=$(rd "$rg/microvolts")" ;; esac
+done
+for d in /sys/bus/usb/devices/*; do
+    [ -e "$d/bMaxPower" ] && echo "$(basename "$d") $(rd "$d/product") asks for bMaxPower=$(rd "$d/bMaxPower")"
 done
 
 section "USB devices"

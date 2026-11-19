@@ -77,12 +77,17 @@ live)
 screenshots)
     note "### Screenshots (out/shots/*.png)"
     rm -f "$OUT"/shots/*.bmp "$OUT"/shots/*.png
+    # Fake battery: shots named bat17-* see 17% charging; the rest see none.
+    rm -rf "$OUT/power"; mkdir -p "$OUT/power/bat17/battery"
+    printf 'Battery\n' > "$OUT/power/bat17/battery/type"
+    printf '17\n' > "$OUT/power/bat17/battery/capacity"
+    printf 'Charging\n' > "$OUT/power/bat17/battery/status"
     # name|keys. Keyboard: arrows = D-pad, Z = A, X = B (back to grid), C = X,
     # V = Y, Q/W = L1/R1 (page), 1/2 = L2/R2 (track), Space = Start.
     # Pages in order: GRID, STEP, TRACK, GENERATE.
     while IFS='|' read -r name keys; do
         [ -z "$name" ] && continue
-        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./seq4h --midi none --demo \
+        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" ./seq4h --midi none --demo \
             --screenshot "$OUT/shots/$name.bmp" ${keys:+--keys "$keys"} >/dev/null 2>&1
         [ -f "$OUT/shots/$name.bmp" ] || note "- **FAIL** $name: no screenshot written"
     done <<'EOF'
@@ -103,6 +108,7 @@ grid-label-muted|Left,z
 grid-label-solo|Down,Left,x,Down,x
 grid-label-back|Left,Right
 track-page-solo|Left,x,Down,x,w,w,Down,Down,Down
+bat17-grid|
 EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
@@ -110,7 +116,7 @@ EOF
         --differ step-page step-note-up --differ grid-demo track-page \
         --differ track-page track-length-12 --differ track-page track2-muted \
         --differ grid-demo generate-page --differ generate-page generate-euclid \
-        --differ grid-demo grid-after-euclid-roll \
+        --differ grid-demo grid-after-euclid-roll --differ grid-demo bat17-grid \
         --differ grid-demo grid-label-cursor --differ grid-label-cursor grid-label-muted \
         --differ grid-label-cursor grid-label-solo --differ grid-label-cursor grid-label-back \
         --differ track-page track-page-solo \

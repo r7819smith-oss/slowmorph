@@ -1,11 +1,13 @@
 #include "ui.h"
 
+#include "battery.h"
 #include "gen.h"
 #include "input.h"
 
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define W 640
 #define H 480
@@ -102,6 +104,10 @@ typedef struct {
     const InputMap *map;
     int show_input;
     char input_msg[48];       /* last raw input, shown with --show-input */
+    Battery bat;              /* read every 10 s; pct -1 = no battery (desktop) */
+    int bat_logged;           /* the battery has been logged at least once */
+    int bat_log_charging;     /* charger state at the last log line */
+    Uint32 next_bat_log;      /* next hourly battery line in seq4h.log */
 } Ui;
 
 /* Generate page rows. */
@@ -633,6 +639,12 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     text(r, 150, 18, 2, WHITE, buf);
     snprintf(buf, sizeof buf, "SWING %d", s->swing);
     text(r, 270, 18, 2, DIM, buf);
+    {   /* battery, between SWING and play state: amber below 20%, red below 10%, "+" = charging */
+        char bt[16];
+        battery_text(&u->bat, bt, sizeof bt);
+        int lv = battery_level(&u->bat);
+        if (bt[0]) text(r, 376, 22, 1, lv == 2 ? (Col){240, 70, 60} : lv == 1 ? (Col){255, 170, 40} : DIM, bt);
+    }
     text(r, 440, 18, 2, s->playing ? (Col){90, 220, 120} : DIM, s->playing ? "PLAYING" : "STOPPED");
     {   /* MIDI connection status, top right: green = connected, yellow = waiting, dim = none */
         const char *d = midi_desc ? midi_desc : "NONE";
@@ -825,6 +837,35 @@ static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     else draw_list(r, &s, u, midi_desc);
 }
 
+/* Battery line in seq4h.log, e.g. "seq4h: 2026-11-19 21:00:05 battery 78% Discharging, 1h00m since start". */
+static void log_battery(const Battery *b, Uint32 now, const char *why) {
+    char when[32] = "";
+    time_t t = time(NULL);
+    struct tm tm;
+    if (localtime_r(&t, &tm)) strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S ", &tm);
+    unsigned mins = now / 60000;
+    fprintf(stderr, "seq4h: %sbattery %d%% %s, %uh%02um since start%s%s\n", when, b->pct,
+            b->status[0] ? b->status : "(no status)", mins / 60, mins % 60, why ? ", " : "", why ? why : "");
+    fflush(stderr);
+}
+
+/* Every 10 s: read the battery. Log it at start, every hour, when the charger
+ * is plugged in or out, and (from ui_run) at quit. */
+static void poll_battery(Ui *u, Uint32 now) {
+    if (battery_read(&u->bat, NULL) < 0) return;
+    if (!u->bat_logged) {
+        log_battery(&u->bat, now, "start");
+        u->next_bat_log = now + 3600000;
+    } else if (u->bat.charging != u->bat_log_charging) {
+        log_battery(&u->bat, now, u->bat.charging ? "charger in" : "charger out");
+    } else if ((Sint32)(now - u->next_bat_log) >= 0) {
+        log_battery(&u->bat, now, NULL);
+        u->next_bat_log += 3600000;
+    } else return;
+    u->bat_logged = 1;
+    u->bat_log_charging = u->bat.charging;
+}
+
 int ui_run(Player *p, const UiOptions *opt) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -861,7 +902,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         }
     }
     int frames = 0;
-    Uint32 next_poll = 0;
+    Uint32 next_poll = 0, next_bat = 0;
     while (!u.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -888,6 +929,10 @@ int ui_run(Player *p, const UiOptions *opt) {
             }
             player_unlock(p);
         }
+        if (now >= next_bat) {   /* outside the player lock: MIDI timing is never held up */
+            next_bat = now + 10000;
+            poll_battery(&u, now);
+        }
         draw(r, p, &u);
         SDL_RenderPresent(r);
 
@@ -901,6 +946,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         SDL_Delay(16);
     }
 
+    if (u.bat_logged && battery_read(&u.bat, NULL) >= 0) log_battery(&u.bat, SDL_GetTicks(), "quit");
     for (int i = 0; i < MAX_DEVS; i++) close_dev(&devs[i]);
     SDL_DestroyRenderer(r);
     SDL_DestroyWindow(win);
