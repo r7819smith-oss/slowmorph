@@ -1,8 +1,9 @@
 # seq4h handoff notes
 
 Use this to resume work in a new chat or a Claude Project. For usage and
-controls see [README.md](README.md). Branch: `claude/lucid-newton-7ah8m8`
-(no PR opened yet).
+controls see [README.md](README.md). Base branch: `claude/lucid-newton-7ah8m8`.
+Generator/evolution work is stacked on it in `claude/project-thread-rg0c0f`
+(PR into the base branch, so it merges after the base does).
 
 ## Goal
 
@@ -27,7 +28,22 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 - **Evolution** runs at bar boundaries (every 1, 2, 4 or 8 bars). It can mutate
   pitch, rhythm and velocity, rotate the pattern, or re-run the generator.
 - **Generators:** EUCLID, WALK, MARKOV (learns from the current phrase), CHAOS
-  (logistic map), CELLULAR (advances a generation per roll), WEIGHTED.
+  (logistic map), CELLULAR (advances a generation per roll), WEIGHTED,
+  FOLLOW (another track's rhythm, plus interval/harmony), ARP (scale chords),
+  TURING (looping shift register; state kept in `GenSettings.state`, advanced
+  one loop per roll), MOTIF (short phrase developed by transpose/invert/retro).
+  New generator types are appended to `GenType` so saved type numbers stay valid.
+- **Evolution extras:** anchor + `pull` (drifted steps return to the anchor),
+  `EVO_PROB` (probability drift, 10-100%), `min_hits`/`max_hits` (0 = no max).
+  Order each bar: pull, then regen, then mutations, then rotate, then density.
+  Rotate now rotates around locked steps instead of refusing when any is locked.
+- **Transforms** (`gen_transform`): reverse, invert, transpose, shift, thin,
+  fill, humanize. All skip locked steps and stay within the track length.
+- **Scale snap:** `seq_set_scale(s, scale, root, snap)` moves notes into the
+  new scale. The UI still sets `s->scale` directly; wiring it is pending.
+- **Save format** (still `seq4h 1`): new `gs` (generator state), `ev` (pull,
+  min, max) and `a` (anchor step) lines. Old files load with neutral defaults;
+  old binaries ignore the new lines.
   Deliberately not copied from SEQ-4: its matriceal multi-lane editor and its
   effects/CC features.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
@@ -40,7 +56,8 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 
 Works and tested on desktop Linux:
 
-- engine, generators, evolution, save/load (`make test`)
+- engine, generators, evolution, save/load (`make test`; `tests/test_engine.c`
+  and `tests/test_gen.c`, also clean under ASan/UBSan)
 - timing thread
 - SDL2 UI, checked through headless screenshots (`--screenshot`, `--keys`)
 
@@ -68,10 +85,13 @@ Works and tested on desktop Linux:
 2. Add a GitHub Actions workflow that builds an aarch64 binary, so no local
    cross-compiler is needed.
 3. Check button mapping and fullscreen on the device; adjust `map_pad()`.
-4. Features discussed but not built:
-   - a generator that reads another track (for example a bass line following
-     the kick rhythm)
+4. Generate-page UI for the new engine features: EVO PROB row, PULL / SET
+   ANCHOR, MIN/MAX HITS, a transform menu, and scale changes via
+   `seq_set_scale(..., snap=1)`. Waiting on Roy's OK because the button-mapping
+   thread also edits `src/ui.c`.
+5. Features discussed but not built:
    - painting per-note chances for WEIGHTED, closer to SEQ-4's stochastic mode
+   - 32-step patterns; pattern slots with chaining (asked Roy 2026-11-19)
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
    - several pattern slots, chaining, and a song mode
@@ -98,5 +118,6 @@ V = Y, Q/W = L/R, Tab = Select, Space = Start, E/R/U/K = page/roll/undo/lock.
 - `src/player.c`: timing thread and lock
 - `src/midi_alsa.c`, `midi_null.c`: MIDI output backends
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
-- `tests/test_engine.c`: unit tests
+- `tests/test_engine.c`: engine unit tests
+- `tests/test_gen.c`: tests for the newer generators, transforms and evolution
 - `knulli/SEQ4H.sh`: Ports launcher script
