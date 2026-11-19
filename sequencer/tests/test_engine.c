@@ -47,6 +47,15 @@ int main(void) {
     seq_start(&s); run(&s, 48);
     CHECK(l.first_on[0] == 24 + 6);
 
+    /* swing follows the global grid: a length-3 track's step 0 lands on the
+     * swung off-beat at global step 3 (tick 72 + 6) */
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    s.track[0].len = 3; s.track[0].step[0].on = 1; s.swing = 6;
+    seq_start(&s); run(&s, 24 * 3 + 1);
+    CHECK(l.on[0] == 1);
+    run(&s, 6);
+    CHECK(l.on[0] == 2);
+
     /* probability 0 never plays */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
     for (int i = 0; i < 16; i++) { s.track[0].step[i].on = 1; s.track[0].step[i].prob = 0; }
