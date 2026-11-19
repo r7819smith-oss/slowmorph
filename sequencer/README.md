@@ -161,3 +161,5 @@ be settled and a CI build is a sensible next step.
 - `src/player.c` timing thread
 - `src/midi_alsa.c` ALSA sequencer output; `src/midi_null.c` stub/logging output
 - `src/ui.c` SDL2 interface, built-in font, no extra libraries
+
+See [NOTES.md](NOTES.md) for design decisions, what is untested, and next steps.
