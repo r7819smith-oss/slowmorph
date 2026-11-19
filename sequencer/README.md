@@ -11,32 +11,74 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 ## Features
 
 - 4 tracks x 16 steps (1/16 notes), each with its own MIDI channel and length (1-16, so tracks can be polymetric)
-- Per step: on/off, note, velocity, gate length, probability
+- Per step: on/off, note, velocity, gate length, probability, and a **lock**
+- A global **scale and root** (12 scales). Editing a note steps by scale degree.
+- **Pattern generators** and **evolution** (below)
 - Swing, mute per track, BPM 30-300
 - MIDI clock, start and stop output (turn off with `--no-clock`)
-- Pattern autosaved on quit to `seq4h.pat` (plain text)
+- Pattern, generator and scale settings autosave on quit to `seq4h.pat` (plain text)
 - 96 ticks per quarter note from a dedicated timing thread; measured 0.1 ms
   deviation on desktop Linux
 
+The sequencer sends notes, clock and start/stop only. Effects, CCs and sounds
+are left to the FM1.
+
+## Making and evolving patterns
+
+Generators **write into the step grid**, so you can always edit the result by
+hand. Press **Select+X** to open the generate page for the current track, pick a
+generator, set its parameters and press **A** to roll a new pattern. **Select+Y**
+undoes the last roll. Steps you lock (**Select+A** on the grid, shown as a
+yellow square) are never touched by a roll or by evolution.
+
+| Generator | What it does | Parameters |
+|---|---|---|
+| EUCLID | Spreads hits evenly over the steps. Rhythm only by default, so your melody stays. | hits, rotation, pitch (keep / root / random) |
+| WALK | A random walk through the scale. | max step size, up/down bias, density |
+| MARKOV | Learns which notes follow which in the track's *current* phrase and writes a new phrase in that style. Rolling again learns from the new phrase, so it drifts like a game of telephone. | chaos (chance of a random note), rhythm (keep or random density) |
+| CHAOS | Iterates the logistic map. Low `r` gives repeating patterns, high `r` gives chaos. | r, seed, density |
+| CELLULAR | A cellular automaton (rules 30, 90, 110 and more) read as rhythm, with pitch from each cell's neighbourhood. Each roll advances one generation, so it scrolls through time. | rule, generation, seed (single / random) |
+| WEIGHTED | Chance of each scale note, favouring root, fifth and third; like SEQ-4's stochastic mode. | tension (flatter weights), density, repeat chance |
+
+**Evolve** changes a track every 1, 2, 4 or 8 bars while it plays. `AMOUNT` is
+the chance each step changes. Choose what may change: pitch (one scale degree
+up or down), rhythm (toggle a step), velocity, rotate (shift the whole pattern
+one step), and regen (re-run the generator, so CELLULAR advances a generation
+each time). Together with per-step probability, this gives patterns that keep
+their character but never settle.
+
+The generated notes come from the track's `LOWEST NOTE` and `RANGE` (octaves)
+in the chosen scale.
+
 ## Controls
 
-Handheld buttons (keyboard in brackets):
+Handheld buttons (keyboard in brackets). **Grid page:**
 
 | Input | Action |
 |---|---|
 | D-pad | move cursor (up/down = track, left/right = step) |
 | A [Z] | step on/off |
 | X [C] | mute track |
-| B [X] + up/down | note up/down |
+| B [X] + up/down | note up/down by scale degree |
 | B + left/right | velocity -/+ 8 |
 | Y [V] + up/down | gate +/- 10% |
 | Y + left/right | probability -/+ 10% |
 | Select [Tab] + left/right | track length |
 | Select + up/down | track MIDI channel |
+| Select + A | lock/unlock the step |
+| Select + B [R] | roll a new pattern with the track's generator |
+| Select + Y [U] | undo the last roll |
+| Select + X [E] | switch between grid and generate page |
 | L/R [Q/W] | BPM -/+ 1 (hold B for 10) |
 | Y + L/R | swing |
 | Start [Space] | play/stop |
 | Select + Start [Esc] | quit |
+
+**Generate page:** up/down chooses a row (track, generator, its parameters,
+lowest note, range, evolve settings, scale, root), left/right changes the
+value (hold B for bigger steps), A rolls, Select+Y undoes, Select+X returns to
+the grid. L2 and R2, if your handheld reports them as triggers, also switch
+page and roll; this is untested.
 
 Face buttons follow SDL's naming (A = south button). If the RG40XX-V's labels
 are swapped on your build, swap them in `map_pad()` in `src/ui.c`.
@@ -115,6 +157,7 @@ be settled and a CI build is a sensible next step.
 ## Layout
 
 - `src/engine.c` sequencer core (pure C, unit tested in `tests/`)
+- `src/gen.c` scales, generators and evolution (also unit tested)
 - `src/player.c` timing thread
 - `src/midi_alsa.c` ALSA sequencer output; `src/midi_null.c` stub/logging output
 - `src/ui.c` SDL2 interface, built-in font, no extra libraries

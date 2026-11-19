@@ -15,7 +15,7 @@ else
   $(warning ALSA not found: building without MIDI hardware output)
 endif
 
-SRC := src/main.c src/engine.c src/player.c src/midi_null.c src/ui.c $(MIDI_SRC)
+SRC := src/main.c src/engine.c src/gen.c src/player.c src/midi_null.c src/ui.c $(MIDI_SRC)
 
 all: seq4h
 
@@ -25,8 +25,8 @@ seq4h: $(SRC) $(wildcard src/*.h)
 test: tests/test_engine
 	./tests/test_engine
 
-tests/test_engine: tests/test_engine.c src/engine.c src/engine.h
-	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c
+tests/test_engine: tests/test_engine.c src/engine.c src/gen.c $(wildcard src/*.h)
+	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c src/gen.c
 
 clean:
 	rm -f seq4h tests/test_engine

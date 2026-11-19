@@ -1,4 +1,5 @@
 #include "../src/engine.h"
+#include "../src/gen.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -83,12 +84,115 @@ int main(void) {
 
     /* editing and clamping */
     seq_init(&s, NULL, NULL);
+    s.scale = SCALE_CHROMATIC;
     seq_step_adjust(&s, 0, 0, 200, 0, 0, 0);
     CHECK(s.track[0].step[0].note == 127 && s.track[0].step[0].on);
     seq_step_adjust(&s, 0, 1, 0, -500, -500, -500);
     CHECK(s.track[0].step[1].vel == 1 && s.track[0].step[1].gate == 5 && s.track[0].step[1].prob == 0);
     seq_track_len(&s, 0, -99); CHECK(s.track[0].len == 1);
     seq_adjust_bpm(&s, 999); CHECK(s.bpm == 300);
+
+
+    /* scales: stepping by degree stays in the scale (C minor pentatonic) */
+    seq_init(&s, NULL, NULL);
+    CHECK(s.scale == SCALE_MIN_PENT && s.root == 0);
+    CHECK(gen_step_note(&s, 60, 1) == 63 && gen_step_note(&s, 60, -1) == 58 && gen_step_note(&s, 60, 5) == 72);
+    CHECK(gen_step_note(&s, 61, 1) == 63);          /* off-scale note moves to the next scale note */
+    s.root = 2;                                     /* D minor pentatonic */
+    CHECK(gen_step_note(&s, 62, 1) == 65);
+    s.root = 0;
+    {
+        uint8_t pool[64];
+        int n = gen_pool(&s, 2, pool);              /* base 48, 2 octaves */
+        CHECK(n == 11 && pool[0] == 48 && pool[n - 1] == 72);
+        for (int i = 0; i < n; i++) CHECK(seq_in_scale(&s, pool[i]));
+    }
+
+    /* euclid: 4 hits in 16 steps land on every 4th step; keeps notes with PITCH=KEEP */
+    seq_init(&s, NULL, NULL);
+    gen_set_type(&s, 0, GEN_EUCLID);
+    s.track[0].gen.p[0] = 4;
+    s.track[0].step[5].note = 99;
+    gen_apply(&s, 0);
+    for (int i = 0; i < 16; i++) CHECK(s.track[0].step[i].on == (i % 4 == 0));
+    CHECK(s.track[0].step[5].note == 99);
+    s.track[0].gen.p[0] = 16; gen_apply(&s, 0);
+    for (int i = 0; i < 16; i++) CHECK(s.track[0].step[i].on);
+    s.track[0].gen.p[0] = 5; s.track[0].gen.p[1] = 3; gen_apply(&s, 0);     /* rotation keeps the hit count */
+    { int c = 0; for (int i = 0; i < 16; i++) c += s.track[0].step[i].on; CHECK(c == 5); }
+
+    /* locked steps survive generation and evolution */
+    seq_init(&s, NULL, NULL);
+    gen_set_type(&s, 0, GEN_EUCLID);
+    s.track[0].gen.p[0] = 0;
+    s.track[0].step[3] = (SeqStep){1, 77, 90, 40, 100, 1};
+    gen_apply(&s, 0);
+    CHECK(s.track[0].step[3].on == 1 && s.track[0].step[3].note == 77);
+    s.track[0].evo = (EvolveSettings){1, 100, EVO_PITCH | EVO_RHYTHM | EVO_VEL | EVO_REGEN};
+    for (int k = 0; k < 20; k++) gen_evolve_bar(&s, 0);
+    CHECK(s.track[0].step[3].on == 1 && s.track[0].step[3].note == 77 && s.track[0].step[3].vel == 90);
+
+    /* every generator writes only scale notes inside the pool range */
+    for (int type = GEN_WALK; type < GEN_COUNT; type++) {
+        seq_init(&s, NULL, NULL);
+        s.track[1].step[0].on = 1; s.track[1].step[4].on = 1; s.track[1].step[4].note = 55;
+        gen_set_type(&s, 1, type);
+        for (int k = 0; k < 30; k++) {
+            gen_roll(&s, 1);
+            for (int i = 0; i < 16; i++) {
+                int nt = s.track[1].step[i].note;
+                CHECK(seq_in_scale(&s, nt) && nt >= 36 && nt <= 60 + 12);
+            }
+        }
+    }
+
+    /* markov with zero chaos only uses notes that were in the learned phrase */
+    seq_init(&s, NULL, NULL);
+    s.track[0].step[0] = (SeqStep){1, 36, 100, 50, 100, 0};
+    s.track[0].step[1] = (SeqStep){1, 39, 100, 50, 100, 0};
+    s.track[0].step[2] = (SeqStep){1, 43, 100, 50, 100, 0};
+    gen_set_type(&s, 0, GEN_MARKOV);
+    s.track[0].gen.p[0] = 0;
+    gen_apply(&s, 0);
+    for (int i = 0; i < 16; i++) { int nt = s.track[0].step[i].note; CHECK(nt == 36 || nt == 39 || nt == 43); }
+
+    /* cellular rule 90 from a single cell, 0 generations: just the centre cell */
+    seq_init(&s, NULL, NULL);
+    gen_set_type(&s, 0, GEN_CELLULAR);
+    s.track[0].gen.p[0] = 1; s.track[0].gen.p[1] = 0;
+    gen_apply(&s, 0);
+    for (int i = 0; i < 16; i++) CHECK(s.track[0].step[i].on == (i == 8));
+    s.track[0].gen.p[1] = 1; gen_apply(&s, 0);       /* rule 90: neighbours of the centre */
+    for (int i = 0; i < 16; i++) CHECK(s.track[0].step[i].on == (i == 7 || i == 9));
+    gen_roll(&s, 0);
+    CHECK(s.track[0].gen.p[1] == 2);
+
+    /* evolution: amount 0 changes nothing, amount 100 changes something */
+    seq_init(&s, NULL, NULL); seq_load_demo(&s);
+    { SeqTrack before = s.track[3];
+      s.track[3].evo = (EvolveSettings){1, 0, EVO_PITCH | EVO_RHYTHM | EVO_VEL | EVO_ROTATE};
+      gen_evolve_bar(&s, 3);
+      CHECK(memcmp(before.step, s.track[3].step, sizeof before.step) == 0);
+      s.track[3].evo.amount = 100;
+      gen_evolve_bar(&s, 3);
+      CHECK(memcmp(before.step, s.track[3].step, sizeof before.step) != 0); }
+
+    /* evolution is driven by the bar clock: every 2 bars means ticks 768, not 384 */
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    seq_load_demo(&s);
+    s.track[0].evo = (EvolveSettings){2, 100, EVO_RHYTHM};
+    { SeqTrack before = s.track[0];
+      seq_start(&s); run(&s, 400);
+      CHECK(memcmp(before.step, s.track[0].step, sizeof before.step) == 0);
+      run(&s, 400);
+      CHECK(memcmp(before.step, s.track[0].step, sizeof before.step) != 0); }
+
+    /* same seed, same result */
+    { Seq x, y;
+      seq_init(&x, NULL, NULL); seq_init(&y, NULL, NULL);
+      gen_set_type(&x, 0, GEN_WALK); gen_set_type(&y, 0, GEN_WALK);
+      gen_apply(&x, 0); gen_apply(&y, 0);
+      CHECK(memcmp(x.track[0].step, y.track[0].step, sizeof x.track[0].step) == 0); }
 
     /* note names */
     char nm[8];
@@ -98,11 +202,16 @@ int main(void) {
     /* save / load round trip */
     Seq a, b;
     seq_init(&a, NULL, NULL); seq_load_demo(&a); a.bpm = 97; a.swing = 4; a.track[2].len = 11; a.track[3].mute = 1;
+    a.scale = 3; a.root = 7; gen_set_type(&a, 1, GEN_MARKOV); a.track[1].gen.p[0] = 4; a.track[1].gen.base = 40;
+    a.track[2].evo = (EvolveSettings){4, 35, EVO_PITCH | EVO_REGEN}; a.track[0].step[2].lock = 1;
     FILE *f = tmpfile(); seq_save(&a, f); rewind(f);
     seq_init(&b, NULL, NULL);
     CHECK(seq_load(&b, f) == 0); fclose(f);
     CHECK(b.bpm == 97 && b.swing == 4 && b.track[2].len == 11 && b.track[3].mute == 1);
     CHECK(memcmp(a.track[2].step, b.track[2].step, sizeof a.track[2].step) == 0);
+    CHECK(b.scale == 3 && b.root == 7 && b.track[1].gen.type == GEN_MARKOV && b.track[1].gen.p[0] == 4);
+    CHECK(b.track[1].gen.base == 40 && b.track[2].evo.every == 4 && b.track[2].evo.amount == 35);
+    CHECK(b.track[2].evo.kinds == (EVO_PITCH | EVO_REGEN) && b.track[0].step[2].lock == 1);
     f = tmpfile(); fputs("garbage\n", f); rewind(f);
     CHECK(seq_load(&b, f) != 0); fclose(f);
 

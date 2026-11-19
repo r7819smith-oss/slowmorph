@@ -23,13 +23,14 @@ static void usage(void) {
 }
 
 int main(int argc, char **argv) {
-    const char *midi_name = "", *pattern = "seq4h.pat", *shot = NULL;
+    const char *midi_name = "", *pattern = "seq4h.pat", *shot = NULL, *keys = NULL;
     int fullscreen = 0, no_clock = 0, demo = 0, verbose = 0, autoplay = 0, channel = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--midi") && i + 1 < argc) midi_name = argv[++i];
         else if (!strcmp(argv[i], "--pattern") && i + 1 < argc) pattern = argv[++i];
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--channel") && i + 1 < argc) channel = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--keys") && i + 1 < argc) keys = argv[++i];
         else if (!strcmp(argv[i], "--fullscreen")) fullscreen = 1;
         else if (!strcmp(argv[i], "--no-clock")) no_clock = 1;
         else if (!strcmp(argv[i], "--demo")) demo = 1;
@@ -71,7 +72,7 @@ int main(int argc, char **argv) {
     if (autoplay) seq_start(&p.seq);
     if (player_begin(&p) != 0) { fprintf(stderr, "seq4h: cannot start timing thread\n"); return 1; }
 
-    UiOptions opt = {.fullscreen = fullscreen, .screenshot = shot, .midi_desc = desc};
+    UiOptions opt = {.fullscreen = fullscreen, .screenshot = shot, .keys = keys, .midi_desc = desc};
     int rc = ui_run(&p, &opt);
 
     if (!shot) {

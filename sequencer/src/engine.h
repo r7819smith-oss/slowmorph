@@ -18,13 +18,32 @@ typedef struct {
     uint8_t vel;     /* 1..127 */
     uint8_t gate;    /* 5..100, percent of a step */
     uint8_t prob;    /* 0..100, percent chance of playing */
+    uint8_t lock;    /* 1 = generators and evolution leave this step alone */
 } SeqStep;
+
+/* Pattern generator for a track. Generators write into the step grid, so the
+ * result can be edited by hand afterwards. See gen.h. */
+typedef struct {
+    uint8_t type;    /* GenType; 0 = manual */
+    uint8_t p[4];    /* generator-specific parameters */
+    uint8_t base;    /* lowest MIDI note generators use */
+    uint8_t span;    /* octaves above base, 1..4 */
+} GenSettings;
+
+/* Evolution: every `every` bars, change the pattern a little. */
+typedef struct {
+    uint8_t every;   /* 0 = off, else 1, 2, 4 or 8 bars */
+    uint8_t amount;  /* 0..100, percent chance each step changes */
+    uint8_t kinds;   /* EVO_* bit flags */
+} EvolveSettings;
 
 typedef struct {
     SeqStep step[SEQ_STEPS];
     uint8_t len;        /* 1..16 */
     uint8_t channel;    /* 0..15 (shown as 1..16) */
     uint8_t mute;
+    GenSettings gen;
+    EvolveSettings evo;
     int16_t sounding;   /* note currently held, or -1 */
     uint32_t off_tick;
 } SeqTrack;
@@ -35,6 +54,8 @@ typedef struct {
     SeqTrack track[SEQ_TRACKS];
     int bpm;            /* 30..300 */
     int swing;          /* 0..SEQ_MAX_SWING ticks */
+    int scale;          /* index into the scale list (see gen.h) */
+    int root;           /* 0..11, C = 0 */
     int clock_out;      /* send MIDI clock/start/stop */
     int playing;
     uint32_t tick;      /* next tick to process */
@@ -44,6 +65,7 @@ typedef struct {
 } Seq;
 
 void seq_init(Seq *s, SeqSend send, void *ctx);
+uint32_t seq_rand(Seq *s);              /* deterministic xorshift */
 void seq_load_demo(Seq *s);
 
 void seq_start(Seq *s);
