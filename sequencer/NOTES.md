@@ -27,9 +27,13 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   TRACK, GENERATE. L1/R1 = page, L2/R2 = track, B = back to grid; list pages
   use up/down = row, left/right = value, hold Y = big step.
 - **M opens a main menu** for session-wide settings (Roy, 2026-11-19; a
-  music-style choice will go there, added by the pattern engine work). It is
-  joy 13 (short press). Held M is joy 8 and is left to Knulli, which uses the
-  menu button for hotkeys. Add rows in `menu_row_*` in `src/ui.c`.
+  music-style choice will go there, added by the pattern engine work). Under
+  Knulli M is joy 11. Knulli also uses M for its hotkeys (M + another
+  button). Add rows in `menu_row_*` in `src/ui.c`.
+- **Button codes are shown on the device, no SSH** (2026-11-19): M > BUTTON
+  CODES toggles a top-right readout (`JOY 10 = START`: raw code, then the
+  seq4h button). The Ports entry `SHOW-BUTTONS.sh` starts seq4h with it on,
+  for when M itself is wrong. Each press is also logged to `seq4h.log`.
 - **Input** goes through `src/input.c`: a table from keyboard keys, raw
   joystick buttons/hats/axes and SDL game-controller buttons/axes to seq4h
   buttons and actions, overridable from `seq4h.input`. On Knulli the shipped
@@ -97,24 +101,29 @@ Works and tested on desktop Linux:
   checklist.
 - **The ALSA output against real hardware.** The build container had no
   sound devices, so the code compiles and falls back cleanly, nothing more.
-- **Any run on the handheld.** The aarch64 build is settled (see *aarch64
-  build* below) and smoke-tested under qemu, but has not run on Knulli.
-- **Button codes on a Knulli unit.** The defaults (README, "Button mapping")
-  come from a published log of an RG40XX-V on stock firmware: A=0 B=1 Y=2
-  X=3 L1=4 R1=5 Select=6 Start=7 L2=10 R2=11, D-pad on hat 0. L2/R2 are
-  digital buttons there, not trigger axes. Confirm with `--show-input` and fix
-  any difference in `seq4h.input`, not in code.
+- **Button codes on a Knulli unit, partly confirmed.** First hardware run
+  (2026-11-19, Knulli on Batocera 42, kernel 4.9.170): seq4h ran from Ports
+  and drove the FM1 over USB MIDI. The first defaults came from a stock
+  firmware log (A=0 ... Start=7, L2/R2=10/11) and were wrong: L1 started
+  playback and Start acted like L2. Knulli numbers the pad ("Deeplay-keys")
+  3 higher: vol-=1 vol+=2 A=3 B=4 Y=5 X=6 L1=7 R1=8 Select=9 Start=10 M=11
+  stick=12 L2=13 R2=14, D-pad hat 0 (the SDL mapping other Knulli ports such
+  as m8c use for this pad). Those are now the defaults. Roy's press-by-press
+  report on the old build fits this table for every button (A acted as X,
+  B/Y as L1/R1, X as Select, L1 as Start, Start as L2, M as R2, L2 as M;
+  R1, R2, Select and the stick did nothing). Confirm on the new build with
+  M > BUTTON CODES.
 - **Felucca's clock-source labels.** The wiki puts the clock source on the
   CLOCK page (tap HOME: HOME > MIXER > CLOCK) but does not name the options.
   Whether Felucca follows MIDI Start/Stop is not documented.
 - Bluetooth: the Felucca wiki text lists only USB and TRS, so don't plan on it.
-- `knulli/SEQ4H.sh` launcher is untested.
+- `knulli/SEQ4H.sh` launcher works on Roy's RG40XX-V (2026-11-19).
 
 ## Next steps (suggested order)
 
 1. Run the checklist below on the RG40XX-V and fill in the results table.
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
-3. Check button codes (`SEQ4H_SHOW_INPUT=1`, then read `seq4h.log`) and
+3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
    fullscreen on the device; adjust `seq4h.input`.
 4. Try the ambient starting set on the FM1 and tune `STYLE_SET` /
    `STYLE_DEF` in `src/gen.c` by ear (Roy's main style is ambient).
@@ -305,22 +314,23 @@ Checks:
 **H. Handheld UI**
 
 - [ ] Fullscreen fills the screen; text is readable.
-- [ ] Start once with `SEQ4H_SHOW_INPUT=1` and press every button. The top
-      right shows the code (`IN: JOY 10 > L2`); `seq4h.log` lists them and
-      the pad's name and GUID. Note any code that differs from the table in
-      README "Button mapping" and fix it in `seq4h.input`.
+- [ ] Turn on M > BUTTON CODES (or start SHOW-BUTTONS from Ports) and press
+      every button. The top right shows the code and its action
+      (`JOY 10 = START`); `seq4h.log` lists them and the pad's name and
+      GUID. Note any code that differs from the table in README "Button
+      mapping" and fix it in `seq4h.input`.
 - [ ] Face buttons: on the grid A toggles a step, X opens the STEP page,
       Y locks, B returns to the grid.
 - [ ] L1/R1 change page, L2/R2 change track.
 - [ ] A short press of M opens the main menu and doesn't trigger a Knulli
-      hotkey; M or B closes it. Note whether M shows as joy 13 (short) or 8.
+      hotkey; M or B closes it. M should show as joy 11.
 - [ ] Select+Start quits and the pattern is saved (`seq4h.pat` updated).
 
 **Results**
 
 | Item | Result |
 |---|---|
-| Knulli version / kernel | |
+| Knulli version / kernel | Batocera 42 base, kernel 4.9.170 (2026-11-19) |
 | `CONFIG_SND_USB_AUDIO` / `CONFIG_SND_SEQUENCER` | |
 | FM1 seen as USB device (vid:pid, name) | |
 | Cable or adapter that worked | |
@@ -331,7 +341,7 @@ Checks:
 | FM1 follows tempo while stopped / on Start / Stop | |
 | Hot-plug | |
 | 30 min run | |
-| Button mapping, L2/R2 | |
+| Button mapping, L2/R2 | stock table wrong; old-build report fits the Knulli table for every button; recheck on new build |
 
 ### If the driver is missing
 
@@ -472,5 +482,6 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `knulli/SEQ4H.sh`: Ports launcher script
+- `knulli/SHOW-BUTTONS.sh`: Ports entry that starts seq4h with button codes shown
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
 - `knulli/build.sh`, `knulli/Dockerfile`: aarch64 cross-build and packaging

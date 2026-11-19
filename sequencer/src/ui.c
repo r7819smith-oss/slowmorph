@@ -306,8 +306,8 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 4
-enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_QUIT };
+#define MENU_ROWS 5
+enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_CODES, MENU_QUIT };
 
 static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     val[0] = 0;
@@ -317,12 +317,22 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         snprintf(label, 24, "NEW FROM STYLE");
         snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
     }
+    else if (row == MENU_CODES) { snprintf(label, 24, "BUTTON CODES"); snprintf(val, 24, "%s", u->show_input ? "ON" : "OFF"); }
     else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
+}
+
+/* Button codes on screen: each press shows its raw code and what it does, so
+ * seq4h.input can be fixed on the device without a terminal. */
+static void toggle_codes(Ui *u) {
+    u->show_input = !u->show_input;
+    u->input_msg[0] = 0;
+    say(u, u->show_input ? "BUTTON CODES ON: PRESS ANY BUTTON" : "BUTTON CODES OFF");
 }
 
 static void menu_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     (void)big;
     if (row == MENU_STYLE) { s->style = wrap(s->style + d, style_count()); u->confirm_new = 0; }
+    else if (row == MENU_CODES) toggle_codes(u);
 }
 
 static void menu_row_select(Seq *s, Ui *u, int row) {
@@ -336,6 +346,7 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->page = P_GRID;
         say(u, kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
     }
+    else if (row == MENU_CODES) toggle_codes(u);
     else if (row == MENU_QUIT) u->quit = 1;
 }
 
@@ -501,7 +512,7 @@ static void close_dev(Dev *d) {
 /* Records what arrived and where it went, for --show-input. */
 static void note_input(Ui *u, const char *what, Btn b) {
     if (!u->show_input) return;
-    snprintf(u->input_msg, sizeof u->input_msg, "IN: %.28s > %s", what, input_btn_name(b));
+    snprintf(u->input_msg, sizeof u->input_msg, "%.28s = %s", what, input_btn_name(b));
     fprintf(stderr, "seq4h: input %s -> %s\n", what, input_btn_name(b));
 }
 
@@ -616,7 +627,11 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     snprintf(buf, sizeof buf, "%s %s", R[s->root % 12], scale_name(s->scale));
     text(r, 260, 46, 1, DIM, buf);
     if (u->msg && SDL_GetTicks() < u->msg_until) text(r, 400, 46, 1, YELLOW, u->msg);
-    if (u->show_input) text(r, 400, 4, 1, u->input_msg[0] ? YELLOW : DIM, u->input_msg[0] ? u->input_msg : "IN: PRESS A BUTTON");
+    if (u->show_input) {   /* e.g. "JOY 10 = START": raw code, then the seq4h button it is mapped to */
+        const char *m = u->input_msg[0] ? u->input_msg : "PRESS A BUTTON";
+        int x = W - 8 - 12 * (int)strlen(m);
+        text(r, x < 320 ? 320 : x, 0, 2, u->input_msg[0] ? YELLOW : DIM, m);
+    }
 }
 
 static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {

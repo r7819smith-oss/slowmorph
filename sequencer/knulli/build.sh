@@ -82,13 +82,13 @@ rm -rf dist
 mkdir -p dist/pkg/seq4h
 cp seq4h dist/seq4h
 cp seq4h dist/pkg/seq4h/seq4h
-cp knulli/SEQ4H.sh knulli/USB-MIDI-CHECK.sh dist/pkg/
+cp knulli/SEQ4H.sh knulli/SHOW-BUTTONS.sh knulli/USB-MIDI-CHECK.sh dist/pkg/
 cp README.md dist/pkg/seq4h/README.md
 cp knulli/seq4h.input dist/pkg/seq4h/seq4h.input
 chmod 755 dist/pkg/*.sh dist/pkg/seq4h/seq4h
 # Fixed timestamps so the zip is byte-for-byte reproducible.
 find dist/pkg -exec touch -h -d '2000-01-01 00:00:00' {} +
-(cd dist/pkg && TZ=UTC zip -X -r -q ../seq4h-knulli-aarch64.zip SEQ4H.sh USB-MIDI-CHECK.sh seq4h)
+(cd dist/pkg && TZ=UTC zip -X -r -q ../seq4h-knulli-aarch64.zip SEQ4H.sh SHOW-BUTTONS.sh USB-MIDI-CHECK.sh seq4h)
 rm -rf dist/pkg
 make clean PKG="$CROSS_PKG" >/dev/null
 ( cd dist && sha256sum seq4h seq4h-knulli-aarch64.zip )

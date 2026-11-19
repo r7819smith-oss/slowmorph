@@ -9,14 +9,14 @@ int main(void) {
     InputMap m;
     input_defaults(&m);
 
-    /* RG40XX-V raw joystick defaults, L2/R2 are buttons 10/11 */
+    /* RG40XX-V raw joystick defaults under Knulli, L2/R2 are buttons 13/14 */
     CHECK(m.mode == INPUT_AUTO);
-    CHECK(m.joy[0] == B_A && m.joy[1] == B_B && m.joy[2] == B_Y && m.joy[3] == B_X);
-    CHECK(m.joy[4] == B_L && m.joy[5] == B_R && m.joy[6] == B_SEL && m.joy[7] == B_START);
-    CHECK(m.joy[10] == B_L2 && m.joy[11] == B_R2 && m.joy[8] == B_NONE);
+    CHECK(m.joy[3] == B_A && m.joy[4] == B_B && m.joy[5] == B_Y && m.joy[6] == B_X);
+    CHECK(m.joy[7] == B_L && m.joy[8] == B_R && m.joy[9] == B_SEL && m.joy[10] == B_START);
+    CHECK(m.joy[13] == B_L2 && m.joy[14] == B_R2 && m.joy[0] == B_NONE && m.joy[12] == B_NONE);
     CHECK(m.hat[0] == B_UP && m.hat[3] == B_LEFT);
     CHECK(m.pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] == B_R2);
-    CHECK(m.joy[13] == B_MENU && input_key(&m, SDLK_m) == B_MENU && input_btn_from_name("menu") == B_MENU);
+    CHECK(m.joy[11] == B_MENU && input_key(&m, SDLK_m) == B_MENU && input_btn_from_name("menu") == B_MENU);
     CHECK(input_key(&m, SDLK_1) == B_L2 && input_btn_from_name("r2") == B_R2);
     CHECK(input_key(&m, SDLK_z) == B_A && input_key(&m, SDLK_ESCAPE) == B_QUIT);
 
@@ -46,7 +46,7 @@ int main(void) {
     CHECK(input_parse_line(&m, "hat middle a") != 0);
     CHECK(input_parse_line(&m, "mode sideways") != 0);
     CHECK(input_parse_line(&m, "joy 1 a extra") != 0);
-    CHECK(m.joy[1] == B_B && m.mode == INPUT_JOYSTICK);
+    CHECK(m.joy[0] == B_B && m.mode == INPUT_JOYSTICK);
 
     /* save then load gives the same map */
     FILE *f = tmpfile();
@@ -69,7 +69,8 @@ int main(void) {
     input_defaults(&n);
     CHECK(input_load(&n, f, "knulli/seq4h.input", stderr) == 0);
     fclose(f);
-    CHECK(n.mode == INPUT_JOYSTICK && n.joy[10] == B_L2 && n.joy[11] == B_R2 && n.joy[13] == B_MENU);
+    CHECK(n.mode == INPUT_JOYSTICK && n.joy[13] == B_L2 && n.joy[14] == B_R2 && n.joy[11] == B_MENU);
+    CHECK(n.joy[7] == B_L && n.joy[10] == B_START && n.joy[3] == B_A && n.joy[0] == B_NONE);
 
     puts("input tests passed");
     return 0;
