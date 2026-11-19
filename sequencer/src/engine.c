@@ -42,8 +42,8 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->len = SEQ_STEPS;
         tr->channel = (uint8_t)t;
         tr->sounding = -1;
-        tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t] - 12), 2};
-        tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM};
+        tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t] - 12), 2, 0x9E37u + (uint32_t)t * 0x2F1Bu};
+        tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         for (int i = 0; i < SEQ_STEPS; i++)
             tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0};
     }
@@ -160,6 +160,19 @@ void seq_track_channel(Seq *s, int t, int d) {
 void seq_adjust_bpm(Seq *s, int d) { s->bpm = clampi(s->bpm + d, 30, 300); }
 void seq_adjust_swing(Seq *s, int d) { s->swing = clampi(s->swing + d, 0, SEQ_MAX_SWING); }
 
+void seq_set_scale(Seq *s, int scale, int root, int snap) {
+    s->scale = clampi(scale, 0, scale_count() - 1);
+    s->root = ((root % 12) + 12) % 12;
+    if (!snap) return;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        SeqTrack *tr = &s->track[t];
+        for (int i = 0; i < SEQ_STEPS; i++) {
+            tr->step[i].note = (uint8_t)gen_snap_note(s, tr->step[i].note);
+            tr->anchor[i].note = (uint8_t)gen_snap_note(s, tr->anchor[i].note);
+        }
+    }
+}
+
 void seq_note_name(int note, char out[8]) {
     static const char *n[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     note = clampi(note, 0, 127);
@@ -174,6 +187,13 @@ void seq_save(const Seq *s, FILE *f) {
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
                 tr->gen.p[3], tr->gen.base, tr->gen.span);
         fprintf(f, "e %d %d %d %d\n", t, tr->evo.every, tr->evo.amount, tr->evo.kinds);
+        fprintf(f, "ev %d %d %d %d\n", t, tr->evo.pull, tr->evo.min_hits, tr->evo.max_hits);
+        fprintf(f, "gs %d %u\n", t, (unsigned)tr->gen.state);
+        if (tr->has_anchor)
+            for (int i = 0; i < SEQ_STEPS; i++) {
+                const SeqStep *st = &tr->anchor[i];
+                fprintf(f, "a %d %d %d %d %d %d %d\n", t, i, st->on, st->note, st->vel, st->gate, st->prob);
+            }
         for (int i = 0; i < SEQ_STEPS; i++) {
             const SeqStep *st = &tr->step[i];
             fprintf(f, "s %d %d %d %d %d %d %d %d\n", t, i, st->on, st->note, st->vel, st->gate, st->prob, st->lock);
@@ -184,6 +204,7 @@ void seq_save(const Seq *s, FILE *f) {
 int seq_load(Seq *s, FILE *f) {
     char line[128];
     int a, b, c, d, e, g, h, k, m, n;
+    unsigned u;
     if (!fgets(line, sizeof line, f) || strncmp(line, "seq4h ", 6) != 0) return -1;
     while (fgets(line, sizeof line, f)) {
         if (sscanf(line, "bpm %d", &a) == 1) s->bpm = clampi(a, 30, 300);
@@ -193,9 +214,27 @@ int seq_load(Seq *s, FILE *f) {
         else if (sscanf(line, "g %d %d %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g, &h, &k) == 8) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             gen_load_settings(&s->track[a].gen, b, c, d, e, g, h, k);
+        } else if (sscanf(line, "gs %d %u", &a, &u) == 2) {
+            if (a < 0 || a >= SEQ_TRACKS) continue;
+            s->track[a].gen.state = u ? u : 1;
+        } else if (sscanf(line, "ev %d %d %d %d", &a, &b, &c, &d) == 4) {
+            if (a < 0 || a >= SEQ_TRACKS) continue;
+            EvolveSettings *ev = &s->track[a].evo;
+            ev->pull = (uint8_t)clampi(b, 0, 100);
+            ev->min_hits = (uint8_t)clampi(c, 0, SEQ_STEPS);
+            ev->max_hits = (uint8_t)(d <= 0 ? 0 : clampi(d, ev->min_hits, SEQ_STEPS));
+        } else if (sscanf(line, "a %d %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g, &h) == 7) {
+            if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
+            s->track[a].anchor[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
+                                              (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
+                                              (uint8_t)clampi(h, 0, 100), 0};
+            s->track[a].has_anchor = 1;
         } else if (sscanf(line, "e %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
-            s->track[a].evo = (EvolveSettings){(uint8_t)clampi(b, 0, 8), (uint8_t)clampi(c, 0, 100), (uint8_t)(d & 31)};
+            EvolveSettings *ev = &s->track[a].evo;
+            ev->every = (uint8_t)clampi(b, 0, 8);
+            ev->amount = (uint8_t)clampi(c, 0, 100);
+            ev->kinds = (uint8_t)(d & EVO_ALL);
         } else if (sscanf(line, "t %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             s->track[a].channel = (uint8_t)clampi(b, 0, 15);

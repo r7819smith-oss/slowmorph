@@ -39,6 +39,10 @@ yellow square) are never touched by a roll or by evolution.
 | CHAOS | Iterates the logistic map. Low `r` gives repeating patterns, high `r` gives chaos. | r, seed, density |
 | CELLULAR | A cellular automaton (rules 30, 90, 110 and more) read as rhythm, with pitch from each cell's neighbourhood. Each roll advances one generation, so it scrolls through time. | rule, generation, seed (single / random) |
 | WEIGHTED | Chance of each scale note, favouring root, fifth and third; like SEQ-4's stochastic mode. | tension (flatter weights), density, repeat chance |
+| FOLLOW | Takes another track's rhythm and accents, e.g. a bass line that follows the kick. Rhythm can be the same, the gaps between the source's hits, an echo one step later, or every other hit. Pitch is the root plus an interval, the source's note plus an interval (harmony, folded into this track's range), or this track's own notes. | source track, rhythm, interval (scale degrees), pitch |
+| ARP | Arpeggiates a chord built from the scale on the track's lowest note. | chord (triad, seventh, sus2, sus4, add9, power), order (up, down, up-down, random, inward), octaves, rate |
+| TURING | A looping shift register read as pitch and rhythm. `CHANGE` is the chance each bit flips as it loops round on a roll: 0 locks the loop, small values drift slowly, 50% is random. Pair it with Evolve's regen for a melody that slowly mutates. | change, density, range, loop length |
+| MOTIF | Invents a short phrase and develops it across the bar: each repeat may be transposed, inverted, reversed or both. | motif length, develop (chance a repeat changes), density, leap (largest interval) |
 
 **Evolve** changes a track every 1, 2, 4 or 8 bars while it plays. `AMOUNT` is
 the chance each step changes. Choose what may change: pitch (one scale degree
@@ -46,6 +50,21 @@ up or down), rhythm (toggle a step), velocity, rotate (shift the whole pattern
 one step), and regen (re-run the generator, so CELLULAR advances a generation
 each time). Together with per-step probability, this gives patterns that keep
 their character but never settle.
+
+The engine also supports (not yet on the generate page):
+
+- **Anchor and pull:** save a track's pattern as its anchor; each bar, every
+  step that has drifted returns to the anchor with chance `PULL`, so evolution
+  wanders and comes home.
+- **Probability drift:** evolution can nudge step probabilities (kept within
+  10-100%).
+- **Density limits:** evolution keeps the number of hits between a minimum and
+  a maximum, so a track can't empty out or fill up.
+- **Transforms** for hand editing: reverse, invert (around the first note),
+  transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
+  fill (new notes borrowed from neighbours) and humanize velocity. All of them
+  leave locked steps in place; rotate also now works around locked steps.
+- **Scale snap:** changing scale can move every note into the new scale.
 
 The generated notes come from the track's `LOWEST NOTE` and `RANGE` (octaves)
 in the chosen scale.

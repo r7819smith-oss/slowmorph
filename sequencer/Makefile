@@ -22,13 +22,17 @@ all: seq4h
 seq4h: $(SRC) $(wildcard src/*.h)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(MIDI_CFLAGS) -o $@ $(SRC) $(SDL_LIBS) $(MIDI_LIBS) -lpthread
 
-test: tests/test_engine
+test: tests/test_engine tests/test_gen
 	./tests/test_engine
+	./tests/test_gen
 
 tests/test_engine: tests/test_engine.c src/engine.c src/gen.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c src/gen.c
 
+tests/test_gen: tests/test_gen.c src/engine.c src/gen.c $(wildcard src/*.h)
+	$(CC) $(CFLAGS) -o $@ tests/test_gen.c src/engine.c src/gen.c
+
 clean:
-	rm -f seq4h tests/test_engine
+	rm -f seq4h tests/test_engine tests/test_gen
 
 .PHONY: all test clean

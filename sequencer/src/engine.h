@@ -28,6 +28,7 @@ typedef struct {
     uint8_t p[4];    /* generator-specific parameters */
     uint8_t base;    /* lowest MIDI note generators use */
     uint8_t span;    /* octaves above base, 1..4 */
+    uint32_t state;  /* generator memory kept between rolls (TURING register) */
 } GenSettings;
 
 /* Evolution: every `every` bars, change the pattern a little. */
@@ -35,6 +36,9 @@ typedef struct {
     uint8_t every;   /* 0 = off, else 1, 2, 4 or 8 bars */
     uint8_t amount;  /* 0..100, percent chance each step changes */
     uint8_t kinds;   /* EVO_* bit flags */
+    uint8_t pull;    /* 0..100, chance per bar that a changed step returns to the anchor */
+    uint8_t min_hits;/* evolution keeps at least this many steps on (0..16) */
+    uint8_t max_hits;/* ...and at most this many; 0 = no maximum */
 } EvolveSettings;
 
 typedef struct {
@@ -44,6 +48,8 @@ typedef struct {
     uint8_t mute;
     GenSettings gen;
     EvolveSettings evo;
+    SeqStep anchor[SEQ_STEPS];  /* pattern evolution is pulled back towards */
+    uint8_t has_anchor;
     int16_t sounding;   /* note currently held, or -1 */
     uint32_t off_tick;
 } SeqTrack;
@@ -81,6 +87,9 @@ void seq_track_len(Seq *s, int t, int delta);
 void seq_track_channel(Seq *s, int t, int delta);
 void seq_adjust_bpm(Seq *s, int delta);
 void seq_adjust_swing(Seq *s, int delta);
+/* Change scale and root. With snap, every step's note moves to the nearest
+ * note of the new scale (locked steps included, since they would sound wrong). */
+void seq_set_scale(Seq *s, int scale, int root, int snap);
 
 void seq_note_name(int note, char out[8]);   /* 60 -> "C4" */
 
