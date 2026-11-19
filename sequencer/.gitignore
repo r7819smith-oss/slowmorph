@@ -2,3 +2,6 @@ seq4h
 tests/test_engine
 *.bmp
 seq4h.pat
+seq4h-render
+tests/test_engine_asan
+out/
