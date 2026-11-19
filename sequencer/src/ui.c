@@ -80,6 +80,7 @@ typedef struct {
     int held[B_COUNT];
     Uint32 next_rep[B_COUNT];
     int quit;
+    int midi_up;              /* last MIDI poll result; -1 = not polled yet */
     int page;                 /* 0 = grid, 1 = generate/evolve */
     int row;                  /* selected row on the generate page */
     SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll */
@@ -355,10 +356,12 @@ static void draw_gen(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     text(r, 20, H - 20, 1, DIM, "SELECT+Y UNDO ROLL  SELECT+X BACK TO GRID  START PLAY/STOP");
 }
 
-static void draw(SDL_Renderer *r, Player *p, const Ui *u, const char *midi_desc) {
+static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     Seq s;
+    char midi_desc[128];
     player_lock(p);
     s = p->seq;
+    snprintf(midi_desc, sizeof midi_desc, "%s", p->midi ? p->midi->desc : "NONE");
     player_unlock(p);
     color(r, (Col){16, 17, 24});
     SDL_RenderClear(r);
@@ -385,7 +388,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     for (int i = 0; i < SDL_NumJoysticks() && i < 8; i++)
         if (SDL_IsGameController(i)) pads[i] = SDL_GameControllerOpen(i);
 
-    Ui u = {.p = p, .undo_track = -1};
+    Ui u = {.p = p, .undo_track = -1, .midi_up = -1};
     if (opt->keys) {
         char tmp[256];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);
@@ -403,6 +406,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         }
     }
     int frames = 0;
+    Uint32 next_poll = 0;
     while (!u.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -426,7 +430,19 @@ int ui_run(Player *p, const UiOptions *opt) {
                 press(&u, (Btn)b);
             }
 
-        draw(r, p, &u, opt->midi_desc);
+        if (now >= next_poll) {   /* MIDI hot-plug: reconnect if unplugged or plugged in late */
+            next_poll = now + 1000;
+            player_lock(p);
+            if (p->midi && p->midi->poll) {
+                int up = p->midi->poll(p->midi);
+                /* Reconnected while playing: the FM1 missed Start, so restart from
+                 * step 1 with a fresh Start to bring its clock back in phase. */
+                if (up && u.midi_up == 0 && p->seq.playing) { seq_stop(&p->seq); seq_start(&p->seq); }
+                u.midi_up = up;
+            }
+            player_unlock(p);
+        }
+        draw(r, p, &u);
         SDL_RenderPresent(r);
 
         if (opt->screenshot && ++frames >= 3) {
