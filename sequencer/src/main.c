@@ -5,6 +5,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "gen.h"
 #include "player.h"
 #include "ui.h"
 
@@ -125,8 +126,10 @@ int main(int argc, char **argv) {
     if (f) {
         if (seq_load(&p.seq, f) != 0) fprintf(stderr, "seq4h: ignoring unreadable %s\n", pattern);
         fclose(f);
-    } else {
+    } else if (demo) {
         seq_load_demo(&p.seq);
+    } else {
+        style_apply(&p.seq, STYLE_AMBIENT, 0);   /* first run: an evolving ambient starting set */
     }
     if (no_clock) p.seq.clock_out = 0;
     if (channel < 0 || channel > 16) { fprintf(stderr, "seq4h: --channel must be 1-16\n"); return 2; }

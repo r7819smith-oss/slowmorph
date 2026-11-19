@@ -39,6 +39,10 @@ square) are never touched by a roll or by evolution.
 | CHAOS | Iterates the logistic map. Low `r` gives repeating patterns, high `r` gives chaos. | r, seed, density |
 | CELLULAR | A cellular automaton (rules 30, 90, 110 and more) read as rhythm, with pitch from each cell's neighbourhood. Each roll advances one generation, so it scrolls through time. | rule, generation, seed (single / random) |
 | WEIGHTED | Chance of each scale note, favouring root, fifth and third; like SEQ-4's stochastic mode. | tension (flatter weights), density, repeat chance |
+| FOLLOW | Takes another track's rhythm and accents, e.g. a bass line that follows the kick. Rhythm can be the same, the gaps between the source's hits, an echo one step later, or every other hit. Pitch is the root plus an interval, the source's note plus an interval (harmony, folded into this track's range), or this track's own notes. | source track, rhythm, interval (scale degrees), pitch |
+| ARP | Arpeggiates a chord built from the scale on the track's lowest note. | chord (triad, seventh, sus2, sus4, add9, power), order (up, down, up-down, random, inward), octaves, rate |
+| TURING | A looping shift register read as pitch and rhythm. `CHANGE` is the chance each bit flips as it loops round on a roll: 0 locks the loop, small values drift slowly, 50% is random. Pair it with Evolve's regen for a melody that slowly mutates. | change, density, range, loop length |
+| MOTIF | Invents a short phrase and develops it across the bar: each repeat may be transposed, inverted, reversed or both. | motif length, develop (chance a repeat changes), density, leap (largest interval) |
 
 **Evolve** changes a track every 1, 2, 4 or 8 bars while it plays. `AMOUNT` is
 the chance each step changes. Choose what may change: pitch (one scale degree
@@ -46,6 +50,37 @@ up or down), rhythm (toggle a step), velocity, rotate (shift the whole pattern
 one step), and regen (re-run the generator, so CELLULAR advances a generation
 each time). Together with per-step probability, this gives patterns that keep
 their character but never settle.
+
+**Each track picks its own approach.** Set `GENERATOR` on the GENERATE page
+per track (L2/R2 or the TRACK row change track). `MANUAL` means nothing is
+generated: write the pattern yourself on the grid and STEP page. A manual track
+only changes if you turn its `EVOLVE` on. To start a track from blank, choose
+`TRANSFORM` CLEAR and press A. The grid shows each track's approach under its
+name (bright when it is evolving).
+
+More on the GENERATE page (press **A** on a row to do its action):
+
+- **Anchor and pull:** save a track's pattern as its anchor; each bar, every
+  step that has drifted returns to the anchor with chance `PULL`, so evolution
+  wanders and comes home.
+- **Probability drift:** evolution can nudge step probabilities (kept within
+  10-100%).
+- **Density limits:** evolution keeps the number of hits between a minimum and
+  a maximum, so a track can't empty out or fill up.
+- **Transforms** for hand editing: reverse, invert (around the first note),
+  transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
+  fill (new notes borrowed from neighbours), humanize velocity and clear. All of them
+  leave locked steps in place; rotate also now works around locked steps.
+- **Scale snap:** with `SNAP NOTES` on, changing scale or root moves every
+  note into the new scale. A on that row snaps the notes now.
+- **Slots and chains:** each track has 8 pattern slots. `SAVE TO SLOT` stores
+  the live pattern; A on `SLOT` loads it back. `CHAIN` plays slots 1 to N in
+  turn, `BARS PER SLOT` each, and `CHANGE BY` either jumps to the next slot or
+  morphs into it a few steps per bar.
+- **Held notes:** `HOLD` on the STEP page ties a note over up to 31 more steps
+  (until the track's next note), for drones and pads.
+- **Patterns up to 32 steps:** set `LENGTH` on the TRACK page. The grid shows
+  16 steps at a time; move the cursor past step 16 to see steps 17-32.
 
 The generated notes come from the track's `LOWEST NOTE` and `RANGE` (octaves)
 in the chosen scale.
@@ -83,14 +118,29 @@ change bigger.
 
 | Page | Rows | Also |
 |---|---|---|
-| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, probability, lock | A = step on/off |
+| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, probability, lock | A = step on/off |
 | TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
-| GENERATE | track, generator and its parameters, lowest note, range, evolve settings, scale, root | A = roll a new pattern, X = undo the roll |
+| GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 
 **Main menu** (M): settings for the whole session. Up/down picks a row,
 left/right changes it, A selects; M or B closes it and returns to the page
-you were on. For now it has *Back to editing* and *Save and quit*; more
-settings, such as a music style, will be added there.
+you were on. Rows:
+
+- *Back to editing*
+- *Music style*: AMBIENT (default), TECHNO or MELODIC. It sets the defaults a
+  generator starts with when you pick it on the GENERATE page (ambient: sparse,
+  stepwise, slow; techno: dense and repetitive; melodic: the plain defaults).
+- *New from style*: press A twice to fill the tracks with the style's
+  starting set (tempo, scale, generators, lengths, holds and evolution).
+  Tracks set to MANUAL that have notes are kept exactly as they are, and then
+  the scale and root are kept too so the new tracks fit them. The
+  ambient set runs at 72 BPM in D major pentatonic, with track lengths 16, 13,
+  11 and 23 so the tracks drift against each other, long held notes, and
+  evolution that wanders and is pulled back to each track's anchor.
+- *Save and quit*
+
+On the first run (no saved `seq4h.pat` and no `--demo`), seq4h starts from the
+ambient set.
 
 The STEP page edits the step under the grid cursor, and its STEP row moves
 that cursor, so you can walk through a pattern without going back to the

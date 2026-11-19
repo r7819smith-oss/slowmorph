@@ -1,8 +1,9 @@
 # seq4h handoff notes
 
 Use this to resume work in a new chat or a Claude Project. For usage and
-controls see [README.md](README.md). Branch: `claude/lucid-newton-7ah8m8`; USB MIDI
-work continues on `claude/project-thread-pro3ph`.
+controls see [README.md](README.md). The sequencer is on `main`. USB MIDI
+work continues on `claude/project-thread-pro3ph`; generator/evolution work on
+`claude/project-thread-rg0c0f` (PR #4).
 
 ## Goal
 
@@ -40,7 +41,38 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 - **Evolution** runs at bar boundaries (every 1, 2, 4 or 8 bars). It can mutate
   pitch, rhythm and velocity, rotate the pattern, or re-run the generator.
 - **Generators:** EUCLID, WALK, MARKOV (learns from the current phrase), CHAOS
-  (logistic map), CELLULAR (advances a generation per roll), WEIGHTED.
+  (logistic map), CELLULAR (advances a generation per roll), WEIGHTED,
+  FOLLOW (another track's rhythm, plus interval/harmony), ARP (scale chords),
+  TURING (looping shift register; state kept in `GenSettings.state`, advanced
+  one loop per roll), MOTIF (short phrase developed by transpose/invert/retro).
+  New generator types are appended to `GenType` so saved type numbers stay valid.
+- **Evolution extras:** anchor + `pull` (drifted steps return to the anchor),
+  `EVO_PROB` (probability drift, 10-100%), `min_hits`/`max_hits` (0 = no max).
+  Order each bar: pull, then regen, then mutations, then rotate, then density.
+  Rotate now rotates around locked steps instead of refusing when any is locked.
+- **Transforms** (`gen_transform`): reverse, invert, transpose, shift, thin,
+  fill, humanize. All skip locked steps and stay within the track length.
+- **Scale snap:** `seq_set_scale(s, scale, root, snap)` moves notes into the
+  new scale. The UI still sets `s->scale` directly; wiring it is pending.
+- **32 steps, hold, slots, chains, styles:** `SEQ_STEPS` 32 (tracks start at
+  16), `SeqStep.hold` ties a note over extra steps, 8 slots per track with a
+  jump or morph chain advanced at bar boundaries (before evolution), and
+  `Style` (AMBIENT default, TECHNO, MELODIC) which sets `gen_set_type`
+  defaults; `style_apply` builds a full starting set and is used on first run.
+  UI: GENERATE page rows (list scrolls; A does the row's action), HOLD on the
+  STEP page, grid shows 16 steps at a time, MUSIC STYLE and NEW FROM STYLE in
+  the M menu.
+- **Per-track approach and manual tracks** (Roy, 2026-11-19): each track has its
+  own generator; MANUAL (`GEN_NONE`) is the blank, write-it-yourself mode.
+  Decisions made without asking: a manual track's evolution stays off unless
+  turned on (evolving a hand-written pattern is allowed, just opt-in);
+  `style_apply(..., keep_manual=1)` from the menu keeps MANUAL tracks that have
+  notes and then also keeps scale/root; `XF_CLEAR` blanks a track; the grid
+  shows `gen_short_name()` per track.
+- **Save format** (still `seq4h 1`): new `gs` (generator state), `ev` (pull,
+  min, max), `a`/`ah` (anchor step/hold), `h` (hold), `sl`/`ss`/`sh` (slots),
+  `ch` (chain) and `style` lines. Old files load with neutral defaults;
+  old binaries ignore the new lines.
   Deliberately not copied from SEQ-4: its matriceal multi-lane editor and its
   effects/CC features.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
@@ -53,7 +85,8 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 
 Works and tested on desktop Linux:
 
-- engine, generators, evolution, save/load (`make test`)
+- engine, generators, evolution, save/load (`make test`; `tests/test_engine.c`
+  and `tests/test_gen.c`, also clean under ASan/UBSan)
 - timing thread
 - SDL2 UI, checked through headless screenshots (`--screenshot`, `--keys`)
 
@@ -83,13 +116,13 @@ Works and tested on desktop Linux:
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (`SEQ4H_SHOW_INPUT=1`, then read `seq4h.log`) and
    fullscreen on the device; adjust `seq4h.input`.
-4. Features discussed but not built:
-   - a generator that reads another track (for example a bass line following
-     the kick rhythm)
+4. Try the ambient starting set on the FM1 and tune `STYLE_SET` /
+   `STYLE_DEF` in `src/gen.c` by ear (Roy's main style is ambient).
+5. Features discussed but not built:
    - painting per-note chances for WEIGHTED, closer to SEQ-4's stochastic mode
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
-   - several pattern slots, chaining, and a song mode
+   - a song mode on top of slot chains
 
 ## USB MIDI on the RG40XX-V
 
@@ -347,10 +380,11 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/player.c`: timing thread and lock
 - `src/midi_alsa.c`, `midi_null.c`: MIDI output backends
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
+- `tests/test_engine.c`: engine unit tests
+- `tests/test_gen.c`: tests for the newer generators, transforms and evolution
 - `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
 - `tests/test_input.c`: mapping tests
 - `knulli/seq4h.input`: RG40XX-V button map
-- `tests/test_engine.c`: unit tests
 - `knulli/SEQ4H.sh`: Ports launcher script
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
 - `knulli/build.sh`, `knulli/Dockerfile`: aarch64 cross-build and packaging
