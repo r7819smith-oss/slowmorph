@@ -87,7 +87,7 @@ screenshots)
     # Pages in order: GRID, STEP, TRACK, GENERATE.
     while IFS='|' read -r name keys; do
         [ -z "$name" ] && continue
-        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" ./seq4h --midi none --demo \
+        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" SEQ4H_BATTERY_PERCENT_FILE=/nonexistent ./seq4h --midi none --demo \
             --screenshot "$OUT/shots/$name.bmp" ${keys:+--keys "$keys"} >/dev/null 2>&1
         [ -f "$OUT/shots/$name.bmp" ] || note "- **FAIL** $name: no screenshot written"
     done <<'EOF'
