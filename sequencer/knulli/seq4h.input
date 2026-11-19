@@ -1,27 +1,43 @@
 # seq4h button map for the Anbernic RG40XX-V under Knulli.
-# Copy next to the seq4h binary. Each line: SOURCE CODE BUTTON. Later lines win.
+# Copy next to the seq4h binary, replacing any older copy. Each line:
+# SOURCE CODE BUTTON. Later lines win.
 # Buttons: up down left right a b x y l r l2 r2 select start menu page roll undo lock quit none
-# Run "./seq4h --show-input" to see the code each button sends.
+# To see the code each button sends: M > BUTTON CODES, or SHOW-BUTTONS in Ports.
 
 # Read the pad as a raw joystick. Some H700 pads report a GUID that SDL
 # mistakes for another controller, which would scramble the buttons.
 mode joystick
 
-# Raw button indices on the RG40XX-V ("ANBERNIC-keys").
-joy 0  a
-joy 1  b
-joy 2  y
-joy 3  x
-joy 4  l          # L1
-joy 5  r          # R1
-joy 10 l2         # L2: previous track
-joy 11 r2         # R2: next track
-joy 6  select
-joy 7  start
-joy 13 menu       # M, short press: main menu
-# joy 8 is M held down; Knulli uses it for its own hotkeys, so seq4h leaves it alone.
-# joy 9 is the stick press.
-# joy 9 undo      # example: stick press undoes the last roll
+# Raw button codes of the RG40XX-V pad under Knulli ("Deeplay-keys").
+# joy 1 and joy 2 are volume down/up; Knulli handles them.
+joy 3  a
+joy 4  b
+joy 5  y
+joy 6  x
+joy 7  l          # L1
+joy 8  r          # R1
+joy 9  select
+joy 10 start
+joy 11 menu       # M: main menu
+joy 13 l2         # L2: previous track
+joy 14 r2         # R2: next track
+# joy 12 is the stick press.
+# joy 12 undo     # example: stick press undoes the last roll
+
+# Anbernic's stock firmware numbers the buttons 3 lower. If your codes look
+# like that (check with BUTTON CODES), use these lines instead of the ones above:
+# joy 0 a
+# joy 1 b
+# joy 2 y
+# joy 3 x
+# joy 4 l
+# joy 5 r
+# joy 6 select
+# joy 7 start
+# joy 13 menu
+# joy 10 l2
+# joy 11 r2
+# (and set joy 8, joy 9 and joy 14 to none)
 
 # The D-pad is hat 0.
 hat up    up

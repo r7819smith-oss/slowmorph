@@ -41,12 +41,15 @@ void input_defaults(InputMap *m) {
     for (int i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++) m->pad[i] = B_NONE;
     for (int i = 0; i < SDL_CONTROLLER_AXIS_MAX; i++) m->pad_axis[i][0] = m->pad_axis[i][1] = B_NONE;
 
-    /* RG40XX-V raw joystick ("ANBERNIC-keys"): A=0 B=1 Y=2 X=3 L1=4 R1=5
-     * Select=6 Start=7 Menu=8 (hold) / 13 (short) stick=9 L2=10 R2=11,
-     * D-pad on hat 0. L2/R2 are plain buttons, not trigger axes. */
-    static const Btn JOY[12] = {B_A, B_B, B_Y, B_X, B_L, B_R, B_SEL, B_START, B_NONE, B_NONE, B_L2, B_R2};
-    for (int i = 0; i < 12; i++) m->joy[i] = JOY[i];
-    m->joy[13] = B_MENU;   /* short press of M; 8 (held M) is left to Knulli's hotkeys */
+    /* RG40XX-V raw joystick under Knulli ("Deeplay-keys"): A=3 B=4 Y=5 X=6
+     * L1=7 R1=8 Select=9 Start=10 M=11 stick=12 L2=13 R2=14, volume 1/2,
+     * D-pad on hat 0. L2/R2 are plain buttons, not trigger axes. Stock
+     * firmware numbers the same buttons 3 lower (A=0 ... Start=7). */
+    static const struct { int code; Btn b; } JOY[] = {
+        {3, B_A}, {4, B_B}, {5, B_Y}, {6, B_X}, {7, B_L}, {8, B_R},
+        {9, B_SEL}, {10, B_START}, {11, B_MENU}, {13, B_L2}, {14, B_R2},
+    };
+    for (size_t i = 0; i < sizeof JOY / sizeof JOY[0]; i++) m->joy[JOY[i].code] = JOY[i].b;
     m->hat[0] = B_UP; m->hat[1] = B_RIGHT; m->hat[2] = B_DOWN; m->hat[3] = B_LEFT;
 
     /* SDL game controller names (used for pads SDL recognises, in auto or controller mode) */

@@ -155,49 +155,57 @@ full mapping in use, which is a good starting point.
 
 ### RG40XX-V under Knulli
 
-The RG40XX-V's built-in pad shows up as a joystick called `ANBERNIC-keys`.
-These are the raw SDL joystick codes it sends, from a published log of an
-RG40XX-V on Anbernic's stock firmware
-([source](https://github.com/swetoast/Anbernic-Firmware-Application-Development-Guide)).
-Knulli should report the same codes, but **they have not yet been checked on
-a Knulli unit**; run
-`./seq4h --show-input` once to confirm (below).
+Under Knulli the RG40XX-V's built-in pad is a joystick called `Deeplay-keys`.
+These are the raw SDL joystick codes it sends, taken from the mapping other
+Knulli ports use for this pad and matching what the first test on a Knulli
+RG40XX-V showed (with the older stock-firmware table, L1 started playback and
+Start moved between tracks). Press **M > BUTTON CODES** to check them on
+your unit (below).
 
 | Button | Code | seq4h default |
 |---|---|---|
-| A | joy 0 | a |
-| B | joy 1 | b |
-| Y | joy 2 | y |
-| X | joy 3 | x |
-| L1 | joy 4 | l |
-| R1 | joy 5 | r |
-| Select | joy 6 | select |
-| Start | joy 7 | start |
-| M / Menu (held) | joy 8 | not used (left to Knulli's hotkeys) |
-| Stick press | joy 9 | not used |
-| **L2** | **joy 10** | **l2** (previous track) |
-| **R2** | **joy 11** | **r2** (next track) |
-| **M / Menu (short press)** | **joy 13** | **menu** |
+| Volume - / + | joy 1 / joy 2 | not used |
+| A | joy 3 | a |
+| B | joy 4 | b |
+| Y | joy 5 | y |
+| X | joy 6 | x |
+| L1 | joy 7 | l |
+| R1 | joy 8 | r |
+| Select | joy 9 | select |
+| Start | joy 10 | start |
+| M / Menu | joy 11 | menu |
+| Stick press | joy 12 | not used |
+| L2 | joy 13 | l2 (previous track) |
+| R2 | joy 14 | r2 (next track) |
 | D-pad | hat 0 (up/right/down/left) | up/right/down/left |
 | Left stick | axes 0 (x) and 1 (y) | not used |
 
-L2 and R2 are plain on/off buttons, not analog trigger axes. Note X and Y
-are 3 and 2, not in label order.
+L2 and R2 are plain on/off buttons, not analog trigger axes. Note Y comes
+before X. Anbernic's stock firmware numbers the same buttons 3 lower
+(A = joy 0 ... Start = joy 7, L2/R2 = joy 10/11); the comments in
+`knulli/seq4h.input` hold that table too.
 
 `knulli/seq4h.input` holds this map and sets `mode joystick`. Copy it next
-to the binary. Joystick mode matters: some H700 pads report an ID that SDL
+to the binary, replacing any older copy (an old file overrides the built-in
+defaults). Joystick mode matters: some H700 pads report an ID that SDL
 mistakes for a different controller, and SDL's game-controller layer would
 then scramble the buttons. Raw joystick mode reads the codes above directly.
 
 ### Checking the codes on your device
 
-Run `./seq4h --show-input` (the Knulli launcher passes it when
-`SEQ4H_SHOW_INPUT=1`). The top right of the screen then shows the last input
-and what it does, for example `IN: JOY 10 > PAGE` or `IN: JOY 13 > NONE`, and
-the same lines go to stderr (the launcher writes them to `seq4h.log`). On
-start it also logs each pad's name, GUID and its numbers of buttons, hats and
-axes. Press every button once; if one shows a different code from the table,
-add a line for it to `seq4h.input`.
+No terminal needed. Either:
+
+- open the main menu with **M**, go to **BUTTON CODES** and press **A**, or
+- start **SHOW-BUTTONS** from the Ports menu (useful if M itself does not
+  work), which starts seq4h with the codes already showing.
+
+The top right of the screen then shows each press as its raw code and the
+seq4h button it does, for example `JOY 10 = START` or `JOY 12 = NONE`. The
+buttons keep working while the codes show. The same lines go to `seq4h.log`,
+along with each pad's name, GUID and its numbers of buttons, hats and axes.
+If a button shows the wrong action, add a line for its code to
+`seq4h.input`, e.g. `joy 12 undo`. Turn the codes off again from the menu.
+On a computer, `./seq4h --show-input` does the same.
 
 ### File format
 
@@ -223,8 +231,8 @@ file:
 - `threshold N` (default 16000, out of 32767): how far an axis must move to
   count as a press.
 
-Examples: swap A and B with `joy 0 b` and `joy 1 a`; make the stick press
-undo the last roll with `joy 9 undo`.
+Examples (Knulli codes): swap A and B with `joy 3 b` and `joy 4 a`; make the
+stick press undo the last roll with `joy 12 undo`.
 
 On a desktop, the `pad` defaults use SDL's names (A = the bottom face button)
 with the triggers as L2/R2; keyboard defaults are listed in the Controls
@@ -312,13 +320,13 @@ tests natively and under qemu, draws one frame of the aarch64 binary under
 qemu as a smoke test, and writes:
 
 - `dist/seq4h`, the aarch64 binary
-- `dist/seq4h-knulli-aarch64.zip`, holding `SEQ4H.sh`, `USB-MIDI-CHECK.sh`,
+- `dist/seq4h-knulli-aarch64.zip`, holding `SEQ4H.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh`,
   `seq4h/seq4h` and `seq4h/seq4h.input`. Unzip it into `/userdata/roms/ports/` and refresh the
   game list. The zip keeps the execute bits.
 
 The output is byte-for-byte reproducible. GitHub Actions runs the same script
 on every change (workflow *seq4h aarch64 build*, artifact
-`seq4h-knulli-aarch64`). The binary has not been run on Knulli yet.
+`seq4h-knulli-aarch64`). It has been run on a Knulli RG40XX-V driving an FM1.
 
 ## Layout
 
