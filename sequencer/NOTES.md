@@ -26,6 +26,10 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   finger drumming / live performance shortcuts). Four pages: GRID, STEP,
   TRACK, GENERATE. L1/R1 = page, L2/R2 = track, B = back to grid; list pages
   use up/down = row, left/right = value, hold Y = big step.
+- **M opens a main menu** for session-wide settings (Roy, 2026-11-19; a
+  music-style choice will go there, added by the pattern engine work). It is
+  joy 13 (short press). Held M is joy 8 and is left to Knulli, which uses the
+  menu button for hotkeys. Add rows in `menu_row_*` in `src/ui.c`.
 - **Input** goes through `src/input.c`: a table from keyboard keys, raw
   joystick buttons/hats/axes and SDL game-controller buttons/axes to seq4h
   buttons and actions, overridable from `seq4h.input`. On Knulli the shipped
@@ -269,6 +273,8 @@ Checks:
 - [ ] Face buttons: on the grid A toggles a step, X opens the STEP page,
       Y locks, B returns to the grid.
 - [ ] L1/R1 change page, L2/R2 change track.
+- [ ] A short press of M opens the main menu and doesn't trigger a Knulli
+      hotkey; M or B closes it. Note whether M shows as joy 13 (short) or 8.
 - [ ] Select+Start quits and the pattern is saved (`seq4h.pat` updated).
 
 **Results**

@@ -92,6 +92,7 @@ which track you are on. Keyboard keys are in brackets.
 | L1 / R1 [Q / W] | previous / next page |
 | L2 / R2 [1 / 2] | previous / next track |
 | B [X] | back to the grid |
+| M [M] | open / close the main menu |
 | Start [Space] | play / stop |
 | Select + Start [Tab + Space, or Esc] | quit (the pattern is saved) |
 
@@ -113,6 +114,11 @@ change bigger.
 | STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, probability, lock | A = step on/off |
 | TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
 | GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
+
+**Main menu** (M): settings for the whole session. Up/down picks a row,
+left/right changes it, A selects; M or B closes it and returns to the page
+you were on. For now it has *Back to editing* and *Save and quit*; more
+settings, such as a music style, will be added there.
 
 The STEP page edits the step under the grid cursor, and its STEP row moves
 that cursor, so you can walk through a pattern without going back to the
@@ -145,11 +151,11 @@ a Knulli unit**; run
 | R1 | joy 5 | r |
 | Select | joy 6 | select |
 | Start | joy 7 | start |
-| Menu (held) | joy 8 | not used |
+| M / Menu (held) | joy 8 | not used (left to Knulli's hotkeys) |
 | Stick press | joy 9 | not used |
 | **L2** | **joy 10** | **l2** (previous track) |
 | **R2** | **joy 11** | **r2** (next track) |
-| Menu (short press) | joy 13 | not used |
+| **M / Menu (short press)** | **joy 13** | **menu** |
 | D-pad | hat 0 (up/right/down/left) | up/right/down/left |
 | Left stick | axes 0 (x) and 1 (y) | not used |
 
@@ -184,7 +190,7 @@ not matter and later lines win.
 | `pad` | SDL game-controller button or axis name (`a`, `leftshoulder`, `back`, `lefttrigger`, `leftx-` ...) | `pad righttrigger roll` |
 | `key` | SDL key name, `_` for spaces | `key Left_Shift lock` |
 
-`BUTTON` is one of `up down left right a b x y l r l2 r2 select start`, a
+`BUTTON` is one of `up down left right a b x y l r l2 r2 select start menu`, a
 shortcut action `page` (next page), `roll`, `undo`, `lock` (this step) or
 `quit`, or `none` to unmap. Two settings also go in the
 file:
@@ -196,7 +202,7 @@ file:
   count as a press.
 
 Examples: swap A and B with `joy 0 b` and `joy 1 a`; make the stick press
-undo the last roll with `joy 9 undo`; quit with a short Menu press with `joy 13 quit`.
+undo the last roll with `joy 9 undo`.
 
 On a desktop, the `pad` defaults use SDL's names (A = the bottom face button)
 with the triggers as L2/R2; keyboard defaults are listed in the Controls

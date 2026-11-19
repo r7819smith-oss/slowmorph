@@ -74,8 +74,9 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 
 /* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
-typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE"};
+typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
+               P_MENU = P_TABS, P_COUNT } Page;
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU"};
 
 typedef struct {
     Player *p;
@@ -86,12 +87,14 @@ typedef struct {
     int midi_up;              /* last MIDI poll result; -1 = not polled yet */
     int page;                 /* Page */
     int row[P_COUNT];         /* selected row on each list page */
+    int menu_from;            /* page to return to when the main menu closes */
     SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll, transform or slot load */
     int undo_len;
     int undo_track;           /* -1 = nothing to undo */
     int xf_op, xf_amt;        /* transform chosen on the generate page, and its amount */
     int slot;                 /* slot chosen on the generate page */
     int snap;                 /* changing scale moves notes into it */
+    int confirm_new;          /* NEW FROM STYLE was pressed once */
     const char *msg;
     Uint32 msg_until;
     const InputMap *map;
@@ -300,7 +303,45 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     }
 }
 
-static int page_rows(int page) { return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : GEN_ROWS; }
+/* Main menu, opened with M. Settings that apply to the whole session go here
+ * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
+ * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
+#define MENU_ROWS 4
+enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_QUIT };
+
+static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    val[0] = 0;
+    if (row == MENU_RESUME) snprintf(label, 24, "BACK TO EDITING");
+    else if (row == MENU_STYLE) { snprintf(label, 24, "MUSIC STYLE"); snprintf(val, 24, "%s", style_name(s->style)); }
+    else if (row == MENU_NEW) {
+        snprintf(label, 24, "NEW FROM STYLE");
+        snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
+    }
+    else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
+}
+
+static void menu_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    (void)big;
+    if (row == MENU_STYLE) { s->style = wrap(s->style + d, style_count()); u->confirm_new = 0; }
+}
+
+static void menu_row_select(Seq *s, Ui *u, int row) {
+    if (row == MENU_RESUME) u->page = u->menu_from;
+    else if (row == MENU_NEW) {
+        /* Replaces all four tracks, so it takes a second press. */
+        if (!u->confirm_new) { u->confirm_new = 1; say(u, "PRESS A AGAIN TO REPLACE ALL TRACKS"); return; }
+        u->confirm_new = 0;
+        u->undo_track = -1;
+        style_apply(s, s->style);
+        u->page = P_GRID;
+        say(u, "NEW PATTERNS FROM STYLE");
+    }
+    else if (row == MENU_QUIT) u->quit = 1;
+}
+
+static int page_rows(int page) {
+    return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS : GEN_ROWS;
+}
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
 static int grid_steps(const Seq *s) {
@@ -358,6 +399,7 @@ static void gen_action(Seq *s, Ui *u, int row) {
 
 /* Controls (same on every page unless noted):
  *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
+ *   M main menu (B or M again closes it)
  *   GRID: d-pad moves the cursor, A step on/off, X edit the step, Y lock the step
  *   lists: up/down row, left/right value (hold Y for big steps)
  *          STEP A step on/off; GENERATE A rolls, or does the selected row's action
@@ -369,8 +411,14 @@ static void press(Ui *u, Btn b) {
     Seq *s = &p->seq;
     if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
-    else if (b == B_L || b == B_R) u->page = wrap(u->page + (b == B_R ? 1 : -1), P_COUNT);
-    else if (b == B_PAGE) u->page = wrap(u->page + 1, P_COUNT);
+    else if (b == B_MENU) {
+        if (u->page == P_MENU) u->page = u->menu_from;
+        else { u->menu_from = u->page; u->page = P_MENU; }
+    }
+    else if (u->page == P_MENU && b == B_B) u->page = u->menu_from;
+    else if (u->page == P_MENU && b == B_A) menu_row_select(s, u, u->row[P_MENU]);
+    else if (b == B_L || b == B_R) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + (b == B_R ? 1 : -1), P_TABS);
+    else if (b == B_PAGE) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + 1, P_TABS);
     else if (b == B_L2 || b == B_R2) u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
     else if (b == B_ROLL) roll(s, u);
     else if (b == B_UNDO) undo(s, u);
@@ -383,9 +431,10 @@ static void press(Ui *u, Btn b) {
         else if (dx || dy) { u->step = wrap(u->step + dx, grid_steps(s)); u->track = wrap(u->track + dy, SEQ_TRACKS); }
     } else {
         int *row = &u->row[u->page], big = u->held[B_Y];
-        if (dy) *row = wrap(*row + dy, page_rows(u->page));
+        if (dy) { *row = wrap(*row + dy, page_rows(u->page)); u->confirm_new = 0; }
         else if (dx && u->page == P_STEP) step_row_adjust(s, u, *row, dx, big);
         else if (dx && u->page == P_TRACK) track_row_adjust(s, u, *row, dx, big);
+        else if (dx && u->page == P_MENU) menu_row_adjust(s, u, *row, dx, big);
         else if (dx) gen_row_adjust(s, u, *row, dx, big);
         else if (b == B_A && u->page == P_STEP) seq_step_toggle(s, u->track, u->step);
         else if (b == B_A && u->page == P_GEN) gen_action(s, u, *row);
@@ -550,7 +599,7 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     text(r, 270, 18, 2, DIM, buf);
     text(r, 440, 18, 2, s->playing ? (Col){90, 220, 120} : DIM, s->playing ? "PLAYING" : "STOPPED");
     (void)midi_desc;
-    for (int i = 0, x = 20; i < P_COUNT; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
+    for (int i = 0, x = 20; i < P_TABS; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
         text(r, x, 46, 1, i == u->page ? YELLOW : DIM, PAGE_NAMES[i]);
     snprintf(buf, sizeof buf, "T%d", u->track + 1);
     text(r, 200, 46, 1, TRACK_COL[u->track], buf);
@@ -614,7 +663,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     text(r, 20, y + 44, 2, DIM, buf);
 
     text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A STEP ON/OFF  X EDIT STEP  Y LOCK STEP  START PLAY/STOP");
-    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  B BACK TO GRID  SELECT+START QUIT");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  SELECT+START QUIT");
 }
 
 /* Pattern preview of the current track: height = pitch, brightness = velocity.
@@ -654,6 +703,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         int y = 62 + (row - first) * pitch, head = 1;
         label[0] = val[0] = 0;
         if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
+        else if (u->page == P_MENU) menu_row_text(&s, u, row, label, val);
         else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 4; }
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
@@ -661,7 +711,8 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 22, y, 2, sel ? YELLOW : head ? WHITE : DIM, label);
         text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
     }
-    draw_preview(r, &s, u);
+    if (u->page != P_MENU) draw_preview(r, &s, u);
+    else text(r, 392, 62, 2, YELLOW, "MAIN MENU");
     if (u->page == P_GEN) {
         text(r, 392, 240, 1, DIM, "GENERATORS WRITE INTO THE GRID, SO");
         text(r, 392, 252, 1, DIM, "YOU CAN EDIT THE RESULT. LOCKED STEPS");
@@ -676,10 +727,15 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 276, 1, DIM, "LOCKED STEPS ARE NEVER CHANGED");
         text(r, 392, 288, 1, DIM, "BY ROLL OR EVOLVE.");
     }
+    if (u->page == P_MENU) {
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE  A SELECT");
+        text(r, 20, H - 20, 1, DIM, "M OR B CLOSE THE MENU  START PLAY/STOP");
+        return;
+    }
     text(r, 20, H - 34, 1, DIM, u->page == P_GEN ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG)  A ROLL OR DO ROW  X UNDO"
                               : u->page == P_STEP ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)  A STEP ON/OFF"
                               : "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)");
-    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  B BACK TO GRID  START PLAY/STOP");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  START PLAY/STOP");
 }
 
 static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
