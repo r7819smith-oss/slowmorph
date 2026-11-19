@@ -146,10 +146,10 @@ int main(void) {
     seq_init(&s, NULL, NULL);
     gen_set_type(&s, 0, GEN_EUCLID);
     s.track[0].gen.p[0] = 0;
-    s.track[0].step[3] = (SeqStep){1, 77, 90, 40, 100, 1};
+    s.track[0].step[3] = (SeqStep){.on = 1, .note = 77, .vel = 90, .gate = 40, .prob = 100, .lock = 1};
     gen_apply(&s, 0);
     CHECK(s.track[0].step[3].on == 1 && s.track[0].step[3].note == 77);
-    s.track[0].evo = (EvolveSettings){1, 100, EVO_PITCH | EVO_RHYTHM | EVO_VEL | EVO_REGEN};
+    s.track[0].evo = (EvolveSettings){.every = 1, .amount = 100, .kinds = EVO_PITCH | EVO_RHYTHM | EVO_VEL | EVO_REGEN};
     for (int k = 0; k < 20; k++) gen_evolve_bar(&s, 0);
     CHECK(s.track[0].step[3].on == 1 && s.track[0].step[3].note == 77 && s.track[0].step[3].vel == 90);
 
@@ -169,9 +169,9 @@ int main(void) {
 
     /* markov with zero chaos only uses notes that were in the learned phrase */
     seq_init(&s, NULL, NULL);
-    s.track[0].step[0] = (SeqStep){1, 36, 100, 50, 100, 0};
-    s.track[0].step[1] = (SeqStep){1, 39, 100, 50, 100, 0};
-    s.track[0].step[2] = (SeqStep){1, 43, 100, 50, 100, 0};
+    s.track[0].step[0] = (SeqStep){.on = 1, .note = 36, .vel = 100, .gate = 50, .prob = 100, .lock = 0};
+    s.track[0].step[1] = (SeqStep){.on = 1, .note = 39, .vel = 100, .gate = 50, .prob = 100, .lock = 0};
+    s.track[0].step[2] = (SeqStep){.on = 1, .note = 43, .vel = 100, .gate = 50, .prob = 100, .lock = 0};
     gen_set_type(&s, 0, GEN_MARKOV);
     s.track[0].gen.p[0] = 0;
     gen_apply(&s, 0);
@@ -191,7 +191,7 @@ int main(void) {
     /* evolution: amount 0 changes nothing, amount 100 changes something */
     seq_init(&s, NULL, NULL); seq_load_demo(&s);
     { SeqTrack before = s.track[3];
-      s.track[3].evo = (EvolveSettings){1, 0, EVO_PITCH | EVO_RHYTHM | EVO_VEL | EVO_ROTATE};
+      s.track[3].evo = (EvolveSettings){.every = 1, .amount = 0, .kinds = EVO_PITCH | EVO_RHYTHM | EVO_VEL | EVO_ROTATE};
       gen_evolve_bar(&s, 3);
       CHECK(memcmp(before.step, s.track[3].step, sizeof before.step) == 0);
       s.track[3].evo.amount = 100;
@@ -201,7 +201,7 @@ int main(void) {
     /* evolution is driven by the bar clock: every 2 bars means ticks 768, not 384 */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
     seq_load_demo(&s);
-    s.track[0].evo = (EvolveSettings){2, 100, EVO_RHYTHM};
+    s.track[0].evo = (EvolveSettings){.every = 2, .amount = 100, .kinds = EVO_RHYTHM};
     { SeqTrack before = s.track[0];
       seq_start(&s); run(&s, 400);
       CHECK(memcmp(before.step, s.track[0].step, sizeof before.step) == 0);
@@ -224,7 +224,7 @@ int main(void) {
     Seq a, b;
     seq_init(&a, NULL, NULL); seq_load_demo(&a); a.bpm = 97; a.swing = 4; a.track[2].len = 11; a.track[3].mute = 1;
     a.scale = 3; a.root = 7; gen_set_type(&a, 1, GEN_MARKOV); a.track[1].gen.p[0] = 4; a.track[1].gen.base = 40;
-    a.track[2].evo = (EvolveSettings){4, 35, EVO_PITCH | EVO_REGEN}; a.track[0].step[2].lock = 1;
+    a.track[2].evo = (EvolveSettings){.every = 4, .amount = 35, .kinds = EVO_PITCH | EVO_REGEN}; a.track[0].step[2].lock = 1;
     FILE *f = tmpfile(); seq_save(&a, f); rewind(f);
     seq_init(&b, NULL, NULL);
     CHECK(seq_load(&b, f) == 0); fclose(f);
