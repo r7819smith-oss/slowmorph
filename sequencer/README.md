@@ -26,10 +26,10 @@ are left to the FM1.
 ## Making and evolving patterns
 
 Generators **write into the step grid**, so you can always edit the result by
-hand. Press **Select+X** to open the generate page for the current track, pick a
-generator, set its parameters and press **A** to roll a new pattern. **Select+Y**
-undoes the last roll. Steps you lock (**Select+A** on the grid, shown as a
-yellow square) are never touched by a roll or by evolution.
+hand. Go to the **GENERATE** page for the current track (L1/R1), pick a
+generator, set its parameters and press **A** to roll a new pattern. **X**
+undoes the last roll. Steps you lock (**Y** on the grid, shown as a yellow
+square) are never touched by a roll or by evolution.
 
 | Generator | What it does | Parameters |
 |---|---|---|
@@ -71,36 +71,127 @@ in the chosen scale.
 
 ## Controls
 
-Handheld buttons (keyboard in brackets). **Grid page:**
+The controls are for moving around and editing values; there are no live
+performance shortcuts. Four pages, in this order: **GRID**, **STEP**,
+**TRACK** and **GENERATE**. The tabs under the title show where you are and
+which track you are on. Keyboard keys are in brackets.
+
+**Everywhere**
 
 | Input | Action |
 |---|---|
-| D-pad | move cursor (up/down = track, left/right = step) |
-| A [Z] | step on/off |
-| X [C] | mute track |
-| B [X] + up/down | note up/down by scale degree |
-| B + left/right | velocity -/+ 8 |
-| Y [V] + up/down | gate +/- 10% |
-| Y + left/right | probability -/+ 10% |
-| Select [Tab] + left/right | track length |
-| Select + up/down | track MIDI channel |
-| Select + A | lock/unlock the step |
-| Select + B [R] | roll a new pattern with the track's generator |
-| Select + Y [U] | undo the last roll |
-| Select + X [E] | switch between grid and generate page |
-| L/R [Q/W] | BPM -/+ 1 (hold B for 10) |
-| Y + L/R | swing |
-| Start [Space] | play/stop |
-| Select + Start [Esc] | quit |
+| L1 / R1 [Q / W] | previous / next page |
+| L2 / R2 [1 / 2] | previous / next track |
+| B [X] | back to the grid |
+| Start [Space] | play / stop |
+| Select + Start [Tab + Space, or Esc] | quit (the pattern is saved) |
 
-**Generate page:** up/down chooses a row (track, generator, its parameters,
-lowest note, range, evolve settings, scale, root), left/right changes the
-value (hold B for bigger steps), A rolls, Select+Y undoes, Select+X returns to
-the grid. L2 and R2, if your handheld reports them as triggers, also switch
-page and roll; this is untested.
+**GRID page**: all four tracks.
 
-Face buttons follow SDL's naming (A = south button). If the RG40XX-V's labels
-are swapped on your build, swap them in `map_pad()` in `src/ui.c`.
+| Input | Action |
+|---|---|
+| D-pad [arrows] | move the cursor (up/down = track, left/right = step) |
+| A [Z] | step on / off |
+| X [C] | edit this step (opens the STEP page) |
+| Y [V] | lock / unlock this step |
+
+**STEP, TRACK and GENERATE pages**: a list of values for the current track.
+Up/down picks a row, left/right changes it, and holding **Y** makes the
+change bigger.
+
+| Page | Rows | Also |
+|---|---|---|
+| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, probability, lock | A = step on/off |
+| TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
+| GENERATE | track, generator and its parameters, lowest note, range, evolve settings, scale, root | A = roll a new pattern, X = undo the roll |
+
+The STEP page edits the step under the grid cursor, and its STEP row moves
+that cursor, so you can walk through a pattern without going back to the
+grid. A preview of the current track sits on the right of each list page.
+
+## Button mapping
+
+Every button can be remapped with a plain text file, `seq4h.input`, read from
+the working directory at start (or `--input FILE`). Lines you leave out keep
+their default, so the file only needs the changes. `--dump-input` prints the
+full mapping in use, which is a good starting point.
+
+### RG40XX-V under Knulli
+
+The RG40XX-V's built-in pad shows up as a joystick called `ANBERNIC-keys`.
+These are the raw SDL joystick codes it sends, from a published log of an
+RG40XX-V on Anbernic's stock firmware
+([source](https://github.com/swetoast/Anbernic-Firmware-Application-Development-Guide)).
+Knulli should report the same codes, but **they have not yet been checked on
+a Knulli unit**; run
+`./seq4h --show-input` once to confirm (below).
+
+| Button | Code | seq4h default |
+|---|---|---|
+| A | joy 0 | a |
+| B | joy 1 | b |
+| Y | joy 2 | y |
+| X | joy 3 | x |
+| L1 | joy 4 | l |
+| R1 | joy 5 | r |
+| Select | joy 6 | select |
+| Start | joy 7 | start |
+| Menu (held) | joy 8 | not used |
+| Stick press | joy 9 | not used |
+| **L2** | **joy 10** | **l2** (previous track) |
+| **R2** | **joy 11** | **r2** (next track) |
+| Menu (short press) | joy 13 | not used |
+| D-pad | hat 0 (up/right/down/left) | up/right/down/left |
+| Left stick | axes 0 (x) and 1 (y) | not used |
+
+L2 and R2 are plain on/off buttons, not analog trigger axes. Note X and Y
+are 3 and 2, not in label order.
+
+`knulli/seq4h.input` holds this map and sets `mode joystick`. Copy it next
+to the binary. Joystick mode matters: some H700 pads report an ID that SDL
+mistakes for a different controller, and SDL's game-controller layer would
+then scramble the buttons. Raw joystick mode reads the codes above directly.
+
+### Checking the codes on your device
+
+Run `./seq4h --show-input` (the Knulli launcher passes it when
+`SEQ4H_SHOW_INPUT=1`). The top right of the screen then shows the last input
+and what it does, for example `IN: JOY 10 > PAGE` or `IN: JOY 13 > NONE`, and
+the same lines go to stderr (the launcher writes them to `seq4h.log`). On
+start it also logs each pad's name, GUID and its numbers of buttons, hats and
+axes. Press every button once; if one shows a different code from the table,
+add a line for it to `seq4h.input`.
+
+### File format
+
+One mapping per line: `SOURCE CODE BUTTON`. `#` starts a comment, case does
+not matter and later lines win.
+
+| Source | Code | Example |
+|---|---|---|
+| `joy` | raw joystick button index, 0-31 | `joy 10 page` |
+| `hat` | `up`, `down`, `left`, `right` (any hat) | `hat up up` |
+| `axis` | raw axis index with `+` or `-`, 0-15 | `axis 1- up` |
+| `pad` | SDL game-controller button or axis name (`a`, `leftshoulder`, `back`, `lefttrigger`, `leftx-` ...) | `pad righttrigger roll` |
+| `key` | SDL key name, `_` for spaces | `key Left_Shift lock` |
+
+`BUTTON` is one of `up down left right a b x y l r l2 r2 select start`, a
+shortcut action `page` (next page), `roll`, `undo`, `lock` (this step) or
+`quit`, or `none` to unmap. Two settings also go in the
+file:
+
+- `mode auto` (default): pads SDL recognises use the `pad` lines, other
+  joysticks use `joy`/`hat`/`axis`. `mode joystick` always uses the raw
+  lines; `mode controller` only opens recognised pads.
+- `threshold N` (default 16000, out of 32767): how far an axis must move to
+  count as a press.
+
+Examples: swap A and B with `joy 0 b` and `joy 1 a`; make the stick press
+undo the last roll with `joy 9 undo`; quit with a short Menu press with `joy 13 quit`.
+
+On a desktop, the `pad` defaults use SDL's names (A = the bottom face button)
+with the triggers as L2/R2; keyboard defaults are listed in the Controls
+tables, plus E/R/U/K for page/roll/undo/lock.
 
 ## Build and run on a desktop Linux machine
 
@@ -157,8 +248,8 @@ sequencer in the kernel, seq4h uses raw MIDI devices (`hw:C,D,S`) instead.
 
 For the other `MIDI IN` modes:
 
-- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` with
-  Select + up/down.
+- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` on the
+  TRACK page.
 - **SEL:** run `./seq4h --channel N` so all four tracks use one channel. The
   FM1 then plays them all on the track you've selected on the device.
 - **TRACK:** set the matching channels in `seq4h` the same way.
@@ -179,8 +270,9 @@ dev libraries, for example:
 make CC=aarch64-linux-gnu-gcc PKG=aarch64-linux-gnu-pkg-config
 ```
 
-Then copy `seq4h`, `knulli/SEQ4H.sh` and `knulli/USB-MIDI-CHECK.sh` as
-described in the scripts. The CI binary is built against glibc 2.36 (Debian bookworm) and links
+Then copy `seq4h`, `knulli/seq4h.input`, `knulli/SEQ4H.sh` and
+`knulli/USB-MIDI-CHECK.sh` as described in the scripts. The CI binary is
+built against glibc 2.36 (Debian bookworm) and links
 the device's own SDL2 and ALSA libraries; it has not been run on Knulli yet.
 
 ## Layout
@@ -190,5 +282,6 @@ the device's own SDL2 and ALSA libraries; it has not been run on Knulli yet.
 - `src/player.c` timing thread
 - `src/midi_alsa.c` ALSA sequencer output; `src/midi_null.c` stub/logging output
 - `src/ui.c` SDL2 interface, built-in font, no extra libraries
+- `src/input.c` button mapping: defaults and the `seq4h.input` file (unit tested)
 
 See [NOTES.md](NOTES.md) for design decisions, what is untested, and next steps.

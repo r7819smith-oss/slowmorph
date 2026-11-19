@@ -3,3 +3,5 @@ tests/test_engine
 *.bmp
 seq4h.pat
 tests/test_gen
+tests/test_input
+seq4h.log

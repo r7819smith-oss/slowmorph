@@ -22,6 +22,15 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   as ALSA ports.
 - **Timing:** a dedicated thread ticks at 96 PPQN using absolute
   `clock_nanosleep`. Measured 0.1 ms deviation on desktop Linux.
+- **Controls are for navigation and editing only** (Roy, 2026-11-19: no
+  finger drumming / live performance shortcuts). Four pages: GRID, STEP,
+  TRACK, GENERATE. L1/R1 = page, L2/R2 = track, B = back to grid; list pages
+  use up/down = row, left/right = value, hold Y = big step.
+- **Input** goes through `src/input.c`: a table from keyboard keys, raw
+  joystick buttons/hats/axes and SDL game-controller buttons/axes to seq4h
+  buttons and actions, overridable from `seq4h.input`. On Knulli the shipped
+  file sets `mode joystick`, because H700 pads can carry a GUID that SDL
+  matches to the wrong controller mapping (reported for the RG35XX SP).
 - **Generators write into the step grid** (not a separate live mode), so every
   result is editable and the save file stays simple. Locked steps are never
   touched.
@@ -70,9 +79,11 @@ Works and tested on desktop Linux:
   sound devices, so the code compiles and falls back cleanly, nothing more.
 - **Any run on the handheld.** The aarch64 build now runs in CI
   (`.github/workflows/seq4h.yml`) but the binary has not been run on Knulli.
-- **Face-button labels** (A/B may be swapped; `map_pad()` in `src/ui.c`).
-- **L2/R2** page/roll shortcuts (it is unknown whether the handheld reports
-  them as trigger axes).
+- **Button codes on a Knulli unit.** The defaults (README, "Button mapping")
+  come from a published log of an RG40XX-V on stock firmware: A=0 B=1 Y=2
+  X=3 L1=4 R1=5 Select=6 Start=7 L2=10 R2=11, D-pad on hat 0. L2/R2 are
+  digital buttons there, not trigger axes. Confirm with `--show-input` and fix
+  any difference in `seq4h.input`, not in code.
 - **Felucca's clock-source labels.** The wiki puts the clock source on the
   CLOCK page (tap HOME: HOME > MIXER > CLOCK) but does not name the options.
   Whether Felucca follows MIDI Start/Stop is not documented.
@@ -83,17 +94,16 @@ Works and tested on desktop Linux:
 
 1. Run the checklist below on the RG40XX-V and fill in the results table.
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
-3. Check button mapping and fullscreen on the device; adjust `map_pad()`.
-4. Generate-page UI for the new engine features: EVO PROB row, PULL / SET
-   ANCHOR, MIN/MAX HITS, a transform menu, and scale changes via
-   `seq_set_scale(..., snap=1)`. Waiting on Roy's OK because the button-mapping
-   thread also edits `src/ui.c`.
+3. Check button codes (`SEQ4H_SHOW_INPUT=1`, then read `seq4h.log`) and
+   fullscreen on the device; adjust `seq4h.input`.
+4. Generate-page UI for the new engine features (approved by Roy
+   2026-11-19): EVO PROB, PULL / SET ANCHOR, MIN/MAX HITS, transforms, slots
+   and chains, hold, scale snap, and a STYLE row in the M-button main menu.
 5. Features discussed but not built:
    - painting per-note chances for WEIGHTED, closer to SEQ-4's stochastic mode
-   - 32-step patterns; pattern slots with chaining (asked Roy 2026-11-19)
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
-   - several pattern slots, chaining, and a song mode
+   - a song mode on top of slot chains
 
 ## USB MIDI on the RG40XX-V
 
@@ -218,7 +228,7 @@ Checks:
 
 - [ ] Start *SEQ4H* from Ports, with seq4h **stopped**. The FM1's BPM already
       shows seq4h's tempo (120 for the demo), because clock runs while stopped.
-- [ ] Change BPM with L/R (hold B for steps of 10). The FM1's BPM follows
+- [ ] Change BPM on the TRACK page (hold Y for steps of 10). The FM1's BPM follows
       within a second or so.
 - [ ] Press Start: all four tracks play on the matching Felucca tracks.
       Anything tempo-synced on the FM1 (arpeggiator, LFO SYNC, delay) locks
@@ -252,9 +262,13 @@ Checks:
 **H. Handheld UI**
 
 - [ ] Fullscreen fills the screen; text is readable.
-- [ ] Face buttons: A toggles a step, B is the note modifier. If swapped, note
-      it (fix in `map_pad()` in `src/ui.c`).
-- [ ] L2/R2 switch page and roll (or note that they do nothing).
+- [ ] Start once with `SEQ4H_SHOW_INPUT=1` and press every button. The top
+      right shows the code (`IN: JOY 10 > L2`); `seq4h.log` lists them and
+      the pad's name and GUID. Note any code that differs from the table in
+      README "Button mapping" and fix it in `seq4h.input`.
+- [ ] Face buttons: on the grid A toggles a step, X opens the STEP page,
+      Y locks, B returns to the grid.
+- [ ] L1/R1 change page, L2/R2 change track.
 - [ ] Select+Start quits and the pattern is saved (`seq4h.pat` updated).
 
 **Results**
@@ -294,12 +308,14 @@ make                           # needs libsdl2-dev and libasound2-dev
 ./seq4h --midi list                                 # sequencer and raw MIDI ports
 ./seq4h --midi FM --midi-test                       # one note per channel 1-4
 SDL_VIDEODRIVER=dummy ./seq4h --midi none --demo --screenshot out.bmp \
-    --keys "Up,+Tab,c,-Tab"    # replay key names, save a screenshot
+    --keys "Down,c,Down,Right"  # replay key names, save a screenshot
 ```
 
 `--keys` takes comma-separated SDL key names; `+name` presses only and
 `-name` releases only. Keyboard map: arrows = D-pad, Z = A, X = B, C = X,
-V = Y, Q/W = L/R, Tab = Select, Space = Start, E/R/U/K = page/roll/undo/lock.
+V = Y, Q/W = L1/R1, 1/2 = L2/R2, Tab = Select, Space = Start,
+E/R/U/K = page/roll/undo/lock,
+Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 ## Files
 
@@ -310,5 +326,8 @@ V = Y, Q/W = L/R, Tab = Select, Space = Start, E/R/U/K = page/roll/undo/lock.
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
 - `tests/test_engine.c`: engine unit tests
 - `tests/test_gen.c`: tests for the newer generators, transforms and evolution
+- `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
+- `tests/test_input.c`: mapping tests
+- `knulli/seq4h.input`: RG40XX-V button map
 - `knulli/SEQ4H.sh`: Ports launcher script
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
