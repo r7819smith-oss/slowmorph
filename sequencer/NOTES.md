@@ -62,6 +62,13 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   UI: GENERATE page rows (list scrolls; A does the row's action), HOLD on the
   STEP page, grid shows 16 steps at a time, MUSIC STYLE and NEW FROM STYLE in
   the M menu.
+- **Per-track approach and manual tracks** (Roy, 2026-11-19): each track has its
+  own generator; MANUAL (`GEN_NONE`) is the blank, write-it-yourself mode.
+  Decisions made without asking: a manual track's evolution stays off unless
+  turned on (evolving a hand-written pattern is allowed, just opt-in);
+  `style_apply(..., keep_manual=1)` from the menu keeps MANUAL tracks that have
+  notes and then also keeps scale/root; `XF_CLEAR` blanks a track; the grid
+  shows `gen_short_name()` per track.
 - **Save format** (still `seq4h 1`): new `gs` (generator state), `ev` (pull,
   min, max), `a`/`ah` (anchor step/hold), `h` (hold), `sl`/`ss`/`sh` (slots),
   `ch` (chain) and `style` lines. Old files load with neutral defaults;

@@ -281,15 +281,21 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
     }},
 };
 
-void style_apply(Seq *s, int st) {
+int style_apply(Seq *s, int st, int keep_manual) {
     st = st < 0 || st >= STYLE_COUNT ? 0 : st;
+    int keep[SEQ_TRACKS] = {0}, kept = 0;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        keep[t] = keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0;
+        kept += keep[t];
+    }
     s->style = st;
     s->bpm = STYLE_SET[st].bpm;
     s->swing = STYLE_SET[st].swing;
-    seq_set_scale(s, STYLE_SET[st].scale, STYLE_SET[st].root, 0);
+    if (!kept) seq_set_scale(s, STYLE_SET[st].scale, STYLE_SET[st].root, 0);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const TrackPreset *pr = &STYLE_SET[st].t[t];
         SeqTrack *tr = &s->track[t];
+        if (keep[t]) continue;
         tr->len = pr->len;
         tr->gen.base = pr->base;
         tr->gen.span = pr->span;
@@ -302,9 +308,17 @@ void style_apply(Seq *s, int st) {
     }
     /* Generate in order, so FOLLOW (techno track 2) reads a finished track 1. */
     for (int t = 0; t < SEQ_TRACKS; t++) {
+        if (keep[t]) continue;
         gen_apply(s, t);
         if (s->track[t].evo.pull) gen_set_anchor(s, t);
     }
+    return kept;
+}
+
+const char *gen_short_name(int type) {
+    static const char *N[GEN_COUNT] = {"MANUAL", "EUCLID", "WALK", "MARKOV", "CHAOS", "CA", "WEIGHT",
+                                       "FOLLOW", "ARP", "TURING", "MOTIF"};
+    return N[tidx(type)];
 }
 
 /* ---- generation ---- */
@@ -687,7 +701,7 @@ void gen_clear_anchor(Seq *s, int t) { s->track[t].has_anchor = 0; }
 /* ---- transforms ---- */
 
 const char *gen_xform_name(int op) {
-    static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE"};
+    static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR"};
     return op >= 0 && op < XF_COUNT ? N[op] : "?";
 }
 
@@ -746,6 +760,9 @@ void gen_transform(Seq *s, int t, int op, int amount) {
             if (!nc) break;
             switch_on(s, tr, cand[pick(s, nc)]);
         }
+        break;
+    case XF_CLEAR:
+        for (int k = 0; k < np; k++) tr->step[pos[k]].on = 0;
         break;
     case XF_HUMANIZE:
         if (amount <= 0) break;

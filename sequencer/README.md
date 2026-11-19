@@ -51,6 +51,13 @@ one step), and regen (re-run the generator, so CELLULAR advances a generation
 each time). Together with per-step probability, this gives patterns that keep
 their character but never settle.
 
+**Each track picks its own approach.** Set `GENERATOR` on the GENERATE page
+per track (L2/R2 or the TRACK row change track). `MANUAL` means nothing is
+generated: write the pattern yourself on the grid and STEP page. A manual track
+only changes if you turn its `EVOLVE` on. To start a track from blank, choose
+`TRANSFORM` CLEAR and press A. The grid shows each track's approach under its
+name (bright when it is evolving).
+
 More on the GENERATE page (press **A** on a row to do its action):
 
 - **Anchor and pull:** save a track's pattern as its anchor; each bar, every
@@ -62,7 +69,7 @@ More on the GENERATE page (press **A** on a row to do its action):
   a maximum, so a track can't empty out or fill up.
 - **Transforms** for hand editing: reverse, invert (around the first note),
   transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
-  fill (new notes borrowed from neighbours) and humanize velocity. All of them
+  fill (new notes borrowed from neighbours), humanize velocity and clear. All of them
   leave locked steps in place; rotate also now works around locked steps.
 - **Scale snap:** with `SNAP NOTES` on, changing scale or root moves every
   note into the new scale. A on that row snaps the notes now.
@@ -123,8 +130,10 @@ you were on. Rows:
 - *Music style*: AMBIENT (default), TECHNO or MELODIC. It sets the defaults a
   generator starts with when you pick it on the GENERATE page (ambient: sparse,
   stepwise, slow; techno: dense and repetitive; melodic: the plain defaults).
-- *New from style*: press A twice to replace all four tracks with the style's
-  starting set (tempo, scale, generators, lengths, holds and evolution). The
+- *New from style*: press A twice to fill the tracks with the style's
+  starting set (tempo, scale, generators, lengths, holds and evolution).
+  Tracks set to MANUAL that have notes are kept exactly as they are, and then
+  the scale and root are kept too so the new tracks fit them. The
   ambient set runs at 72 BPM in D major pentatonic, with track lengths 16, 13,
   11 and 23 so the tracks drift against each other, long held notes, and
   evolution that wanders and is pulled back to each track's anchor.

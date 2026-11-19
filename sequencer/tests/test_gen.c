@@ -620,7 +620,7 @@ static void test_styles(void) {
         Count c;
         memset(&c, 0, sizeof c);
         seq_init(&s, count_notes, &c);
-        style_apply(&s, st);
+        style_apply(&s, st, 0);
         CHECK(s.style == st);
         for (int t = 0; t < SEQ_TRACKS; t++) {
             CHECK(s.track[t].gen.type != GEN_NONE);
@@ -638,6 +638,43 @@ static void test_styles(void) {
         CHECK(density[st] > 0);
     }
     CHECK(density[STYLE_AMBIENT] < density[STYLE_TECHNO]);   /* ambient is sparser */
+
+    /* each track has its own generator, and MANUAL tracks with notes survive NEW FROM STYLE */
+    {
+        Seq m;
+        seq_init(&m, NULL, NULL);
+        gen_set_type(&m, 0, GEN_EUCLID);
+        gen_set_type(&m, 1, GEN_ARP);
+        gen_set_type(&m, 2, GEN_TURING);
+        CHECK(m.track[0].gen.type == GEN_EUCLID && m.track[1].gen.type == GEN_ARP &&
+              m.track[2].gen.type == GEN_TURING && m.track[3].gen.type == GEN_NONE);
+        gen_set_type(&m, 0, GEN_NONE);                      /* back to MANUAL: notes stay, roll does nothing */
+        m.track[0].step[3].on = 1; m.track[0].step[3].note = 47; m.track[0].len = 9;
+        SeqStep mine[SEQ_STEPS];
+        memcpy(mine, m.track[0].step, sizeof mine);
+        gen_roll(&m, 0);
+        CHECK(same_steps(mine, m.track[0].step, SEQ_STEPS));
+        m.scale = 3; m.root = 4;
+        int kept = style_apply(&m, STYLE_AMBIENT, 1);
+        CHECK(kept == 1);
+        CHECK(same_steps(mine, m.track[0].step, SEQ_STEPS) && m.track[0].len == 9 && m.track[0].gen.type == GEN_NONE);
+        CHECK(m.scale == 3 && m.root == 4);                 /* key kept so new tracks fit the manual one */
+        CHECK(m.track[1].gen.type != GEN_NONE && m.track[3].gen.type != GEN_NONE);
+        for (int t = 1; t < SEQ_TRACKS; t++)
+            for (int i = 0; i < m.track[t].len; i++) CHECK(seq_in_scale(&m, m.track[t].step[i].note));
+        /* evolution is off on a manual track unless you turn it on */
+        CHECK(m.track[0].evo.every == 0);
+        for (int i = 0; i < 384 * 16; i++) { if (i == 0) seq_start(&m); seq_tick(&m); }
+        CHECK(same_steps(mine, m.track[0].step, SEQ_STEPS));
+        /* an empty manual track is filled; keep_manual 0 replaces everything */
+        CHECK(style_apply(&m, STYLE_TECHNO, 0) == 0 && m.track[0].gen.type != GEN_NONE);
+        /* CLEAR gives a blank track, leaving locks */
+        m.track[0].step[2].lock = 1; m.track[0].step[2].on = 1;
+        gen_transform(&m, 0, XF_CLEAR, 0);
+        CHECK(hits(&m, 0) == 1 && m.track[0].step[2].on);
+        CHECK(strcmp(gen_short_name(GEN_NONE), "MANUAL") == 0);
+        for (int g = 0; g < GEN_COUNT; g++) CHECK(strlen(gen_short_name(g)) <= 6);
+    }
 
     /* the style changes the defaults gen_set_type picks */
     Seq s;

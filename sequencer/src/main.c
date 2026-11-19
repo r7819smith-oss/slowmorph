@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
     } else if (demo) {
         seq_load_demo(&p.seq);
     } else {
-        style_apply(&p.seq, STYLE_AMBIENT);   /* first run: an evolving ambient starting set */
+        style_apply(&p.seq, STYLE_AMBIENT, 0);   /* first run: an evolving ambient starting set */
     }
     if (no_clock) p.seq.clock_out = 0;
     if (channel < 0 || channel > 16) { fprintf(stderr, "seq4h: --channel must be 1-16\n"); return 2; }

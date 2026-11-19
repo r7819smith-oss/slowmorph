@@ -32,6 +32,7 @@ typedef enum {
     XF_THIN,        /* switch off `amount` sounding steps, quietest and offbeat first */
     XF_FILL,        /* switch on `amount` silent steps with notes borrowed from neighbours */
     XF_HUMANIZE,    /* nudge velocities by up to +/- `amount` */
+    XF_CLEAR,       /* switch every unlocked step off: a blank track to write on */
     XF_COUNT
 } XformType;
 
@@ -83,9 +84,14 @@ void gen_morph(Seq *s, int t, const SeqStep *target, int pct);
 typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_COUNT } Style;
 int         style_count(void);
 const char *style_name(int style);
-/* Replace all four tracks, tempo and scale with the style's starting set:
- * generators, polymetric lengths, gates, evolution and anchors. */
-void        style_apply(Seq *s, int style);
+/* Set up the style's starting set: tempo, scale, and for each track its
+ * generator, length, gates, holds, evolution and anchor. With keep_manual,
+ * a MANUAL track that has notes is left exactly as it is (it's your own
+ * pattern), and if any track is kept the scale and root stay too, so the new
+ * tracks fit it. Returns how many tracks were kept. */
+int         style_apply(Seq *s, int style, int keep_manual);
+/* Short generator name for the grid ("MANUAL", "EUCLID", "CA", ...), <= 6 chars. */
+const char *gen_short_name(int type);
 
 const char *gen_xform_name(int op);
 void gen_transform(Seq *s, int t, int op, int amount);

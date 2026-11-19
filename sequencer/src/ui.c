@@ -164,7 +164,7 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     else if (row == GR_XFORM) { snprintf(label, 24, "TRANSFORM"); snprintf(val, 24, "%s (A)", gen_xform_name(u->xf_op)); }
     else if (row == GR_XAMOUNT) {
         snprintf(label, 24, "  BY");
-        if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT) snprintf(val, 24, "-");
+        if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT || u->xf_op == XF_CLEAR) snprintf(val, 24, "-");
         else snprintf(val, 24, "%+d", u->xf_amt);
     }
     else if (row == GR_SLOT) {
@@ -332,9 +332,9 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         if (!u->confirm_new) { u->confirm_new = 1; say(u, "PRESS A AGAIN TO REPLACE ALL TRACKS"); return; }
         u->confirm_new = 0;
         u->undo_track = -1;
-        style_apply(s, s->style);
+        int kept = style_apply(s, s->style, 1);
         u->page = P_GRID;
-        say(u, "NEW PATTERNS FROM STYLE");
+        say(u, kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
     }
     else if (row == MENU_QUIT) u->quit = 1;
 }
@@ -627,7 +627,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         snprintf(buf, sizeof buf, "C%d", tr->channel + 1);
         text(r, 12, y + 24, 1, DIM, buf);
         if (tr->mute) text(r, 12, y + 38, 1, DIM, "MUTE");
-        else if (tr->gen.type != GEN_NONE) text(r, 12, y + 38, 1, scale(base, 70), tr->evo.every ? "EVOLVE" : "GEN");
+        else text(r, 12, y + 38, 1, scale(base, tr->evo.every ? 100 : 60), gen_short_name(tr->gen.type));   /* bright = evolving */
         int head = seq_playhead(&s, t);
         for (int i = view; i < view + GRID_COLS; i++) {
             int x = X0 + (i - view) * CELL, w = CELL - 4, h = ROW_H - 8;
