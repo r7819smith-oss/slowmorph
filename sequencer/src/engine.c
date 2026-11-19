@@ -115,9 +115,12 @@ void seq_tick(Seq *s) {
         if (tr->sounding >= 0 && (int32_t)(now - tr->off_tick) >= 0) release(s, tr);
         if (tr->mute) continue;
 
-        uint32_t idx = (now / SEQ_TICKS_PER_STEP) % tr->len;
+        uint32_t gstep = now / SEQ_TICKS_PER_STEP;
+        uint32_t idx = gstep % tr->len;
         uint32_t phase = now % SEQ_TICKS_PER_STEP;
-        uint32_t when = (idx & 1) ? (uint32_t)s->swing : 0;
+        /* Swing follows the shared 1/16 grid, not the track's own step number,
+         * so an odd-length track stays in the same groove as the others. */
+        uint32_t when = (gstep & 1) ? (uint32_t)s->swing : 0;
         if (phase != when) continue;
 
         const SeqStep *st = &tr->step[idx];

@@ -1,0 +1,85 @@
+# Hardware-free checks for seq4h (sequencer/): unit tests, sanitizers, a
+# warnings-as-errors build with gcc and clang, MIDI captured from offline
+# renders and live headless runs and checked for notes, channels and timing,
+# UI screenshots, and (when the runner kernel allows it) real ALSA sequencer
+# output into aseqdump. Screenshots and MIDI captures are uploaded as the
+# "seq4h-harness" artifact. See sequencer/tests/harness.sh.
+name: seq4h harness
+
+on:
+  push:
+    paths:
+      - "sequencer/**"
+      - ".github/workflows/sequencer-harness.yml"
+  pull_request:
+    paths:
+      - "sequencer/**"
+      - ".github/workflows/sequencer-harness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sequencer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang libsdl2-dev libasound2-dev alsa-utils
+
+      - name: Warnings-as-errors build (gcc and clang)
+        run: |
+          for cc in gcc clang; do
+            make clean
+            make CC=$cc CFLAGS="-O2 -std=gnu11 -Wall -Wextra -Werror" seq4h seq4h-render tests/test_engine
+          done
+          make clean
+
+      - name: Engine unit tests
+        run: make test
+
+      - name: Engine unit tests under ASan and UBSan
+        run: make test-asan
+
+      - name: Load the ALSA sequencer module (best effort)
+        working-directory: .
+        run: |
+          sudo modprobe snd-seq 2>/dev/null \
+            || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" && sudo modprobe snd-seq; } \
+            || echo "snd-seq not available on this runner; the ALSA loopback check will be skipped"
+          if [ -e /dev/snd/seq ]; then sudo chmod a+rw /dev/snd/seq; ls -l /dev/snd; fi
+
+      - name: Harness (MIDI capture checks, screenshots, ALSA loopback)
+        env:
+          LIVE_TOL_MS: "5"
+          LIVE_MAX_MS: "25"
+        run: |
+          make seq4h seq4h-render
+          ./tests/harness.sh
+
+      - name: Write job summary
+        if: always()
+        run: |
+          [ -f out/summary.md ] && cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Screenshots and MIDI captures: download the **seq4h-harness** artifact below." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload screenshots and captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seq4h-harness
+          path: |
+            sequencer/out/shots/*.png
+            sequencer/out/shots/*.txt
+            sequencer/out/midi/
+            sequencer/out/summary.md
+          if-no-files-found: warn

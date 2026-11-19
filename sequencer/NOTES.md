@@ -319,6 +319,64 @@ does: Knulli's `rg35xx-plush-sdk` aarch64 toolchain, the kernel source and
 Put the `.ko` files in `/userdata/roms/ports/seq4h/modules/`; `SEQ4H.sh` loads
 them. The `vermagic` must match `uname -r` on the device. This is not
 automated yet; it is the next job if check B shows the driver is absent.
+## Testing without hardware
+
+`make check` runs the whole hardware-free harness (`tests/harness.sh`) and
+writes everything to `out/`. CI runs the same thing on every push that touches
+`sequencer/` (`.github/workflows/sequencer-harness.yml`) and uploads the
+screenshots and MIDI captures as the `seq4h-harness` artifact.
+
+- **MIDI capture backend** (`src/midi_capture.c`): `--midi capture:FILE`
+  writes every message with a microsecond timestamp instead of sending it.
+  `--capture FILE` does the same *alongside* a real port, so a hardware run
+  records exactly what reached the FM1.
+- **`seq4h-render`** (`tools/render.c`): runs the engine offline, stamped with
+  ideal tick times. Exact and repeatable; used for soak tests (256 bars of
+  generators + evolution in `tests/fixtures/evolve.pat`).
+- **`--headless SECS`**: the real binary and timing thread with no window;
+  plays, stops cleanly, exits, does not autosave.
+- **`tools/midicheck.py`** checks a capture: Start first and Stop last, notes
+  only on channels 1-4 (tracks 1-4), every note-on released, one note per
+  channel at a time, all-notes-off at Stop, clock at 24 PPQN and the right
+  tempo, every onset on the 1/16 grid (with swing), and with `--demo` that the
+  demo pattern plays as written. `tests/test_midicheck.py` proves it catches
+  broken input (wrong channel, hung note, late note, slow clock and so on).
+  It also reads `aseqdump` output (`--aseqdump`), without timing.
+- **Screenshots**: twelve UI states (all four pages) driven by `--keys` with
+  `SDL_VIDEODRIVER=dummy`, checked for size, not blank, and that each key
+  sequence changed the screen (`tools/shotcheck.py`, also converts to PNG).
+- **ALSA loopback**: if `/dev/snd/seq` exists, seq4h sends through the real
+  ALSA backend into `aseqdump`, and the dump is checked too.
+
+Findings from the harness so far:
+
+- **Fixed:** swing followed each track's own step number, so a track with an
+  odd length (say 7) swung the wrong 16ths against the other tracks. Swing now
+  follows the shared 1/16 grid (`seq_tick`, with a unit test).
+- **Known, not fixed:** with `--channel N` (Felucca SEL mode) all four tracks
+  share a channel, so when two tracks play the same note at once, the first
+  note-off ends both. The demo does this (kick and bass both on C2).
+- Desktop timing (shared cloud VM, not real-time): p99 under 0.5 ms, with rare
+  single-tick hiccups of 4-12 ms. The handheld numbers are tonight's test.
+
+### Harness add-ons for the hardware checklist
+
+These slot into the test checklist above and turn "it sounded fine" into
+numbers. `tools/midicheck.py` runs on any PC with Python 3; copy capture files
+off the handheld with `scp root@<handheld-ip>:/tmp/h.cap .`.
+
+- **After B (no FM1): does the H700 keep time?**
+  `./seq4h --midi capture:/tmp/h.cap --demo --headless 20`, then on a PC
+  `tools/midicheck.py h.cap --demo --duration 20 --tolerance-ms 2 --max-ms 8`.
+  All PASS means the timing thread holds up on the handheld. Record the
+  "note timing error" and "clock error" lines.
+- **During E: record what reached the FM1.** Add `--capture /tmp/fm1.cap` to
+  the seq4h command (it tees, so the FM1 still gets everything), then run
+  `tools/midicheck.py fm1.cap --bpm N` (N = the tempo you played at; add
+  `--demo` if you didn't edit the pattern). This separates "seq4h sent the
+  wrong thing" from "the FM1 did something unexpected with it".
+- **During G:** the same with `--capture` on the 30-minute run (a few MB).
+
 
 ## aarch64 build
 
@@ -358,6 +416,7 @@ and by CI:
 ```sh
 cd sequencer
 make test                      # engine and generator tests
+make check                     # whole hardware-free harness, results in out/
 make                           # needs libsdl2-dev and libasound2-dev
 knulli/build.sh                # aarch64 binary + Ports zip in dist/ (Docker)
 ./seq4h --midi none --demo --autoplay --verbose     # no hardware: print MIDI
@@ -380,11 +439,15 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/player.c`: timing thread and lock
 - `src/midi_alsa.c`, `midi_null.c`: MIDI output backends
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
+- `src/midi_capture.c`: capture-to-file and tee MIDI backends
+- `tools/render.c`: offline renderer (`seq4h-render`)
+- `tools/midicheck.py`, `tools/shotcheck.py`: capture and screenshot checks
 - `tests/test_engine.c`: engine unit tests
 - `tests/test_gen.c`: tests for the newer generators, transforms and evolution
 - `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
 - `tests/test_input.c`: mapping tests
 - `knulli/seq4h.input`: RG40XX-V button map
+- `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `knulli/SEQ4H.sh`: Ports launcher script
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
 - `knulli/build.sh`, `knulli/Dockerfile`: aarch64 cross-build and packaging
