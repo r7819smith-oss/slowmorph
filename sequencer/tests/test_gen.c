@@ -13,6 +13,11 @@ static int fails;
 
 static int hits(const Seq *s, int t) { return gen_hits(s, t); }
 
+static void clear_and_set(Seq *s, int t, int i) {
+    for (int k = 0; k < SEQ_STEPS; k++) s->track[t].step[k].on = 0;
+    s->track[t].step[i].on = 1;
+}
+
 static int same_steps(const SeqStep *a, const SeqStep *b, int n) {
     for (int i = 0; i < n; i++)
         if (a[i].on != b[i].on || a[i].note != b[i].note || a[i].vel != b[i].vel || a[i].gate != b[i].gate ||
@@ -452,6 +457,202 @@ static void test_save_load(void) {
     CHECK(!b.track[0].has_anchor);
 }
 
+
+typedef struct { int on[16]; uint32_t *now; } Count;
+static void count_notes(void *ctx, const uint8_t *m, int n) {
+    Count *c = ctx; (void)n;
+    if ((m[0] & 0xF0) == 0x90) c->on[m[0] & 0x0F]++;
+}
+
+static void test_long_patterns(void) {
+    Seq s;
+    Count c;
+    memset(&c, 0, sizeof c);
+    seq_init(&s, count_notes, &c);
+    CHECK(s.track[0].len == SEQ_DEFAULT_LEN && SEQ_STEPS == 32);
+    seq_track_len(&s, 0, 100);
+    CHECK(s.track[0].len == 32);
+    s.track[0].step[31].on = 1;                       /* only the last of 32 steps */
+    seq_start(&s);
+    for (int i = 0; i < 384 * 4; i++) seq_tick(&s);   /* 4 bars = two passes of 32 steps */
+    CHECK(c.on[0] == 2);
+
+    gen_set_type(&s, 1, GEN_EUCLID);
+    s.track[1].len = 32; s.track[1].gen.p[0] = 12; s.track[1].gen.p[2] = 0;
+    gen_apply(&s, 1);
+    CHECK(hits(&s, 1) == 12);
+
+    gen_set_type(&s, 2, GEN_TURING);
+    s.track[2].len = 32; s.track[2].gen.p[0] = 0; s.track[2].gen.p[1] = 10; s.track[2].gen.p[3] = 32;
+    gen_apply(&s, 2);
+    SeqStep first[SEQ_STEPS];
+    memcpy(first, s.track[2].step, sizeof first);
+    gen_roll(&s, 2);                                  /* a 32-bit loop with CHANGE 0 is stable too */
+    CHECK(same_steps(first, s.track[2].step, 32));
+
+    /* cellular uses the track length as its world: centre of 32 is 16 */
+    gen_set_type(&s, 3, GEN_CELLULAR);
+    s.track[3].len = 32; s.track[3].gen.p[1] = 0; s.track[3].gen.p[2] = 0;
+    gen_apply(&s, 3);
+    for (int i = 0; i < 32; i++) CHECK(s.track[3].step[i].on == (i == 16));
+}
+
+static void test_slots_and_chain(void) {
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    CHECK(seq_slot_recall(&s, 0, 3) == -1);           /* empty */
+    s.track[0].step[0].on = 1; s.track[0].len = 8;
+    seq_slot_store(&s, 0, 0);
+    clear_and_set(&s, 0, 4);                          /* a different pattern in slot 1 */
+    s.track[0].len = 12;
+    seq_slot_store(&s, 0, 1);
+    CHECK(seq_slot_recall(&s, 0, 0) == 0);
+    CHECK(s.track[0].step[0].on && !s.track[0].step[4].on && s.track[0].len == 8 && s.track[0].cur_slot == 0);
+
+    /* jump chain 0,1 every 2 bars, driven by the clock */
+    uint8_t seq01[2] = {0, 1};
+    seq_chain_set(&s, 0, seq01, 2, 2, 0);
+    seq_start(&s);
+    for (int i = 0; i < 384 + 1; i++) seq_tick(&s);  /* bar 1: no change yet */
+    CHECK(s.track[0].cur_slot == 0 && s.track[0].len == 8);
+    for (int i = 0; i < 384; i++) seq_tick(&s);      /* bar 2: link changes */
+    CHECK(s.track[0].cur_slot == 1 && s.track[0].len == 12 && s.track[0].step[4].on && !s.track[0].step[0].on);
+    for (int i = 0; i < 384 * 2; i++) seq_tick(&s);  /* bar 4: back to slot 0 */
+    CHECK(s.track[0].cur_slot == 0 && s.track[0].len == 8);
+
+    /* morph chain: moves step by step and arrives */
+    seq_init(&s, NULL, NULL);
+    for (int i = 0; i < 16; i++) { s.track[1].step[i].on = 0; s.track[1].step[i].note = 48; }
+    seq_slot_store(&s, 1, 0);
+    for (int i = 0; i < 16; i++) { s.track[1].step[i].on = 1; s.track[1].step[i].note = 55; }
+    seq_slot_store(&s, 1, 1);
+    seq_chain_set(&s, 1, seq01, 2, 16, 30);           /* starts on slot 0, heads for 1 at bar 16 */
+    CHECK(hits(&s, 1) == 0);
+    for (uint32_t bar = 1; bar < 16; bar++) seq_chain_bar(&s, 1, bar);
+    CHECK(hits(&s, 1) == 0);                          /* morphing towards slot 0, already there */
+    seq_chain_bar(&s, 1, 16);
+    int h1 = hits(&s, 1);
+    CHECK(h1 > 0 && h1 < 16);                         /* partway */
+    for (uint32_t bar = 17; bar < 31; bar++) seq_chain_bar(&s, 1, bar);
+    CHECK(same_steps(s.track[1].step, s.track[1].slot[1].step, 16));
+
+    /* locks are kept through morphing */
+    seq_init(&s, NULL, NULL);
+    seq_slot_store(&s, 0, 0);
+    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1};
+    uint8_t one[1] = {0};
+    seq_chain_set(&s, 0, one, 1, 1, 100);
+    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1};
+    for (uint32_t bar = 1; bar < 5; bar++) seq_chain_bar(&s, 0, bar);
+    CHECK(s.track[0].step[2].note == 70 && s.track[0].step[2].lock);
+
+    /* save/load keeps slots, chain and style */
+    Seq a, b;
+    seq_init(&a, NULL, NULL);
+    a.style = STYLE_TECHNO;
+    a.track[2].step[5].on = 1; a.track[2].step[5].note = 61; a.track[2].len = 20;
+    seq_slot_store(&a, 2, 6);
+    uint8_t chain[3] = {6, 2, 6};
+    a.track[2].slot[2] = a.track[2].slot[6];
+    seq_chain_set(&a, 2, chain, 3, 8, 40);
+    FILE *f = tmpfile();
+    seq_save(&a, f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(b.style == STYLE_TECHNO);
+    CHECK(b.track[2].slot[6].used && b.track[2].slot[6].len == 20 && b.track[2].slot[6].step[5].note == 61);
+    CHECK(!b.track[2].slot[0].used && b.track[2].slot[2].used);
+    CHECK(b.track[2].chain_len == 3 && b.track[2].chain[0] == 6 && b.track[2].chain[1] == 2 && b.track[2].chain[2] == 6);
+    CHECK(b.track[2].chain_bars == 8 && b.track[2].chain_morph == 40 && b.track[2].cur_slot == 6);
+}
+
+static void test_hold(void) {
+    /* hold 3 at gate 50%: note off 3.5 steps (84 ticks) after note on */
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    s.track[0].step[0].on = 1; s.track[0].step[0].gate = 50;
+    seq_step_hold(&s, 0, 0, 3);
+    CHECK(s.track[0].step[0].hold == 3);
+    seq_step_hold(&s, 0, 0, 100);
+    CHECK(s.track[0].step[0].hold == SEQ_MAX_HOLD);
+    seq_step_hold(&s, 0, 0, -100);
+    seq_step_hold(&s, 0, 0, 3);
+    Count c; memset(&c, 0, sizeof c);
+    s.send = count_notes; s.ctx = &c;
+    seq_start(&s);
+    int off_tick = -1;
+    for (int i = 0; i < 200 && off_tick < 0; i++) {
+        seq_tick(&s);
+        if (s.track[0].sounding < 0 && c.on[0] == 1) off_tick = (int)s.tick - 1;
+    }
+    CHECK(off_tick == 84);
+
+    /* a later note on the same track cuts the hold short */
+    seq_init(&s, NULL, NULL);
+    s.track[0].step[0].on = 1; s.track[0].step[0].hold = 10;
+    s.track[0].step[2].on = 1; s.track[0].step[2].note = 40;
+    seq_start(&s);
+    for (int i = 0; i < 49; i++) seq_tick(&s);
+    CHECK(s.track[0].sounding == 40);
+
+    /* hold survives save/load, slots and anchors */
+    Seq a, b;
+    seq_init(&a, NULL, NULL);
+    a.track[1].step[4].hold = 9;
+    seq_slot_store(&a, 1, 2);
+    gen_set_anchor(&a, 1);
+    a.track[1].step[4].hold = 5;
+    FILE *f = tmpfile();
+    seq_save(&a, f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(b.track[1].step[4].hold == 5 && b.track[1].slot[2].step[4].hold == 9 && b.track[1].anchor[4].hold == 9);
+    CHECK(b.track[1].step[3].hold == 0);
+}
+
+static void test_styles(void) {
+    CHECK(style_count() == 3 && strcmp(style_name(STYLE_AMBIENT), "AMBIENT") == 0);
+    int density[STYLE_COUNT] = {0};
+    for (int st = 0; st < style_count(); st++) {
+        Seq s;
+        Count c;
+        memset(&c, 0, sizeof c);
+        seq_init(&s, count_notes, &c);
+        style_apply(&s, st);
+        CHECK(s.style == st);
+        for (int t = 0; t < SEQ_TRACKS; t++) {
+            CHECK(s.track[t].gen.type != GEN_NONE);
+            CHECK(s.track[t].len >= 1 && s.track[t].len <= SEQ_STEPS);
+            for (int i = 0; i < s.track[t].len; i++) CHECK(seq_in_scale(&s, s.track[t].step[i].note));
+            CHECK(!s.track[t].evo.pull || s.track[t].has_anchor);
+        }
+        CHECK(hits(&s, 0) + hits(&s, 1) + hits(&s, 2) + hits(&s, 3) > 0);
+        seq_start(&s);
+        for (int i = 0; i < 384 * 32; i++) seq_tick(&s);   /* 32 bars of evolution */
+        for (int t = 0; t < SEQ_TRACKS; t++) {
+            density[st] += c.on[t];
+            for (int i = 0; i < s.track[t].len; i++) CHECK(seq_in_scale(&s, s.track[t].step[i].note));
+        }
+        CHECK(density[st] > 0);
+    }
+    CHECK(density[STYLE_AMBIENT] < density[STYLE_TECHNO]);   /* ambient is sparser */
+
+    /* the style changes the defaults gen_set_type picks */
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    CHECK(s.style == STYLE_AMBIENT);
+    gen_set_type(&s, 0, GEN_WALK);
+    int amb = s.track[0].gen.p[2];
+    s.style = STYLE_TECHNO;
+    gen_set_type(&s, 0, GEN_WALK);
+    CHECK(amb < s.track[0].gen.p[2]);
+    s.style = STYLE_MELODIC;
+    gen_set_type(&s, 0, GEN_WALK);
+    CHECK(s.track[0].gen.p[2] == 7);                  /* the table default */
+}
+
 int main(void) {
     test_scale_helpers();
     test_follow();
@@ -462,6 +663,10 @@ int main(void) {
     test_transforms();
     test_evolution();
     test_save_load();
+    test_long_patterns();
+    test_slots_and_chain();
+    test_styles();
+    test_hold();
     if (fails) { fprintf(stderr, "%d generator check(s) failed\n", fails); return 1; }
     puts("generator tests passed");
     return 0;

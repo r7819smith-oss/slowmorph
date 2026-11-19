@@ -102,7 +102,7 @@ static int fold_octave(int note, int lo, int hi) {
 typedef struct { const char *name; uint8_t min, max, def; } Param;
 static const struct { const char *name; int n; Param p[4]; } GENS[GEN_COUNT] = {
     [GEN_NONE] = {"MANUAL", 0, {{0}}},
-    [GEN_EUCLID] = {"EUCLID", 3, {{"HITS", 0, 16, 5}, {"ROTATE", 0, 15, 0}, {"PITCH", 0, 2, 0}}},
+    [GEN_EUCLID] = {"EUCLID", 3, {{"HITS", 0, 32, 5}, {"ROTATE", 0, 31, 0}, {"PITCH", 0, 2, 0}}},
     [GEN_WALK] = {"WALK", 3, {{"STEP", 1, 7, 2}, {"BIAS", 0, 10, 5}, {"DENSITY", 1, 10, 7}}},
     [GEN_MARKOV] = {"MARKOV", 2, {{"CHAOS", 0, 10, 1}, {"RHYTHM", 0, 10, 0}}},
     [GEN_CHAOS] = {"CHAOS", 3, {{"R", 0, 10, 8}, {"SEED", 0, 15, 3}, {"DENSITY", 1, 10, 7}}},
@@ -110,7 +110,7 @@ static const struct { const char *name; int n; Param p[4]; } GENS[GEN_COUNT] = {
     [GEN_WEIGHTED] = {"WEIGHTED", 3, {{"TENSION", 0, 7, 3}, {"DENSITY", 1, 10, 7}, {"REPEAT", 0, 10, 2}}},
     [GEN_FOLLOW] = {"FOLLOW", 4, {{"SOURCE", 1, 4, 1}, {"RHYTHM", 0, 3, 0}, {"INTERVAL", 0, 14, 7}, {"PITCH", 0, 2, 0}}},
     [GEN_ARP] = {"ARP", 4, {{"CHORD", 0, 5, 0}, {"ORDER", 0, 4, 0}, {"OCTAVES", 1, 4, 2}, {"RATE", 1, 4, 1}}},
-    [GEN_TURING] = {"TURING", 4, {{"CHANGE", 0, 10, 2}, {"DENSITY", 0, 10, 6}, {"RANGE", 1, 8, 4}, {"LENGTH", 2, 16, 8}}},
+    [GEN_TURING] = {"TURING", 4, {{"CHANGE", 0, 10, 2}, {"DENSITY", 0, 10, 6}, {"RANGE", 1, 8, 4}, {"LENGTH", 2, 32, 8}}},
     [GEN_MOTIF] = {"MOTIF", 4, {{"LENGTH", 2, 8, 4}, {"DEVELOP", 0, 10, 5}, {"DENSITY", 1, 10, 7}, {"LEAP", 1, 4, 2}}},
 };
 static const char *FOLLOW_RHYTHM[4] = {"SAME", "GAPS", "ECHO", "HALF"};
@@ -162,7 +162,7 @@ void gen_param_text(int type, int k, int v, char out[16]) {
     case GEN_ARP:
         if (k == 0) { snprintf(out, 16, "%s", ARP_CHORD[v % 6]); return; }
         if (k == 1) { snprintf(out, 16, "%s", ARP_ORDER[v % 5]); return; }
-        if (k == 3) { snprintf(out, 16, "1/%d", 16 / v); return; }
+        if (k == 3) { snprintf(out, 16, v == 1 ? "EVERY STEP" : "EVERY %d", v); return; }
         break;
     case GEN_TURING:
         if (k == 0) { snprintf(out, 16, "%d%%", v * 5); return; }
@@ -177,13 +177,16 @@ void gen_param_text(int type, int k, int v, char out[16]) {
     snprintf(out, 16, "%d", v);
 }
 
+static void style_defaults(int st, int type, uint8_t p[4]);
+
 void gen_set_type(Seq *s, int t, int type) {
     GenSettings *g = &s->track[t].gen;
     g->type = (uint8_t)tidx(type);
     for (int k = 0; k < 4; k++) g->p[k] = k < GENS[g->type].n ? GENS[g->type].p[k].def : 0;
+    style_defaults(s->style, g->type, g->p);
     /* FOLLOW defaults to the track above (track 1 follows track 2). */
     if (g->type == GEN_FOLLOW) g->p[0] = (uint8_t)(t == 0 ? 2 : t);
-    if (g->type == GEN_TURING && (g->state & 0xFFFF) == 0) g->state = (seq_rand(s) & 0xFFFF) | 1;
+    if (g->type == GEN_TURING && g->state == 0) g->state = seq_rand(s) | 1;
 }
 
 void gen_load_settings(GenSettings *g, int type, int p0, int p1, int p2, int p3, int base, int span) {
@@ -199,6 +202,109 @@ void gen_load_settings(GenSettings *g, int type, int p0, int p1, int p2, int p3,
     }
     g->base = (uint8_t)(base < 0 ? 0 : base > 115 ? 115 : base);
     g->span = (uint8_t)(span < 1 ? 1 : span > 4 ? 4 : span);
+}
+
+/* ---- styles ---- */
+
+static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC"};
+int style_count(void) { return STYLE_COUNT; }
+const char *style_name(int st) { return STYLE_NAMES[st < 0 || st >= STYLE_COUNT ? 0 : st]; }
+
+/* Per-style generator defaults; -1 keeps the table default. Ambient wants
+ * sparse, slow, mostly stepwise material; techno dense and repetitive;
+ * melodic uses the table defaults. */
+static const int8_t STYLE_DEF[STYLE_COUNT][GEN_COUNT][4] = {
+    [STYLE_AMBIENT] = {
+        [GEN_NONE] = {-1, -1, -1, -1},
+        [GEN_EUCLID] = {3, -1, -1, -1},
+        [GEN_WALK] = {1, -1, 4, -1},
+        [GEN_MARKOV] = {1, 4, -1, -1},
+        [GEN_CHAOS] = {2, -1, 4, -1},
+        [GEN_CELLULAR] = {-1, -1, -1, -1},
+        [GEN_WEIGHTED] = {2, 3, 4, -1},
+        [GEN_FOLLOW] = {-1, -1, 11, 1},          /* a fifth above the source, as harmony */
+        [GEN_ARP] = {1, 2, 2, 4},                /* seventh, up-down, 2 octaves, every 4th step */
+        [GEN_TURING] = {1, 2, 4, 16},
+        [GEN_MOTIF] = {5, 3, 4, 2},
+    },
+    [STYLE_TECHNO] = {
+        [GEN_NONE] = {-1, -1, -1, -1},
+        [GEN_EUCLID] = {4, -1, 1, -1},
+        [GEN_WALK] = {2, -1, 8, -1},
+        [GEN_MARKOV] = {1, 8, -1, -1},
+        [GEN_CHAOS] = {-1, -1, 8, -1},
+        [GEN_CELLULAR] = {-1, -1, -1, -1},
+        [GEN_WEIGHTED] = {2, 8, 5, -1},
+        [GEN_FOLLOW] = {-1, 1, -1, 0},           /* fill the source's gaps on the root */
+        [GEN_ARP] = {5, 0, 1, 1},
+        [GEN_TURING] = {1, 7, 3, 8},
+        [GEN_MOTIF] = {4, 4, 8, 1},
+    },
+    [STYLE_MELODIC] = {{-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, -1},
+                       {-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, -1},
+                       {-1, -1, -1, -1}},
+};
+
+static void style_defaults(int st, int type, uint8_t p[4]) {
+    if (st < 0 || st >= STYLE_COUNT || type < 0 || type >= GEN_COUNT) return;
+    for (int k = 0; k < GENS[type].n; k++) {
+        int v = STYLE_DEF[st][type][k];
+        if (v >= 0) p[k] = (uint8_t)(v < GENS[type].p[k].min ? GENS[type].p[k].min : v > GENS[type].p[k].max ? GENS[type].p[k].max : v);
+    }
+}
+
+typedef struct {
+    uint8_t gen, len, base, span, gate, vel, prob, hold;   /* prob: chance each step plays; hold: tied steps */
+    uint8_t every, amount, kinds, pull, min_hits, max_hits;
+} TrackPreset;
+
+static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } STYLE_SET[STYLE_COUNT] = {
+    /* Ambient: slow, polymetric lengths (16, 13, 11, 23) so the tracks rarely line up,
+     * long gates, soft velocities, and evolution that wanders but is pulled home. */
+    [STYLE_AMBIENT] = {72, 8, 2, 0, {
+        {GEN_TURING, 16, 38, 1, 100, 70, 90, 7, 8, 15, EVO_REGEN, 0, 1, 4},
+        {GEN_ARP, 13, 50, 2, 100, 60, 80, 3, 4, 10, EVO_PITCH | EVO_PROB, 30, 0, 0},
+        {GEN_MOTIF, 11, 62, 2, 100, 70, 70, 1, 4, 15, EVO_PITCH | EVO_RHYTHM | EVO_PROB, 25, 2, 6},
+        {GEN_WEIGHTED, 23, 74, 2, 60, 50, 50, 0, 2, 20, EVO_PITCH | EVO_RHYTHM | EVO_VEL, 20, 1, 5},
+    }},
+    [STYLE_TECHNO] = {128, 2, 9, 2, {
+        {GEN_EUCLID, 16, 36, 1, 25, 115, 100, 0, 0, 0, 0, 0, 0, 0},
+        {GEN_FOLLOW, 16, 36, 1, 40, 100, 100, 0, 0, 0, 0, 0, 0, 0},
+        {GEN_TURING, 16, 48, 2, 30, 95, 100, 0, 4, 100, EVO_REGEN, 0, 0, 0},
+        {GEN_CHAOS, 16, 72, 1, 20, 80, 85, 0, 2, 20, EVO_RHYTHM | EVO_VEL, 0, 2, 7},
+    }},
+    [STYLE_MELODIC] = {100, 3, 2, 3, {
+        {GEN_WALK, 16, 38, 1, 100, 100, 100, 1, 8, 15, EVO_PITCH, 40, 0, 0},
+        {GEN_ARP, 16, 50, 2, 50, 85, 100, 0, 4, 15, EVO_PITCH, 30, 0, 0},
+        {GEN_MOTIF, 16, 62, 2, 60, 95, 90, 0, 2, 15, EVO_PITCH | EVO_RHYTHM, 30, 3, 9},
+        {GEN_MARKOV, 16, 67, 2, 50, 80, 75, 0, 4, 20, EVO_REGEN | EVO_VEL, 0, 2, 8},
+    }},
+};
+
+void style_apply(Seq *s, int st) {
+    st = st < 0 || st >= STYLE_COUNT ? 0 : st;
+    s->style = st;
+    s->bpm = STYLE_SET[st].bpm;
+    s->swing = STYLE_SET[st].swing;
+    seq_set_scale(s, STYLE_SET[st].scale, STYLE_SET[st].root, 0);
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        const TrackPreset *pr = &STYLE_SET[st].t[t];
+        SeqTrack *tr = &s->track[t];
+        tr->len = pr->len;
+        tr->gen.base = pr->base;
+        tr->gen.span = pr->span;
+        for (int i = 0; i < SEQ_STEPS; i++)
+            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold};
+        gen_set_type(s, t, pr->gen);
+        tr->evo = (EvolveSettings){pr->every, pr->amount, pr->kinds, pr->pull, pr->min_hits, pr->max_hits};
+        tr->chain_len = 0;
+        tr->has_anchor = 0;
+    }
+    /* Generate in order, so FOLLOW (techno track 2) reads a finished track 1. */
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        gen_apply(s, t);
+        if (s->track[t].evo.pull) gen_set_anchor(s, t);
+    }
 }
 
 /* ---- generation ---- */
@@ -293,20 +399,21 @@ void gen_apply(Seq *s, int t) {
         break;
     }
     case GEN_CELLULAR: {
+        /* The automaton's world is the track's length, wrapping round. */
         uint8_t cur[SEQ_STEPS] = {0}, prev[SEQ_STEPS];
         uint8_t rule = CA_RULES[p[0] % 12];
-        if (p[2]) for (int i = 0; i < SEQ_STEPS; i++) cur[i] = seq_rand(s) & 1;
-        else cur[SEQ_STEPS / 2] = 1;
+        if (p[2]) for (int i = 0; i < len; i++) cur[i] = seq_rand(s) & 1;
+        else cur[len / 2] = 1;
         memcpy(prev, cur, sizeof prev);
         for (int gen = 0; gen < p[1]; gen++) {
             memcpy(prev, cur, sizeof prev);
-            for (int i = 0; i < SEQ_STEPS; i++) {
-                int nb = (prev[(i + SEQ_STEPS - 1) % SEQ_STEPS] << 2) | (prev[i] << 1) | prev[(i + 1) % SEQ_STEPS];
+            for (int i = 0; i < len; i++) {
+                int nb = (prev[(i + len - 1) % len] << 2) | (prev[i] << 1) | prev[(i + 1) % len];
                 cur[i] = (rule >> nb) & 1;
             }
         }
         for (int i = 0; i < len; i++) {
-            int nb = (prev[(i + SEQ_STEPS - 1) % SEQ_STEPS] << 2) | (prev[i] << 1) | prev[(i + 1) % SEQ_STEPS];
+            int nb = (prev[(i + len - 1) % len] << 2) | (prev[i] << 1) | prev[(i + 1) % len];
             on[i] = cur[i];
             idx[i] = nb * (n - 1) / 7;
         }
@@ -386,8 +493,8 @@ void gen_apply(Seq *s, int t) {
         break;
     }
     case GEN_TURING: {
-        int L = p[3] < 2 ? 2 : p[3] > 16 ? 16 : p[3];
-        uint32_t reg = g->state & 0xFFFF;
+        int L = p[3] < 2 ? 2 : p[3] > 32 ? 32 : p[3];
+        uint32_t reg = g->state;
         int range = n * p[2] / 8;
         if (range < 1) range = 1;
         for (int i = 0; i < len; i++) {
@@ -448,9 +555,9 @@ void gen_roll(Seq *s, int t) {
     if (g->type == GEN_CELLULAR) g->p[1] = (uint8_t)((g->p[1] + 1) % 64);
     if (g->type == GEN_TURING) {
         /* One trip round the loop: each bit that wraps may flip. */
-        int L = g->p[3] < 2 ? 2 : g->p[3] > 16 ? 16 : g->p[3];
-        uint32_t reg = g->state & 0xFFFF, mask = (1u << L) - 1, top = reg & ~mask;
-        reg &= mask;
+        int L = g->p[3] < 2 ? 2 : g->p[3] > 32 ? 32 : g->p[3];
+        uint32_t mask = L == 32 ? 0xFFFFFFFFu : (1u << L) - 1;
+        uint32_t reg = g->state & mask, top = g->state & ~mask;
         if (reg == 0) reg = 1;
         for (int k = 0; k < L; k++) {
             uint32_t bit = reg & 1;
@@ -512,16 +619,7 @@ void gen_evolve_bar(Seq *s, int t) {
     const EvolveSettings *e = &tr->evo;
 
     /* Pull first, so this bar's new changes are heard before they can be undone. */
-    if (tr->has_anchor && e->pull) {
-        for (int i = 0; i < tr->len; i++) {
-            SeqStep *st = &tr->step[i];
-            const SeqStep *an = &tr->anchor[i];
-            if (st->lock) continue;
-            int differs = st->on != an->on || st->note != an->note || st->vel != an->vel || st->prob != an->prob ||
-                          st->gate != an->gate;
-            if (differs && chance(s, e->pull)) { *st = *an; st->lock = 0; }
-        }
-    }
+    if (tr->has_anchor && e->pull) gen_morph(s, t, tr->anchor, e->pull);
 
     if (e->kinds & EVO_REGEN) gen_roll(s, t);
 
@@ -563,6 +661,18 @@ void gen_evolve_bar(Seq *s, int t) {
     if ((e->kinds & EVO_ROTATE) && chance(s, e->amount)) gen_transform(s, t, XF_SHIFT, pick(s, 2) ? 1 : -1);
 
     keep_density(s, t);
+}
+
+void gen_morph(Seq *s, int t, const SeqStep *target, int pct) {
+    SeqTrack *tr = &s->track[t];
+    for (int i = 0; i < tr->len; i++) {
+        SeqStep *st = &tr->step[i];
+        const SeqStep *an = &target[i];
+        if (st->lock) continue;
+        int differs = st->on != an->on || st->note != an->note || st->vel != an->vel || st->prob != an->prob ||
+                      st->gate != an->gate || st->hold != an->hold;
+        if (differs && chance(s, pct)) { *st = *an; st->lock = 0; }
+    }
 }
 
 void gen_set_anchor(Seq *s, int t) {

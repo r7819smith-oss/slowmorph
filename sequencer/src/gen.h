@@ -75,6 +75,18 @@ void gen_evolve_bar(Seq *s, int t);
 void gen_set_anchor(Seq *s, int t);
 void gen_clear_anchor(Seq *s, int t);
 
+/* Each unlocked step that differs from target[] becomes target[i] with chance
+ * pct (its lock flag is kept). Used by the anchor pull and by chain morphing. */
+void gen_morph(Seq *s, int t, const SeqStep *target, int pct);
+
+/* Styles set generator defaults and can lay out a whole starting project. */
+typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_COUNT } Style;
+int         style_count(void);
+const char *style_name(int style);
+/* Replace all four tracks, tempo and scale with the style's starting set:
+ * generators, polymetric lengths, gates, evolution and anchors. */
+void        style_apply(Seq *s, int style);
+
 const char *gen_xform_name(int op);
 void gen_transform(Seq *s, int t, int op, int amount);
 
