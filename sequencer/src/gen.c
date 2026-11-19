@@ -272,10 +272,14 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
     /* Ambient: slow, polymetric lengths (16, 13, 11, 23) so the tracks rarely line up,
      * long gates, soft velocities, and evolution that wanders but is pulled home. */
     [STYLE_AMBIENT] = {72, 8, 2, 0, {
-        {GEN_TURING, 16, 38, 1, 100, 70, 90, 7, 8, 15, EVO_REGEN, 0, 1, 4},
-        {GEN_ARP, 13, 50, 2, 100, 60, 80, 3, 4, 10, EVO_PITCH | EVO_PROB, 30, 0, 0},
-        {GEN_MOTIF, 11, 62, 2, 100, 70, 70, 1, 4, 15, EVO_PITCH | EVO_RHYTHM | EVO_PROB, 25, 2, 6},
-        {GEN_WEIGHTED, 23, 74, 2, 60, 50, 50, 0, 2, 20, EVO_PITCH | EVO_RHYTHM | EVO_VEL, 20, 1, 5},
+        {GEN_TURING, 16, 38, 1, 100, 70, 90, 7, 8, 15, EVO_REGEN, 0, 1, 4,
+         SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_ARP, 13, 50, 2, 100, 60, 80, 3, 4, 10, EVO_PITCH | EVO_PROB, 30, 0, 0,
+         SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_MOTIF, 11, 62, 2, 100, 70, 70, 1, 4, 15, EVO_PITCH | EVO_RHYTHM | EVO_PROB, 25, 2, 6,
+         SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_WEIGHTED, 23, 74, 2, 60, 50, 50, 0, 2, 20, EVO_PITCH | EVO_RHYTHM | EVO_VEL, 20, 1, 5,
+         SH_NONE, 0, {0, 0, 0, 0}},
     }},
     /* Techno: 128 BPM, A phrygian. T1 four-on-the-floor kick (no evolution). T2
      * offbeat hats, locked, with ghost 16ths whose chance and level drift. T3 a
