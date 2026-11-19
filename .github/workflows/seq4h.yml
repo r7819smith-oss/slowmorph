@@ -1,0 +1,46 @@
+name: seq4h aarch64 build
+
+# Builds seq4h for Knulli on the RG40XX-V (64-bit ARM) and uploads it with the
+# launcher scripts. Debian bullseye is used for its old glibc (2.31), so the
+# binary also runs on newer glibc. It links SDL2 and ALSA dynamically and uses
+# the copies Knulli already ships.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths: ['sequencer/**', '.github/workflows/seq4h.yml']
+  pull_request:
+    paths: ['sequencer/**', '.github/workflows/seq4h.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Build and test in an arm64 Debian container
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD/sequencer:/src" -w /src debian:bullseye sh -ec '
+            apt-get update -q
+            apt-get install -y -q --no-install-recommends build-essential pkg-config libsdl2-dev libasound2-dev file
+            make clean
+            make test
+            make
+            file seq4h
+            ldd seq4h
+          '
+      - name: Package
+        run: |
+          mkdir -p out/ports/seq4h
+          cp sequencer/knulli/SEQ4H.sh sequencer/knulli/USB-MIDI-CHECK.sh out/ports/
+          cp sequencer/seq4h out/ports/seq4h/
+          chmod +x out/ports/*.sh out/ports/seq4h/seq4h
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seq4h-knulli-aarch64
+          path: out/

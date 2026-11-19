@@ -117,16 +117,24 @@ as quoted to me; I could not open the wiki myself):
 
 Setup:
 
-1. Connect the FM1's USB-C to the handheld's USB-C. The handheld must act as
-   USB host. Whether the RG40XX-V's port can do that, and whether it powers the
-   FM1, is **unverified**; you may need a USB-C OTG adapter or a powered hub.
+1. Connect the FM1's USB-C to the handheld's USB-C (its only port, also used
+   for charging). The handheld must act as USB host. Other H700 projects
+   report this works, but it is **unverified** for seq4h, as is whether it
+   powers the FM1 and whether Knulli's kernel has the USB MIDI driver. Run
+   `USB-MIDI-CHECK` from Ports to find out; see the checklist in
+   [NOTES.md](NOTES.md).
 2. On the FM1, set `MENU > MIDI > MIDI IN` to **CH1-4** (see the wiki for the
    current default).
-3. Set the FM1's **clock source to USB** so it follows `seq4h`'s tempo and
-   start/stop. I don't know where that setting lives in Felucca's menu; check
-   the wiki. Without it the FM1 keeps its own clock and only the notes line up.
+3. Set the FM1's **clock source to USB** so it follows `seq4h`'s tempo: it is
+   on the CLOCK page (tap HOME to cycle HOME, MIXER, CLOCK). Without it the
+   FM1 keeps its own clock and only the notes line up.
 4. Run `./seq4h --midi list` and check the FM1 appears, then
+   `./seq4h --midi FM --midi-test` to hear one note on each track, then
    `./seq4h --midi FM` (or part of the name the list shows).
+
+If the FM1 is unplugged or plugged in after start, seq4h shows
+`MIDI: WAITING FOR ...` and connects when it appears. Without the ALSA
+sequencer in the kernel, seq4h uses raw MIDI devices (`hw:C,D,S`) instead.
 
 For the other `MIDI IN` modes:
 
@@ -142,17 +150,19 @@ Settings are saved in `seq4h.pat`, so you only set channels once.
 
 ## Building for Knulli
 
-Knulli (RG40XX-V, Allwinner H700) is 64-bit ARM Linux. Cross-compile on a
-desktop with an aarch64 toolchain and the arm64 SDL2 and ALSA dev libraries,
-for example:
+Knulli (RG40XX-V, Allwinner H700) is 64-bit ARM Linux. GitHub Actions builds
+an aarch64 binary on every change (workflow *seq4h aarch64 build*, artifact
+`seq4h-knulli-aarch64`, which also holds the Ports scripts). To build it
+yourself, cross-compile with an aarch64 toolchain and the arm64 SDL2 and ALSA
+dev libraries, for example:
 
 ```sh
 make CC=aarch64-linux-gnu-gcc PKG=aarch64-linux-gnu-pkg-config
 ```
 
-Then copy `seq4h` and `knulli/SEQ4H.sh` as described in the script. The binary
-needs a matching libc and SDL2 on the device; the toolchain choice is still to
-be settled and a CI build is a sensible next step.
+Then copy `seq4h`, `knulli/SEQ4H.sh` and `knulli/USB-MIDI-CHECK.sh` as
+described in the scripts. The CI binary is built against glibc 2.31 and links
+the device's own SDL2 and ALSA libraries; it has not been run on Knulli yet.
 
 ## Layout
 
