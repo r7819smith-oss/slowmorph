@@ -80,6 +80,7 @@ typedef struct {
     int held[B_COUNT];
     Uint32 next_rep[B_COUNT];
     int quit;
+    int midi_up;              /* last MIDI poll result; -1 = not polled yet */
     int page;                 /* 0 = grid, 1 = generate/evolve */
     int row;                  /* selected row on the generate page */
     SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll */
@@ -387,7 +388,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     for (int i = 0; i < SDL_NumJoysticks() && i < 8; i++)
         if (SDL_IsGameController(i)) pads[i] = SDL_GameControllerOpen(i);
 
-    Ui u = {.p = p, .undo_track = -1};
+    Ui u = {.p = p, .undo_track = -1, .midi_up = -1};
     if (opt->keys) {
         char tmp[256];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);
@@ -432,7 +433,13 @@ int ui_run(Player *p, const UiOptions *opt) {
         if (now >= next_poll) {   /* MIDI hot-plug: reconnect if unplugged or plugged in late */
             next_poll = now + 1000;
             player_lock(p);
-            if (p->midi && p->midi->poll) p->midi->poll(p->midi);
+            if (p->midi && p->midi->poll) {
+                int up = p->midi->poll(p->midi);
+                /* Reconnected while playing: the FM1 missed Start, so restart from
+                 * step 1 with a fresh Start to bring its clock back in phase. */
+                if (up && u.midi_up == 0 && p->seq.playing) { seq_stop(&p->seq); seq_start(&p->seq); }
+                u.midi_up = up;
+            }
             player_unlock(p);
         }
         draw(r, p, &u);
