@@ -8,7 +8,6 @@ typedef struct {
     int fullscreen;
     const char *screenshot;   /* if set: render a few frames, save BMP, exit */
     const char *keys;         /* testing: comma-separated SDL key names to replay; "+name" = press only, "-name" = release only */
-    const char *midi_desc;    /* shown in the header */
     const InputMap *input;    /* button mapping; NULL = built-in defaults */
     int show_input;           /* show the last raw input on screen and print it to stderr */
     int verbose;              /* print each input device as it is opened */

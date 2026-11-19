@@ -459,10 +459,12 @@ static void draw_gen(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     text(r, 20, H - 20, 1, DIM, "SELECT+Y UNDO ROLL  SELECT+X BACK TO GRID  START PLAY/STOP");
 }
 
-static void draw(SDL_Renderer *r, Player *p, const Ui *u, const char *midi_desc) {
+static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     Seq s;
+    char midi_desc[128];
     player_lock(p);
     s = p->seq;
+    snprintf(midi_desc, sizeof midi_desc, "%s", p->midi ? p->midi->desc : "NONE");
     player_unlock(p);
     color(r, (Col){16, 17, 24});
     SDL_RenderClear(r);
@@ -506,6 +508,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         }
     }
     int frames = 0;
+    Uint32 next_poll = 0;
     while (!u.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -519,7 +522,13 @@ int ui_run(Player *p, const UiOptions *opt) {
                 press(&u, (Btn)b);
             }
 
-        draw(r, p, &u, opt->midi_desc);
+        if (now >= next_poll) {   /* MIDI hot-plug: reconnect if unplugged or plugged in late */
+            next_poll = now + 1000;
+            player_lock(p);
+            if (p->midi && p->midi->poll) p->midi->poll(p->midi);
+            player_unlock(p);
+        }
+        draw(r, p, &u);
         SDL_RenderPresent(r);
 
         if (opt->screenshot && ++frames >= 3) {
