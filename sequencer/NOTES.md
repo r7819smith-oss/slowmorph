@@ -120,7 +120,10 @@ Works and tested on desktop Linux:
   either name, e.g. `--midi FM` or `--midi hw:1,0,0`.
 - **Hot-plug:** if the FM1 is not there at start, or is unplugged, seq4h keeps
   running, shows `MIDI: WAITING FOR ...` in the header, and reconnects within
-  about a second when it appears.
+  about a second when it appears. If that happens while playing, it restarts
+  from step 1 with a fresh Start so the FM1's clock is back in phase.
+- **Clock master:** MIDI clock now runs continuously, also while stopped, so
+  the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four
   together, then sends All Notes Off and exits.
 - `knulli/USB-MIDI-CHECK.sh`: a Ports-menu diagnostic that logs USB role,
@@ -168,8 +171,8 @@ Fill in the results table as you go. Tick each box or note what happened.
       missing*.
 - [ ] Power: does the FM1 show it is charging or powered from USB? Does the
       handheld's battery drain noticeably faster? (Check after 30 minutes.)
-- [ ] Optional: a hub with power pass-through. Does the handheld charge and
-      still see the FM1?
+- [ ] Optional (Roy prefers direct USB; a hub is the fallback): a hub with
+      power pass-through. Does the handheld charge and still see the FM1?
 
 **D. Ports and notes (SSH)**
 
@@ -184,15 +187,35 @@ Fill in the results table as you go. Tick each box or note what happened.
       module: `rmmod snd-seq-midi` then `--midi-test` again (checks the raw
       MIDI fallback). Skip if not possible.
 
-**E. Sequencer, clock and transport**
+**E. Handheld as clock master**
 
-- [ ] On the FM1 CLOCK page (tap HOME until CLOCK), set the clock source to
-      USB. Record the exact option names shown.
-- [ ] Start *SEQ4H* from Ports. The header shows `MIDI: <FM1 name>`.
+seq4h is the clock master: it sends MIDI clock (24 per quarter note)
+continuously, even while stopped, plus Start (from step 1) and Stop. The FM1
+follows it. `--no-clock` turns all of this off.
+
+Set Felucca to follow external clock over USB:
+
+1. On the FM1, tap **HOME** until the **CLOCK** page shows (HOME, MIXER,
+   CLOCK). It holds BPM, swing and the clock source.
+2. Set the **clock source** to **USB** (the wiki lists internal, USB or TRS;
+   the exact label on screen is unconfirmed, so record it below). Not TRS:
+   that is the 3.5 mm jack.
+3. If the BPM field is greyed out or follows incoming clock, that confirms it.
+
+Checks:
+
+- [ ] Start *SEQ4H* from Ports, with seq4h **stopped**. The FM1's BPM already
+      shows seq4h's tempo (120 for the demo), because clock runs while stopped.
+- [ ] Change BPM with L/R (hold B for steps of 10). The FM1's BPM follows
+      within a second or so.
 - [ ] Press Start: all four tracks play on the matching Felucca tracks.
-- [ ] The FM1's BPM follows seq4h; change BPM with L/R and check it follows.
+      Anything tempo-synced on the FM1 (arpeggiator, LFO SYNC, delay) locks
+      to seq4h.
 - [ ] Press Start again (stop): notes stop, nothing hangs. Does the FM1's own
-      sequencer/arpeggiator start and stop with seq4h?
+      sequencer start and stop with seq4h? (Felucca's Start/Stop handling is
+      not documented, so record what happens.)
+- [ ] Swing: seq4h's swing applies to its own notes only. Note whether
+      Felucca's CLOCK-page swing also affects them.
 - [ ] Mute a track (X): the matching FM1 track goes silent.
 - [ ] Run `--channel 1` with `MIDI IN` = SEL: everything plays on the FM1's
       selected track.
@@ -201,10 +224,11 @@ Fill in the results table as you go. Tick each box or note what happened.
 
 - [ ] Start *SEQ4H* with the FM1 unplugged: header shows
       `MIDI: WAITING FOR ...`.
-- [ ] Plug the FM1 in: within about 2 seconds the header shows its name and
-      Start plays it.
-- [ ] Unplug while playing, plug back in: playback resumes on the FM1, and
-      nothing crashes. Note any hung notes.
+- [ ] Plug the FM1 in: within about 2 seconds the header shows its name, and
+      the FM1 picks up the tempo. Start plays it.
+- [ ] Unplug while playing, plug back in: seq4h restarts the pattern from
+      step 1 with a fresh Start, so the FM1 is back in phase. Nothing crashes;
+      note any hung notes.
 
 **G. Timing and endurance**
 
@@ -235,8 +259,8 @@ Fill in the results table as you go. Tick each box or note what happened.
 | FM1 powered by handheld? | |
 | MIDI port name(s) in `--midi list` | |
 | Channels 1-4 -> tracks 1-4 | |
-| Felucca clock source labels | |
-| FM1 follows tempo / start / stop | |
+| Felucca CLOCK page: source label for USB | |
+| FM1 follows tempo while stopped / on Start / Stop | |
 | Hot-plug | |
 | 30 min run | |
 | Button mapping, L2/R2 | |

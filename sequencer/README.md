@@ -15,7 +15,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - A global **scale and root** (12 scales). Editing a note steps by scale degree.
 - **Pattern generators** and **evolution** (below)
 - Swing, mute per track, BPM 30-300
-- MIDI clock, start and stop output (turn off with `--no-clock`)
+- Clock master: MIDI clock (also while stopped), start and stop output (turn off with `--no-clock`)
 - Pattern, generator and scale settings autosave on quit to `seq4h.pat` (plain text)
 - 96 ticks per quarter note from a dedicated timing thread; measured 0.1 ms
   deviation on desktop Linux
