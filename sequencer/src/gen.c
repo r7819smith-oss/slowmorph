@@ -206,7 +206,7 @@ void gen_load_settings(GenSettings *g, int type, int p0, int p1, int p2, int p3,
 
 /* ---- styles ---- */
 
-static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC"};
+static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC", "BLANK"};
 int style_count(void) { return STYLE_COUNT; }
 const char *style_name(int st) { return STYLE_NAMES[st < 0 || st >= STYLE_COUNT ? 0 : st]; }
 
@@ -246,7 +246,7 @@ static const int8_t STYLE_DEF[STYLE_COUNT][GEN_COUNT][4] = {
 };
 
 static void style_defaults(int st, int type, uint8_t p[4]) {
-    if (st < 0 || st >= STYLE_COUNT || type < 0 || type >= GEN_COUNT) return;
+    if (st < 0 || st >= STYLE_COUNT || st == STYLE_BLANK || type < 0 || type >= GEN_COUNT) return;
     for (int k = 0; k < GENS[type].n; k++) {
         int v = STYLE_DEF[st][type][k];
         if (v >= 0) p[k] = (uint8_t)(v < GENS[type].p[k].min ? GENS[type].p[k].min : v > GENS[type].p[k].max ? GENS[type].p[k].max : v);
@@ -281,8 +281,30 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
     }},
 };
 
+/* Blank: an empty page. Bases match seq_init (C2, C3, C4, C5 an octave down). */
+static void style_blank(Seq *s) {
+    static const uint8_t base[SEQ_TRACKS] = {24, 36, 48, 60};
+    s->style = STYLE_BLANK;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        SeqTrack *tr = &s->track[t];
+        tr->len = SEQ_DEFAULT_LEN;
+        tr->gen.base = base[t];
+        tr->gen.span = 2;
+        gen_set_type(s, t, GEN_NONE);
+        int note = gen_snap_note(s, base[t] + 12);
+        for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0};
+        tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
+        tr->has_anchor = 0;
+        tr->chain_len = 0;
+        tr->chain_pos = 0;
+        tr->mute = 0;
+        tr->solo = 0;
+    }
+}
+
 int style_apply(Seq *s, int st, int keep_manual) {
     st = st < 0 || st >= STYLE_COUNT ? 0 : st;
+    if (st == STYLE_BLANK) { style_blank(s); return 0; }
     int keep[SEQ_TRACKS] = {0}, kept = 0;
     for (int t = 0; t < SEQ_TRACKS; t++) {
         keep[t] = keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0;

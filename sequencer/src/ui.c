@@ -6,6 +6,7 @@
 
 #include <SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -108,6 +109,10 @@ typedef struct {
     int bat_logged;           /* the battery has been logged at least once */
     int bat_log_charging;     /* charger state at the last log line */
     Uint32 next_bat_log;      /* next hourly battery line in seq4h.log */
+    Uint32 save_due;          /* autosave after a button press at this time; 0 = none pending */
+    char *saved;              /* contents of the pattern file as last written */
+    size_t saved_len;
+    int save_failed;          /* the last autosave failed (logged once) */
 } Ui;
 
 /* Generate page rows. */
@@ -352,7 +357,8 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->undo_track = -1;
         int kept = style_apply(s, s->style, 1);
         u->page = P_GRID;
-        say(u, kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
+        say(u, s->style == STYLE_BLANK ? "BLANK: FOUR EMPTY MANUAL TRACKS"
+               : kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
     }
     else if (row == MENU_CODES) toggle_codes(u);
     else if (row == MENU_QUIT) u->quit = 1;
@@ -440,6 +446,7 @@ static void label_solo(Seq *s, Ui *u) {
  *          (set anchor, apply transform, load/save slot, snap notes), X undoes */
 static void press(Ui *u, Btn b) {
     Player *p = u->p;
+    if (!u->save_due) u->save_due = SDL_GetTicks() + 2000;   /* autosave shortly after edits */
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
@@ -867,6 +874,37 @@ static void poll_battery(Ui *u, Uint32 now) {
     u->bat_log_charging = u->bat.charging;
 }
 
+/* Keep the pattern file current while running, so stored slots, chains and
+ * everything else survive however seq4h ends: Select+Start, the M menu, the
+ * system's own exit hotkey killing the process, or a flat battery. Runs two
+ * seconds after a button press and once a minute; the file is only written
+ * when its contents changed. The player lock is held just for a copy of the
+ * state, never while writing to the SD card, so MIDI timing is not held up. */
+static void autosave(Ui *u, const char *path) {
+    static Seq snap;
+    player_lock(u->p);
+    snap = u->p->seq;
+    player_unlock(u->p);
+    char *buf = NULL;
+    size_t len = 0;
+    FILE *m = open_memstream(&buf, &len);
+    if (!m) return;
+    seq_save(&snap, m);
+    fclose(m);
+    if (u->saved && len == u->saved_len && memcmp(buf, u->saved, len) == 0) { free(buf); return; }
+    if (seq_save_file(&snap, path) != 0) {
+        if (!u->save_failed) fprintf(stderr, "seq4h: autosave to %s failed\n", path);
+        u->save_failed = 1;
+        free(buf);
+        return;
+    }
+    if (!u->saved || u->save_failed) fprintf(stderr, "seq4h: autosaved %s (%d stored slots)\n", path, seq_slots_used(&snap));
+    u->save_failed = 0;
+    free(u->saved);
+    u->saved = buf;
+    u->saved_len = len;
+}
+
 int ui_run(Player *p, const UiOptions *opt) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -903,7 +941,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         }
     }
     int frames = 0;
-    Uint32 next_poll = 0, next_bat = 0;
+    Uint32 next_poll = 0, next_bat = 0, next_save = SDL_GetTicks() + 60000;
     while (!u.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -934,6 +972,11 @@ int ui_run(Player *p, const UiOptions *opt) {
             next_bat = now + 10000;
             poll_battery(&u, now);
         }
+        if (opt->autosave && ((u.save_due && (Sint32)(now - u.save_due) >= 0) || (Sint32)(now - next_save) >= 0)) {
+            u.save_due = 0;
+            next_save = now + 60000;
+            autosave(&u, opt->autosave);
+        }
         draw(r, p, &u);
         SDL_RenderPresent(r);
 
@@ -948,6 +991,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     }
 
     if (u.bat_logged && battery_read(&u.bat, NULL, NULL) >= 0) log_battery(&u.bat, SDL_GetTicks(), "quit");
+    free(u.saved);
     for (int i = 0; i < MAX_DEVS; i++) close_dev(&devs[i]);
     SDL_DestroyRenderer(r);
     SDL_DestroyWindow(win);

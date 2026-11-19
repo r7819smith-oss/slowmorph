@@ -16,7 +16,10 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - **Pattern generators** and **evolution** (below)
 - Swing, mute and solo per track (from the grid), BPM 30-300
 - Clock master: MIDI clock (also while stopped), start and stop output (turn off with `--no-clock`)
-- Pattern, generator and scale settings autosave on quit to `seq4h.pat` (plain text)
+- Everything (all 8 slots per track, chains, generators, evolution, mutes,
+  scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
+  each edit, once a minute while playing, and at quit, so it survives the
+  system's exit hotkey or a flat battery too
 - 96 ticks per quarter note from a dedicated timing thread; measured 0.1 ms
   deviation on desktop Linux
 
@@ -143,9 +146,9 @@ left/right changes it, A selects; M or B closes it and returns to the page
 you were on. Rows:
 
 - *Back to editing*
-- *Music style*: AMBIENT (default), TECHNO or MELODIC. It sets the defaults a
+- *Music style*: AMBIENT (default), TECHNO, MELODIC or BLANK. It sets the defaults a
   generator starts with when you pick it on the GENERATE page (ambient: sparse,
-  stepwise, slow; techno: dense and repetitive; melodic: the plain defaults).
+  stepwise, slow; techno: dense and repetitive; melodic and blank: the plain defaults).
 - *New from style*: press A twice to fill the tracks with the style's
   starting set (tempo, scale, generators, lengths, holds and evolution).
   Tracks set to MANUAL that have notes are kept exactly as they are, and then
@@ -153,6 +156,10 @@ you were on. Rows:
   ambient set runs at 72 BPM in D major pentatonic, with track lengths 16, 13,
   11 and 23 so the tracks drift against each other, long held notes, and
   evolution that wanders and is pulled back to each track's anchor.
+  With BLANK, *New from style* gives four empty MANUAL tracks to build from
+  scratch: 16 steps, every step off, evolution off, no chain, all unmuted.
+  Tempo, swing, scale, root, MIDI channels and your stored slots stay as they
+  are.
 - *Save and quit*
 
 On the first run (no saved `seq4h.pat` and no `--demo`), seq4h starts from the
