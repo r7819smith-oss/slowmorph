@@ -119,9 +119,8 @@ typedef struct {
 enum {
     GR_TRACK, GR_GEN, GR_P0, GR_P1, GR_P2, GR_P3, GR_BASE, GR_SPAN,
     GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 5, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
-    GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST,
     GR_XFORM, GR_XAMOUNT, GR_SLOT, GR_STORE, GR_CHAIN, GR_CHAIN_BARS, GR_MORPH,
-    GR_SCALE, GR_ROOT, GR_SNAP, GEN_ROWS
+    GR_SCALE, GR_ROOT, GR_SNAP, GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST, GEN_ROWS
 };
 static const int EVERY[8] = {0, 1, 2, 4, 8, 16, 32, 64};
 static const int SWELL_BARS[6] = {0, 2, 4, 8, 16, 32};
@@ -209,7 +208,7 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     else if (row == GR_SCALE) { snprintf(label, 24, "SCALE"); snprintf(val, 24, "%s", scale_name(s->scale)); }
     else if (row == GR_ROOT) { static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
            snprintf(label, 24, "ROOT"); snprintf(val, 24, "%s", R[s->root % 12]); }
-    else { snprintf(label, 24, "  SNAP NOTES"); snprintf(val, 24, "%s", u->snap ? "ON" : "OFF"); }
+    else if (row == GR_SNAP) { snprintf(label, 24, "  SNAP NOTES"); snprintf(val, 24, "%s", u->snap ? "ON" : "OFF"); }
 }
 
 static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
@@ -272,7 +271,7 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     else if (row == GR_MORPH) tr->chain_morph = (uint8_t)clampi(tr->chain_morph + 5 * d * (big ? 2 : 1), 0, 100);
     else if (row == GR_SCALE) seq_set_scale(s, wrap(s->scale + d, scale_count()), s->root, u->snap);
     else if (row == GR_ROOT) seq_set_scale(s, s->scale, wrap(s->root + d, 12), u->snap);
-    else u->snap ^= 1;
+    else if (row == GR_SNAP) u->snap ^= 1;
 }
 
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }

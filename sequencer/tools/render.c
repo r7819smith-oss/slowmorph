@@ -3,25 +3,30 @@
  * each message stamped at the ideal time of its tick. Needs no SDL, ALSA,
  * threads or hardware, so the output is exactly repeatable for a given pattern.
  *
- *   seq4h-render [--demo | --pattern FILE] [--bars N] [--bpm N] [--swing N]
- *                [--channel N] [--no-clock] [--out FILE]
+ *   seq4h-render [--demo | --pattern FILE | --style NAME] [--bars N] [--bpm N]
+ *                [--swing N] [--channel N] [--no-clock] [--out FILE]
+ *
+ * --style builds that style's starting set (AMBIENT, DRONE, ...), as NEW FROM
+ * STYLE does.
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../src/engine.h"
+#include "../src/gen.h"
 #include "../src/midi.h"
 
 static Midi *out;
 static void send_cb(void *ctx, const uint8_t *msg, int len) { (void)ctx; out->send(out, msg, len); }
 
 int main(int argc, char **argv) {
-    const char *pattern = NULL, *path = "-";
+    const char *pattern = NULL, *path = "-", *style = NULL;
     int bars = 4, bpm = 0, swing = -1, channel = 0, no_clock = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--pattern") && i + 1 < argc) pattern = argv[++i];
-        else if (!strcmp(argv[i], "--demo")) pattern = NULL;
+        else if (!strcmp(argv[i], "--demo")) pattern = style = NULL;
+        else if (!strcmp(argv[i], "--style") && i + 1 < argc) style = argv[++i];
         else if (!strcmp(argv[i], "--bars") && i + 1 < argc) bars = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bpm") && i + 1 < argc) bpm = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--swing") && i + 1 < argc) swing = atoi(argv[++i]);
@@ -38,7 +43,12 @@ int main(int argc, char **argv) {
 
     Seq s;
     seq_init(&s, send_cb, NULL);
-    if (pattern) {
+    if (style) {
+        int st = -1;
+        for (int k = 0; k < style_count(); k++) if (!strcmp(style, style_name(k))) st = k;
+        if (st < 0) { fprintf(stderr, "seq4h-render: no style %s\n", style); return 1; }
+        style_apply(&s, st, 0);
+    } else if (pattern) {
         FILE *f = fopen(pattern, "r");
         if (!f || seq_load(&s, f) != 0) { fprintf(stderr, "seq4h-render: cannot load %s\n", pattern); return 1; }
         fclose(f);

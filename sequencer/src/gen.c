@@ -221,7 +221,7 @@ void gen_load_settings(GenSettings *g, int type, int p0, int p1, int p2, int p3,
 
 /* ---- styles ---- */
 
-static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC", "BLANK"};
+static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC", "BLANK", "DRONE"};
 int style_count(void) { return STYLE_COUNT; }
 const char *style_name(int st) { return STYLE_NAMES[st < 0 || st >= STYLE_COUNT ? 0 : st]; }
 
@@ -295,6 +295,16 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
         {GEN_ARP, 16, 50, 2, 50, 85, 100, 0, 4, 15, EVO_PITCH, 30, 0, 0},
         {GEN_MOTIF, 16, 62, 2, 60, 95, 90, 0, 2, 15, EVO_PITCH | EVO_RHYTHM, 30, 3, 9},
         {GEN_MARKOV, 16, 67, 2, 50, 80, 75, 0, 4, 20, EVO_REGEN | EVO_VEL, 0, 2, 8},
+    }},
+    /* Drone: A dorian at 66 BPM. A held bass (with its fifth) and a triad pad
+     * that each move to another stable tone now and then (30% a roll, every
+     * 32 and 16 bars), a slow drifting line, and sparse soft bells that rest
+     * now and then. Lengths 32, 28, 20, 27 keep them out of step. */
+    [STYLE_DRONE] = {66, 3, 9, 0, {
+        {GEN_DRONE, 32, 38, 1, 100, 64, 100, 0, 32, 5, EVO_REGEN, 0, 0, 0, CHORD_FIFTH, 16, 25, 0},
+        {GEN_DRONE, 28, 50, 2, 100, 56, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0, CHORD_TRIAD, 8, 35, 0},
+        {GEN_DRIFT, 20, 62, 2, 100, 60, 90, 0, 16, 10, EVO_REGEN | EVO_PROB, 0, 1, 4, 0, 4, 30, 10},
+        {GEN_BELL, 27, 74, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3, 0, 0, 0, 15},
     }},
 };
 

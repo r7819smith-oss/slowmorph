@@ -614,7 +614,7 @@ static void test_hold(void) {
 }
 
 static void test_styles(void) {
-    CHECK(style_count() == 4 && strcmp(style_name(STYLE_AMBIENT), "AMBIENT") == 0);
+    CHECK(style_count() == STYLE_COUNT && strcmp(style_name(STYLE_AMBIENT), "AMBIENT") == 0);
     CHECK(strcmp(style_name(STYLE_BLANK), "BLANK") == 0);
     int density[STYLE_COUNT] = {0};
     for (int st = 0; st < STYLE_BLANK; st++) {   /* the generative styles */

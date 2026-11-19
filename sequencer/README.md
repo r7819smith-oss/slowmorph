@@ -46,9 +46,13 @@ square) are never touched by a roll or by evolution.
 | ARP | Arpeggiates a chord built from the scale on the track's lowest note. | chord (triad, seventh, sus2, sus4, add9, power), order (up, down, up-down, random, inward), octaves, rate |
 | TURING | A looping shift register read as pitch and rhythm. `CHANGE` is the chance each bit flips as it loops round on a roll: 0 locks the loop, small values drift slowly, 50% is random. Pair it with Evolve's regen for a melody that slowly mutates. | change, density, range, loop length |
 | MOTIF | Invents a short phrase and develops it across the bar: each repeat may be transposed, inverted, reversed or both. | motif length, develop (chance a repeat changes), density, leap (largest interval) |
+| DRONE | One to four long notes that fill the pattern (more than one alternates with the fifth above). Each roll the drone may move (`MOVE`) to another stable tone within a fifth (root, fourth, fifth, sixth, third), or go back to the root (`HOME`). Pair it with `CHORD` for a pad, and Evolve regen every 16-32 bars so it shifts now and then. | notes, move chance, home chance |
+| DRIFT | A few long notes spread over the pattern, each at most `STEP` scale degrees from the last, starting from the track's current first note, so the line keeps wandering slowly from roll to roll. `HOLD` is how much of the gap to the next note each one is held for. | notes, hold, step (largest move) |
+| BELL | Sparse, soft notes, never two in a row, on weighted stable tones (root, fifth, third) `HEIGHT` octaves above the lowest note. Each plays only `CHANCE` of the time and is up to `SOFTEN` quieter. | notes, chance, height, soften |
 
-**Evolve** changes a track every 1, 2, 4 or 8 bars while it plays. `AMOUNT` is
-the chance each step changes. Choose what may change: pitch (one scale degree
+**Evolve** changes a track every 1, 2, 4, 8, 16, 32 or 64 bars while it plays.
+`AMOUNT` is the chance each step changes; below 10% it moves in 1% steps, for
+very slow drifts. Choose what may change: pitch (one scale degree
 up or down), rhythm (toggle a step), velocity, rotate (shift the whole pattern
 one step), and regen (re-run the generator, so CELLULAR advances a generation
 each time). Together with per-step probability, this gives patterns that keep
@@ -74,6 +78,15 @@ More on the GENERATE page (press **A** on a row to do its action):
   transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
   fill (new notes borrowed from neighbours), humanize velocity and clear. All of them
   leave locked steps in place; rotate also now works around locked steps.
+- **Chord, swell and rests** (at the bottom of the list) colour how a track
+  plays without changing its steps. `CHORD` stacks notes from the scale on
+  every note the track plays: FIFTH, TRIAD, SUS2, SUS4, SEVENTH or OPEN (fifth
+  plus the third an octave up), a little softer than the step's own note, all
+  on the track's channel. `SWELL` slowly raises and lowers velocity over 2 to
+  32 bars, dipping by `SWELL DEPTH`; each track's swell is a quarter turn
+  behind the one before. `RESTS` is the chance each bar that the track sits
+  out for 1 to 4 bars (held notes ring on), and it always plays at least a bar
+  between rests.
 - **Scale snap:** with `SNAP NOTES` on, changing scale or root moves every
   note into the new scale. A on that row snaps the notes now.
 - **Slots and chains:** each track has 8 pattern slots. `SAVE TO SLOT` stores
@@ -146,9 +159,10 @@ left/right changes it, A selects; M or B closes it and returns to the page
 you were on. Rows:
 
 - *Back to editing*
-- *Music style*: AMBIENT (default), TECHNO, MELODIC or BLANK. It sets the defaults a
+- *Music style*: AMBIENT (default), TECHNO, MELODIC, BLANK or DRONE. It sets the defaults a
   generator starts with when you pick it on the GENERATE page (ambient: sparse,
-  stepwise, slow; techno: dense and repetitive; melodic and blank: the plain defaults).
+  stepwise, slow; techno: dense and repetitive; melodic and blank: the plain
+  defaults; drone: as ambient).
 - *New from style*: press A twice to fill the tracks with the style's
   starting set (tempo, scale, generators, lengths, holds and evolution).
   Tracks set to MANUAL that have notes are kept exactly as they are, and then
@@ -160,6 +174,11 @@ you were on. Rows:
   scratch: 16 steps, every step off, evolution off, no chain, all unmuted.
   Tempo, swing, scale, root, MIDI channels and your stored slots stay as they
   are.
+  The DRONE set is a second ambient set: A dorian at 66 BPM, a held bass with
+  its fifth (32 steps) and a triad pad (28 steps) that move to another stable
+  tone now and then, a slowly drifting line (20 steps) and sparse soft bells
+  (27 steps) that rest now and then, with slow swells and evolution every 4
+  to 32 bars.
 - *Save and quit*
 
 On the first run (no saved `seq4h.pat` and no `--demo`), seq4h starts from the

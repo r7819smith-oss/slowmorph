@@ -123,6 +123,48 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   generators, evolution, mutes; save-load-save is byte-identical; old file
   loads) and the harness `persist` section (real binary, slots stored by
   replayed keys, SIGKILL, then relaunch and quit gives the same file).
+- **More ambient variety** (Roy, 2026-11-19, overnight list item 3). The
+  AMBIENT style and its starting set are unchanged and stay the first-run
+  default; everything new is opt-in or in the new DRONE style.
+  - Generators `GEN_DRONE`, `GEN_DRIFT`, `GEN_BELL`, appended after MOTIF so
+    saved type numbers stay valid (see README for what they do). They carry
+    ambient-leaning defaults in the `GENS` table, and `style_defaults` only
+    applies `STYLE_DEF` to EUCLID..MOTIF, so the other style threads never
+    need rows for them. DRONE and DRIFT read their starting pitch from the
+    track's current first note (like WALK), so no extra generator state is
+    saved. `gen_apply` can now also set hold, gate and probability per step.
+  - Playback colour on `SeqTrack`: `chord`, `swell`, `swell_depth`, `rest`
+    (GENERATE rows CHORD, SWELL, SWELL DEPTH, RESTS, at the bottom of the
+    list so earlier row positions and the harness key sequences stay put).
+    They change what is sent, never the step grid. Chords are the only
+    polyphony: the engine keeps the chord notes of the sounding note
+    (`voice[]`) and of the last note (`last_voice[]`), so retrigger, stop,
+    mute/solo and `seq_panic` release them all. Chord notes are sent at 80%
+    velocity on the track's own channel. Decisions made without asking:
+    chord intervals fall back to the other third/seventh or the nearest scale
+    note when not in the scale; swell is a triangle offset a quarter period
+    per track; a rest lasts 1-4 bars and is always followed by at least one
+    played bar; rests let held notes ring out; the running rest is not saved
+    and `seq_start` clears it.
+  - **Not verified on the FM1:** whether a Felucca track plays several notes
+    at once on its channel. If it is monophonic, a chord track will just
+    play its top note; turn CHORD off on that track.
+  - Evolution every 16, 32 or 64 bars (`SEQ_MAX_EVERY`), and AMOUNT moves
+    in 1% steps below 10%.
+  - `STYLE_DRONE` (appended after BLANK): A dorian, 66 BPM, DRONE bass with
+    FIFTH (32 steps, regen every 32 bars), DRONE pad with TRIAD (28 steps,
+    every 16), DRIFT (20 steps, every 16, rests 10%), BELL (27 steps, pitch
+    and velocity drift every 4 bars, rests 15%), slow swells on the first
+    three. It uses AMBIENT's generator defaults. Tune by ear.
+  - Save format still `seq4h 1`: new `pc t chord swell depth rest` line per
+    track. Old files load with all of it off; old binaries ignore the line
+    and clamp an EVERY above 8 to 8.
+  - Tests: `tests/test_ambient.c` (generators, chord notes in every scale,
+    chord playback and release, swell curve, rests, 64-bar evolution, save
+    and load, AMBIENT unchanged, DRONE style for 1000 bars with no hung
+    notes). Harness: 256-bar renders of the AMBIENT and DRONE starting sets
+    (`seq4h-render --style NAME`; `midicheck.py --max-hold N` allows held
+    notes, `--poly` for chords) and four DRONE screenshots.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -534,7 +576,7 @@ screenshots and MIDI captures as the `seq4h-harness` artifact.
   demo pattern plays as written. `tests/test_midicheck.py` proves it catches
   broken input (wrong channel, hung note, late note, slow clock and so on).
   It also reads `aseqdump` output (`--aseqdump`), without timing.
-- **Screenshots**: twenty UI states (all four pages) driven by `--keys` with
+- **Screenshots**: about two dozen UI states (all four pages) driven by `--keys` with
   `SDL_VIDEODRIVER=dummy`, checked for size, not blank, and that each key
   sequence changed the screen (`tools/shotcheck.py`, also converts to PNG).
 - **ALSA loopback**: if `/dev/snd/seq` exists, seq4h sends through the real

@@ -365,6 +365,43 @@ static void test_ambient_style_unchanged(void) {
     CHECK(s.track[0].gen.type == GEN_TURING && s.track[3].gen.type == GEN_WEIGHTED);
 }
 
+/* DRONE style: the new generators, chords, swells and rests, slow evolution. */
+static void test_drone_style(void) {
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    CHECK(strcmp(style_name(STYLE_DRONE), "DRONE") == 0);
+    style_apply(&s, STYLE_DRONE, 0);
+    CHECK(s.style == STYLE_DRONE && s.bpm == 66);
+    CHECK(s.track[0].gen.type == GEN_DRONE && s.track[1].gen.type == GEN_DRONE);
+    CHECK(s.track[2].gen.type == GEN_DRIFT && s.track[3].gen.type == GEN_BELL);
+    CHECK(s.track[0].chord == CHORD_FIFTH && s.track[1].chord == CHORD_TRIAD);
+    CHECK(s.track[0].evo.every == 32 && s.track[1].evo.every == 16);
+    CHECK(s.track[0].swell && s.track[3].rest);
+    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(gen_hits(&s, t) >= 1);
+    /* the bass and the pad start on the root (A) */
+    CHECK(pc(&s, s.track[0].step[0].note) == 0 && pc(&s, s.track[1].step[0].note) == 0);
+    /* going back to AMBIENT clears the colour again */
+    style_apply(&s, STYLE_AMBIENT, 0);
+    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(s.track[t].chord == 0 && s.track[t].swell == 0 && s.track[t].rest == 0);
+    /* a MANUAL track with notes is kept as it is, colour included */
+    style_apply(&s, STYLE_DRONE, 0);
+    gen_set_type(&s, 2, GEN_NONE);
+    s.track[2].chord = CHORD_SUS4;
+    style_apply(&s, STYLE_AMBIENT, 1);
+    CHECK(s.track[2].gen.type == GEN_NONE && s.track[2].chord == CHORD_SUS4);
+
+    /* hours of it: no hung notes, every track plays */
+    Log l;
+    memset(&l, 0, sizeof l);
+    seq_init(&s, rec, &l);
+    style_apply(&s, STYLE_DRONE, 0);
+    seq_start(&s);
+    run_bars(&s, 1000);
+    seq_stop(&s);
+    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(l.on[t] > 0);
+    CHECK(!held_any(&l));
+}
+
 int main(void) {
     test_drone();
     test_drift();
@@ -375,6 +412,7 @@ int main(void) {
     test_rests();
     test_slow_evolution();
     test_ambient_style_unchanged();
+    test_drone_style();
     if (fails) { fprintf(stderr, "%d ambient test(s) failed\n", fails); return 1; }
     puts("ambient tests passed");
     return 0;

@@ -86,7 +86,10 @@ void gen_morph(Seq *s, int t, const SeqStep *target, int pct);
 /* Styles set generator defaults and can lay out a whole starting project. */
 /* STYLE_BLANK is "no style": table generator defaults, and NEW FROM STYLE
  * gives four empty MANUAL tracks to build from scratch. */
-typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_BLANK, STYLE_COUNT } Style;
+typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_BLANK, STYLE_DRONE, STYLE_COUNT } Style;
+/* STYLE_DRONE is an ambient variant: a held bass and a chord pad that move
+ * rarely, a drifting line, sparse bells, slow swells and rests, and evolution
+ * over 16-32 bars. It uses AMBIENT's generator defaults. */
 int         style_count(void);
 const char *style_name(int style);
 /* Set up the style's starting set: tempo, scale, and for each track its
