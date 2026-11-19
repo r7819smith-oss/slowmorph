@@ -77,7 +77,9 @@ live)
 screenshots)
     note "### Screenshots (out/shots/*.png)"
     rm -f "$OUT"/shots/*.bmp "$OUT"/shots/*.png
-    # name|keys (Z=A X=B C=X V=Y Q/W=L/R Tab=Select Space=Start E=page R=roll U=undo K=lock)
+    # name|keys. Keyboard: arrows = D-pad, Z = A, X = B (back to grid), C = X,
+    # V = Y, Q/W = L1/R1 (page), 1/2 = L2/R2 (track), Space = Start.
+    # Pages in order: GRID, STEP, TRACK, GENERATE.
     while IFS='|' read -r name keys; do
         [ -z "$name" ] && continue
         SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./seq4h --midi none --demo \
@@ -86,19 +88,24 @@ screenshots)
     done <<'EOF'
 grid-demo|
 grid-cursor-moved|Down,Down,Right,Right,Right
-grid-step-locked|Right,k
-grid-track2-muted|Down,c
-grid-note-up|+x,Up,Up,-x
-grid-length-12|+Tab,Left,Left,Left,Left,-Tab
-generate-page|e
-generate-euclid|e,Down,Right
-grid-after-euclid-roll|e,Down,Right,z,e
+grid-step-toggled|Right,z
+grid-step-locked|Right,v
+step-page|Right,c
+step-note-up|c,Down,Down,Right,Right
+track-page|w,w
+track-length-12|w,w,Down,Down,Left,Left,Left,Left
+track2-muted|2,w,w,Down,Down,Down,Right
+generate-page|w,w,w
+generate-euclid|w,w,w,Down,Right
+grid-after-euclid-roll|w,w,w,Down,Right,z,x
 EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
-        --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-locked \
-        --differ grid-demo grid-track2-muted --differ grid-demo grid-note-up \
-        --differ grid-demo grid-length-12 --differ grid-demo generate-page \
-        --differ generate-page generate-euclid --differ grid-demo grid-after-euclid-roll \
+        --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
+        --differ grid-demo grid-step-locked --differ grid-demo step-page \
+        --differ step-page step-note-up --differ grid-demo track-page \
+        --differ track-page track-length-12 --differ track-page track2-muted \
+        --differ grid-demo generate-page --differ generate-page generate-euclid \
+        --differ grid-demo grid-after-euclid-roll \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"
