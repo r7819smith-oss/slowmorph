@@ -293,6 +293,10 @@ If the FM1 is unplugged or plugged in after start, seq4h shows
 `MIDI: WAITING FOR ...` and connects when it appears. Without the ALSA
 sequencer in the kernel, seq4h uses raw MIDI devices (`hw:C,D,S`) instead.
 
+The header also shows the handheld's battery, e.g. `BAT 78%` (`+` while
+charging, amber below 20%, red below 10%). The level is written to `seq4h.log`
+at start, every hour, when the charger is plugged in or out, and at quit.
+
 For the other `MIDI IN` modes:
 
 - **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` on the

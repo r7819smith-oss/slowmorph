@@ -199,6 +199,19 @@ Works and tested on desktop Linux:
   connect and disconnect is written to `seq4h/seq4h.log` as
   `seq4h: MIDI connected to ...` / `seq4h: MIDI WAITING FOR ...`. (Roy's
   2026-11-19 photo showed no status; the header had stopped drawing it.)
+- **Battery (2026-11-19, Roy asked):** the header shows `BAT 78%` between
+  SWING and the play state, with `+` while the charger is in (status
+  Charging or Full). Dim normally, amber below 20%, red below 10%; nothing is
+  drawn if no battery is found (desktop). `src/battery.c` scans
+  `/sys/class/power_supply/*/type` for `Battery` and reads `capacity` and
+  `status` every 10 s on the UI thread, outside the player lock, with
+  non-blocking opens, so a missing or slow file can't touch MIDI timing.
+  `seq4h.log` gets a line at start, every hour, when the charger goes in or
+  out, and at quit, e.g. `seq4h: 2026-11-19 21:00:05 battery 78%
+  Discharging, 1h00m since start`; start and quit lines bracket the 30-minute
+  test. `SEQ4H_POWER_SUPPLY_DIR` points it at a fake tree for tests
+  (`tests/test_battery.c`, harness shot `bat17-grid`). Not yet checked on the
+  RG40XX-V: the supply's name and whether Knulli reports `status`.
 - **Clock master:** MIDI clock now runs continuously, also while stopped, so
   the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four
@@ -316,6 +329,10 @@ Checks:
       clock-synced parts and seq4h, no stuck notes, no crash.
 - [ ] Listen at 200+ BPM with all four tracks busy: are steps even?
 - [ ] Check `seq4h/seq4h.log` for `raw MIDI messages dropped`.
+- [ ] Battery: header shows `BAT nn%` matching Knulli's own battery reading,
+      `+` appears within 10 s of plugging in a charger. After the 30-minute
+      run, the `battery ... start` and `battery ... quit` lines in
+      `seq4h.log` give the drain.
 
 **H. Handheld UI**
 
@@ -485,6 +502,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `tests/test_gen.c`: tests for the newer generators, transforms and evolution
 - `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
 - `tests/test_input.c`: mapping tests
+- `src/battery.c`, `battery.h`: battery level from sysfs; `tests/test_battery.c`
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `knulli/SEQ4H.sh`: Ports launcher script
