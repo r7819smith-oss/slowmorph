@@ -272,7 +272,6 @@ static void style_defaults(int st, int type, uint8_t p[4]) {
 typedef struct {
     uint8_t gen, len, base, span, gate, vel, prob, hold;   /* prob: chance each step plays; hold: tied steps */
     uint8_t every, amount, kinds, pull, min_hits, max_hits;
-    uint8_t chord, swell, swell_depth, rest;               /* playback colour; 0 (left out) = off */
 } TrackPreset;
 
 static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } STYLE_SET[STYLE_COUNT] = {
@@ -301,10 +300,10 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
      * 32 and 16 bars), a slow drifting line, and sparse soft bells that rest
      * now and then. Lengths 32, 28, 20, 27 keep them out of step. */
     [STYLE_DRONE] = {66, 3, 9, 0, {
-        {GEN_DRONE, 32, 38, 1, 100, 64, 100, 0, 32, 5, EVO_REGEN, 0, 0, 0, CHORD_FIFTH, 16, 25, 0},
-        {GEN_DRONE, 28, 50, 2, 100, 56, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0, CHORD_TRIAD, 8, 35, 0},
-        {GEN_DRIFT, 20, 62, 2, 100, 60, 90, 0, 16, 10, EVO_REGEN | EVO_PROB, 0, 1, 4, 0, 4, 30, 10},
-        {GEN_BELL, 27, 74, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3, 0, 0, 0, 15},
+        {GEN_DRONE, 32, 38, 1, 100, 64, 100, 0, 32, 5, EVO_REGEN, 0, 0, 0},
+        {GEN_DRONE, 28, 50, 2, 100, 56, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0},
+        {GEN_DRIFT, 20, 62, 2, 100, 60, 90, 0, 16, 10, EVO_REGEN | EVO_PROB, 0, 1, 4},
+        {GEN_BELL, 27, 74, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3},
     }},
 };
 
@@ -328,6 +327,13 @@ static void style_blank(Seq *s) {
         tr->solo = 0;
     }
 }
+
+/* Playback colour per style and track (chord, swell bars, swell depth, rest
+ * chance); styles left out here play plain. */
+typedef struct { uint8_t chord, swell, swell_depth, rest; } TrackColour;
+static const TrackColour STYLE_COLOUR[STYLE_COUNT][SEQ_TRACKS] = {
+    [STYLE_DRONE] = {{CHORD_FIFTH, 16, 25, 0}, {CHORD_TRIAD, 8, 35, 0}, {CHORD_OFF, 4, 30, 10}, {CHORD_OFF, 0, 0, 15}},
+};
 
 int style_apply(Seq *s, int st, int keep_manual) {
     st = st < 0 || st >= STYLE_COUNT ? 0 : st;
@@ -354,10 +360,11 @@ int style_apply(Seq *s, int st, int keep_manual) {
         tr->evo = (EvolveSettings){pr->every, pr->amount, pr->kinds, pr->pull, pr->min_hits, pr->max_hits};
         tr->chain_len = 0;
         tr->has_anchor = 0;
-        tr->chord = pr->chord;
-        tr->swell = pr->swell;
-        tr->swell_depth = pr->swell_depth;
-        tr->rest = pr->rest;
+        const TrackColour *co = &STYLE_COLOUR[st][t];
+        tr->chord = co->chord;
+        tr->swell = co->swell;
+        tr->swell_depth = co->swell_depth;
+        tr->rest = co->rest;
         tr->rest_left = 0;
     }
     /* Generate in order, so FOLLOW (techno track 2) reads a finished track 1. */

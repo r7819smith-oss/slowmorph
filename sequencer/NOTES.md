@@ -163,7 +163,7 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     chord playback and release, swell curve, rests, 64-bar evolution, save
     and load, AMBIENT unchanged, DRONE style for 1000 bars with no hung
     notes). Harness: 256-bar renders of the AMBIENT and DRONE starting sets
-    (`seq4h-render --style NAME`; `midicheck.py --max-hold N` allows held
+    (`seq4h-render --style NAME`; per-style colour in `STYLE_COLOUR`, so the TrackPreset rows are untouched; `midicheck.py --max-hold N` allows held
     notes, `--poly` for chords) and four DRONE screenshots.
 - **Slot names and the SLOTS page** (Roy, 2026-11-19: "a simple way to name
   and pick saved slots from the M menu"). M > SLOTS lists the **current
