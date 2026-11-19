@@ -844,16 +844,17 @@ static void log_battery(const Battery *b, Uint32 now, const char *why) {
     struct tm tm;
     if (localtime_r(&t, &tm)) strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S ", &tm);
     unsigned mins = now / 60000;
-    fprintf(stderr, "seq4h: %sbattery %d%% %s, %uh%02um since start%s%s\n", when, b->pct,
-            b->status[0] ? b->status : "(no status)", mins / 60, mins % 60, why ? ", " : "", why ? why : "");
+    fprintf(stderr, "seq4h: %sbattery %d%% %s (kernel gauge %d%%), %uh%02um since start%s%s\n", when, b->pct,
+            b->status[0] ? b->status : "(no status)", b->kernel_pct, mins / 60, mins % 60, why ? ", " : "", why ? why : "");
     fflush(stderr);
 }
 
 /* Every 10 s: read the battery. Log it at start, every hour, when the charger
  * is plugged in or out, and (from ui_run) at quit. */
 static void poll_battery(Ui *u, Uint32 now) {
-    if (battery_read(&u->bat, NULL) < 0) return;
+    if (battery_read(&u->bat, NULL, NULL) < 0) return;
     if (!u->bat_logged) {
+        battery_log_supplies(stderr, NULL, NULL);
         log_battery(&u->bat, now, "start");
         u->next_bat_log = now + 3600000;
     } else if (u->bat.charging != u->bat_log_charging) {
@@ -946,7 +947,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         SDL_Delay(16);
     }
 
-    if (u.bat_logged && battery_read(&u.bat, NULL) >= 0) log_battery(&u.bat, SDL_GetTicks(), "quit");
+    if (u.bat_logged && battery_read(&u.bat, NULL, NULL) >= 0) log_battery(&u.bat, SDL_GetTicks(), "quit");
     for (int i = 0; i < MAX_DEVS; i++) close_dev(&devs[i]);
     SDL_DestroyRenderer(r);
     SDL_DestroyWindow(win);

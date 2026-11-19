@@ -258,6 +258,17 @@ port). Findings:
   test. `SEQ4H_POWER_SUPPLY_DIR` points it at a fake tree for tests
   (`tests/test_battery.c`, harness shot `bat17-grid`). Not yet checked on the
   RG40XX-V: the supply's name and whether Knulli reports `status`.
+  **Fix (2026-11-19, Roy's report):** the first build showed `BAT 8%` while
+  Knulli showed 38%. Knulli's number is not the kernel's `capacity`: its
+  batteryplus daemon estimates it (by default from voltage) and writes it to
+  `/tmp/battery.percent`. seq4h now shows that file's number when it exists,
+  so it matches Knulli, and falls back to the kernel gauge. Both go in the
+  log (`battery 38% Discharging (kernel gauge 8%)`), and at start seq4h logs
+  every power supply (type, status, capacity, voltage_now, online) and the
+  Knulli file. Caution: Knulli's voltage mode is reported to read high on
+  other axp2202 devices ([knulli-linux#124](https://github.com/knulli-cfw/knulli-linux/issues/124)),
+  so near empty trust the kernel gauge; `knulli-settings-set
+  system.batteryplus.mode pmic` makes Knulli use the gauge too.
 - **Clock master:** MIDI clock now runs continuously, also while stopped, so
   the FM1 follows seq4h's tempo before Start. Start/Stop as before.
 - **`--midi-test`** plays C4, E4, G4, C5 on channels 1-4 in turn, then all four

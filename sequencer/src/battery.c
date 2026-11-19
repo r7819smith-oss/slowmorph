@@ -20,33 +20,80 @@ static int read_small(const char *path, char *buf, int n) {
     return (int)k;
 }
 
-int battery_read(Battery *b, const char *dir) {
-    char path[512], buf[32];
-    b->pct = -1;
-    b->charging = 0;
-    b->status[0] = 0;
+static const char *supply_dir(const char *dir) {
     if (!dir) dir = getenv("SEQ4H_POWER_SUPPLY_DIR");
-    if (!dir || !*dir) dir = "/sys/class/power_supply";
+    return dir && *dir ? dir : "/sys/class/power_supply";
+}
+
+static const char *knulli_file(const char *knulli) {
+    if (!knulli) knulli = getenv("SEQ4H_BATTERY_PERCENT_FILE");
+    return knulli && *knulli ? knulli : "/tmp/battery.percent";
+}
+
+/* A percentage like "38", "38%" or "38\n"; -1 if none. */
+static int parse_pct(const char *buf) {
+    char *end;
+    long v = strtol(buf, &end, 10);
+    if (end == buf) return -1;
+    return v < 0 ? 0 : v > 100 ? 100 : (int)v;
+}
+
+int battery_read(Battery *b, const char *dir, const char *knulli) {
+    char path[512], buf[32];
+    b->pct = b->kernel_pct = -1;
+    b->charging = b->from_knulli = 0;
+    b->status[0] = 0;
+    dir = supply_dir(dir);
     DIR *d = opendir(dir);
-    if (!d) return -1;
-    struct dirent *e;
-    while ((e = readdir(d))) {
-        if (e->d_name[0] == '.') continue;
-        snprintf(path, sizeof path, "%s/%s/type", dir, e->d_name);
-        if (read_small(path, buf, sizeof buf) < 0 || strcmp(buf, "Battery")) continue;
-        snprintf(path, sizeof path, "%s/%s/capacity", dir, e->d_name);
-        if (read_small(path, buf, sizeof buf) <= 0) continue;
-        char *end;
-        long v = strtol(buf, &end, 10);
-        if (end == buf) continue;
-        b->pct = v < 0 ? 0 : v > 100 ? 100 : (int)v;
-        snprintf(path, sizeof path, "%s/%s/status", dir, e->d_name);
-        if (read_small(path, b->status, sizeof b->status) < 0) b->status[0] = 0;
-        b->charging = !strcmp(b->status, "Charging") || !strcmp(b->status, "Full");
-        break;
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            snprintf(path, sizeof path, "%s/%s/type", dir, e->d_name);
+            if (read_small(path, buf, sizeof buf) < 0 || strcmp(buf, "Battery")) continue;
+            snprintf(path, sizeof path, "%s/%s/capacity", dir, e->d_name);
+            if (read_small(path, buf, sizeof buf) <= 0 || (b->kernel_pct = parse_pct(buf)) < 0) continue;
+            snprintf(path, sizeof path, "%s/%s/status", dir, e->d_name);
+            if (read_small(path, b->status, sizeof b->status) < 0) b->status[0] = 0;
+            b->charging = !strcmp(b->status, "Charging") || !strcmp(b->status, "Full");
+            break;
+        }
+        closedir(d);
     }
-    closedir(d);
+    b->pct = b->kernel_pct;
+    if (read_small(knulli_file(knulli), buf, sizeof buf) > 0) {
+        int k = parse_pct(buf);
+        if (k >= 0) { b->pct = k; b->from_knulli = 1; }
+    }
     return b->pct;
+}
+
+void battery_log_supplies(FILE *f, const char *dir, const char *knulli) {
+    char path[512], v[5][32];
+    static const char *A[5] = {"type", "status", "capacity", "voltage_now", "online"};
+    dir = supply_dir(dir);
+    DIR *d = opendir(dir);
+    if (!d) fprintf(f, "seq4h: power supplies: %s not readable\n", dir);
+    else {
+        struct dirent *e;
+        int n = 0;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            for (int i = 0; i < 5; i++) {
+                snprintf(path, sizeof path, "%s/%s/%s", dir, e->d_name, A[i]);
+                if (read_small(path, v[i], sizeof v[i]) < 0) snprintf(v[i], sizeof v[i], "-");
+            }
+            fprintf(f, "seq4h: power supply %s: type=%s status=%s capacity=%s voltage_now=%s online=%s\n",
+                    e->d_name, v[0], v[1], v[2], v[3], v[4]);
+            n++;
+        }
+        closedir(d);
+        if (!n) fprintf(f, "seq4h: power supplies: none in %s\n", dir);
+    }
+    const char *k = knulli_file(knulli);
+    if (read_small(k, v[0], sizeof v[0]) < 0) snprintf(v[0], sizeof v[0], "(missing)");
+    fprintf(f, "seq4h: Knulli battery %s: %s\n", k, v[0]);
+    fflush(f);
 }
 
 void battery_text(const Battery *b, char *buf, int n) {
