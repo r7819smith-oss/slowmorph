@@ -816,9 +816,10 @@ int ui_run(Player *p, const UiOptions *opt) {
             player_lock(p);
             if (p->midi && p->midi->poll) {
                 int up = p->midi->poll(p->midi);
-                /* Reconnected while playing: the FM1 missed Start, so restart from
-                 * step 1 with a fresh Start to bring its clock back in phase. */
-                if (up && u.midi_up == 0 && p->seq.playing) { seq_stop(&p->seq); seq_start(&p->seq); }
+                /* Reconnected: the FM1 may still hold a note whose note-off was
+                 * lost while unplugged, and it missed Start. Silence it now and
+                 * re-send Start at the next bar line, without jumping back. */
+                if (up && u.midi_up == 0) seq_reconnected(&p->seq);
                 u.midi_up = up;
             }
             player_unlock(p);

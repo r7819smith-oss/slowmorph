@@ -70,6 +70,7 @@ typedef struct {
     uint8_t chain_bars;         /* bars per chain link: 1, 2, 4, 8 or 16 */
     uint8_t chain_morph;        /* 0 = jump to the next slot; else % chance per bar each step moves towards it */
     int16_t sounding;   /* note currently held, or -1 */
+    int16_t last_note;  /* last note sent on this track, or -1 (seq_panic re-sends its note-off) */
     uint32_t off_tick;
 } SeqTrack;
 
@@ -86,6 +87,7 @@ typedef struct {
     int playing;
     uint32_t tick;      /* next tick to process */
     uint32_t idle_tick; /* tick counter while stopped, for the free-running clock */
+    int resync;         /* send Stop+Start at the next bar boundary (after a MIDI reconnect) */
     uint32_t rng;
     SeqSend send;
     void *ctx;
@@ -97,6 +99,13 @@ void seq_load_demo(Seq *s);
 
 void seq_start(Seq *s);
 void seq_stop(Seq *s);
+/* Silence the receiver: note-off for every held and last-played note, then
+ * All Sound Off (CC120) and All Notes Off (CC123) on each track's channel. */
+void seq_panic(Seq *s);
+/* After the MIDI device comes back: panic now, keep playing in place, and
+ * re-send Start at the next bar line so the receiver's clock is back in phase
+ * without the pattern jumping back to step 1. */
+void seq_reconnected(Seq *s);
 void seq_tick(Seq *s);                 /* advance one tick (1/96 beat) */
 int  seq_playhead(const Seq *s, int t);/* step being played on track t, or -1 */
 
