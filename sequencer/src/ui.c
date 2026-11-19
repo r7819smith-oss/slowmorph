@@ -13,6 +13,7 @@
 #define CELL 35
 #define ROW_Y0 70
 #define ROW_H 64
+#define GRID_COLS 16   /* steps shown at once on the grid */
 
 /* Classic 5x7 font, ASCII 32..95, one byte per column, LSB = top row. */
 static const uint8_t FONT[64][5] = {
@@ -73,8 +74,9 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 
 /* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
-typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE"};
+typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
+               P_MENU = P_TABS, P_COUNT } Page;
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU"};
 
 typedef struct {
     Player *p;
@@ -85,8 +87,14 @@ typedef struct {
     int midi_up;              /* last MIDI poll result; -1 = not polled yet */
     int page;                 /* Page */
     int row[P_COUNT];         /* selected row on each list page */
-    SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll */
+    int menu_from;            /* page to return to when the main menu closes */
+    SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll, transform or slot load */
+    int undo_len;
     int undo_track;           /* -1 = nothing to undo */
+    int xf_op, xf_amt;        /* transform chosen on the generate page, and its amount */
+    int slot;                 /* slot chosen on the generate page */
+    int snap;                 /* changing scale moves notes into it */
+    int confirm_new;          /* NEW FROM STYLE was pressed once */
     const char *msg;
     Uint32 msg_until;
     const InputMap *map;
@@ -94,23 +102,36 @@ typedef struct {
     char input_msg[48];       /* last raw input, shown with --show-input */
 } Ui;
 
-#define GEN_ROWS 17
+/* Generate page rows. */
+enum {
+    GR_TRACK, GR_GEN, GR_P0, GR_P1, GR_P2, GR_P3, GR_BASE, GR_SPAN,
+    GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 5, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
+    GR_XFORM, GR_XAMOUNT, GR_SLOT, GR_STORE, GR_CHAIN, GR_CHAIN_BARS, GR_MORPH,
+    GR_SCALE, GR_ROOT, GR_SNAP, GEN_ROWS
+};
 static const int EVERY[5] = {0, 1, 2, 4, 8};
+static const int CHAIN_BARS[5] = {1, 2, 4, 8, 16};
+static const uint8_t EVO_BITS[6] = {EVO_PITCH, EVO_RHYTHM, EVO_VEL, EVO_ROTATE, EVO_REGEN, EVO_PROB};
 
 static int wrap(int v, int n) { return (v % n + n) % n; }
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+static int gen_row_is_head(int row) {
+    return row == GR_TRACK || row == GR_GEN || row == GR_EVOLVE || row == GR_ANCHOR || row == GR_XFORM ||
+           row == GR_SLOT || row == GR_SCALE;
+}
 
-static void gen_row_text(const Seq *s, int t, int row, char *label, char *val) {
+static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    int t = u->track;
     const SeqTrack *tr = &s->track[t];
     const GenSettings *g = &tr->gen;
-    static const char *EVO_NAMES[5] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN"};
+    static const char *EVO_NAMES[6] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN", "EVO PROB"};
     label[0] = val[0] = 0;
-    if (row == 0) { snprintf(label, 24, "TRACK"); snprintf(val, 24, "%d", t + 1); }
-    else if (row == 1) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", gen_name(g->type)); }
-    else if (row <= 5) {
-        int k = row - 2;
+    if (row == GR_TRACK) { snprintf(label, 24, "TRACK"); snprintf(val, 24, "%d", t + 1); }
+    else if (row == GR_GEN) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", gen_name(g->type)); }
+    else if (row <= GR_P3) {
+        int k = row - GR_P0;
         if (k < gen_param_count(g->type)) {
             snprintf(label, 24, "  %s", gen_param_name(g->type, k));
             char tmp[16];
@@ -120,51 +141,111 @@ static void gen_row_text(const Seq *s, int t, int row, char *label, char *val) {
             snprintf(label, 24, "  -");
         }
     }
-    else if (row == 6) { snprintf(label, 24, "LOWEST NOTE"); char nn[8]; seq_note_name(g->base, nn); snprintf(val, 24, "%s", nn); }
-    else if (row == 7) { snprintf(label, 24, "RANGE"); snprintf(val, 24, "%d OCT", g->span); }
-    else if (row == 8) {
+    else if (row == GR_BASE) { snprintf(label, 24, "LOWEST NOTE"); char nn[8]; seq_note_name(g->base, nn); snprintf(val, 24, "%s", nn); }
+    else if (row == GR_SPAN) { snprintf(label, 24, "RANGE"); snprintf(val, 24, "%d OCT", g->span); }
+    else if (row == GR_EVOLVE) {
         snprintf(label, 24, "EVOLVE");
         if (tr->evo.every) snprintf(val, 24, "EVERY %d BAR%s", tr->evo.every, tr->evo.every > 1 ? "S" : "");
         else snprintf(val, 24, "OFF");
     }
-    else if (row == 9) { snprintf(label, 24, "  AMOUNT"); snprintf(val, 24, "%d%%", tr->evo.amount); }
-    else if (row <= 14) { snprintf(label, 24, "  %s", EVO_NAMES[row - 10]); snprintf(val, 24, "%s", (tr->evo.kinds >> (row - 10)) & 1 ? "ON" : "OFF"); }
-    else if (row == 15) { snprintf(label, 24, "SCALE"); snprintf(val, 24, "%s", scale_name(s->scale)); }
-    else { static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    else if (row == GR_AMOUNT) { snprintf(label, 24, "  AMOUNT"); snprintf(val, 24, "%d%%", tr->evo.amount); }
+    else if (row <= GR_EVO_LAST) {
+        int k = row - GR_EVO0;
+        snprintf(label, 24, "  %s", EVO_NAMES[k]);
+        snprintf(val, 24, "%s", tr->evo.kinds & EVO_BITS[k] ? "ON" : "OFF");
+    }
+    else if (row == GR_MIN) { snprintf(label, 24, "  MIN HITS"); snprintf(val, 24, "%d", tr->evo.min_hits); }
+    else if (row == GR_MAX) {
+        snprintf(label, 24, "  MAX HITS");
+        if (tr->evo.max_hits) snprintf(val, 24, "%d", tr->evo.max_hits); else snprintf(val, 24, "ANY");
+    }
+    else if (row == GR_ANCHOR) { snprintf(label, 24, "ANCHOR"); snprintf(val, 24, "%s", tr->has_anchor ? "SET (A: RESET)" : "NONE (A: SET)"); }
+    else if (row == GR_PULL) { snprintf(label, 24, "  PULL HOME"); snprintf(val, 24, "%d%%", tr->evo.pull); }
+    else if (row == GR_XFORM) { snprintf(label, 24, "TRANSFORM"); snprintf(val, 24, "%s (A)", gen_xform_name(u->xf_op)); }
+    else if (row == GR_XAMOUNT) {
+        snprintf(label, 24, "  BY");
+        if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT || u->xf_op == XF_CLEAR) snprintf(val, 24, "-");
+        else snprintf(val, 24, "%+d", u->xf_amt);
+    }
+    else if (row == GR_SLOT) {
+        snprintf(label, 24, "SLOT");
+        snprintf(val, 24, "%d %s", u->slot + 1, tr->slot[u->slot].used ? "(A: LOAD)" : "EMPTY");
+    }
+    else if (row == GR_STORE) { snprintf(label, 24, "  SAVE TO SLOT"); snprintf(val, 24, "A: SAVE %d", u->slot + 1); }
+    else if (row == GR_CHAIN) {
+        snprintf(label, 24, "  CHAIN");
+        if (tr->chain_len > 1) snprintf(val, 24, "SLOTS 1-%d", tr->chain_len); else snprintf(val, 24, "OFF");
+    }
+    else if (row == GR_CHAIN_BARS) { snprintf(label, 24, "  BARS PER SLOT"); snprintf(val, 24, "%d", tr->chain_bars); }
+    else if (row == GR_MORPH) {
+        snprintf(label, 24, "  CHANGE BY");
+        if (tr->chain_morph) snprintf(val, 24, "MORPH %d%%", tr->chain_morph); else snprintf(val, 24, "JUMP");
+    }
+    else if (row == GR_SCALE) { snprintf(label, 24, "SCALE"); snprintf(val, 24, "%s", scale_name(s->scale)); }
+    else if (row == GR_ROOT) { static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
            snprintf(label, 24, "ROOT"); snprintf(val, 24, "%s", R[s->root % 12]); }
+    else { snprintf(label, 24, "  SNAP NOTES"); snprintf(val, 24, "%s", u->snap ? "ON" : "OFF"); }
 }
 
 static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     SeqTrack *tr = &s->track[u->track];
     GenSettings *g = &tr->gen;
-    if (row == 0) u->track = wrap(u->track + d, SEQ_TRACKS);
-    else if (row == 1) gen_set_type(s, u->track, wrap(g->type + d, GEN_COUNT));
-    else if (row <= 5) {
-        int k = row - 2;
+    EvolveSettings *e = &tr->evo;
+    if (row == GR_TRACK) u->track = wrap(u->track + d, SEQ_TRACKS);
+    else if (row == GR_GEN) gen_set_type(s, u->track, wrap(g->type + d, GEN_COUNT));
+    else if (row <= GR_P3) {
+        int k = row - GR_P0;
         if (k < gen_param_count(g->type))
             g->p[k] = (uint8_t)clampi(g->p[k] + d * (big ? 5 : 1), gen_param_min(g->type, k), gen_param_max(g->type, k));
     }
-    else if (row == 6) g->base = (uint8_t)clampi(g->base + d * (big ? 12 : 1), 0, 115);
-    else if (row == 7) g->span = (uint8_t)clampi(g->span + d, 1, 4);
-    else if (row == 8) {
+    else if (row == GR_BASE) g->base = (uint8_t)clampi(g->base + d * (big ? 12 : 1), 0, 115);
+    else if (row == GR_SPAN) g->span = (uint8_t)clampi(g->span + d, 1, 4);
+    else if (row == GR_EVOLVE) {
         int i = 0;
-        while (i < 4 && EVERY[i] != tr->evo.every) i++;
-        tr->evo.every = (uint8_t)EVERY[clampi(i + d, 0, 4)];
+        while (i < 4 && EVERY[i] != e->every) i++;
+        e->every = (uint8_t)EVERY[clampi(i + d, 0, 4)];
     }
-    else if (row == 9) tr->evo.amount = (uint8_t)clampi(tr->evo.amount + 5 * d * (big ? 2 : 1), 0, 100);
-    else if (row <= 14) tr->evo.kinds ^= (uint8_t)(1 << (row - 10));
-    else if (row == 15) s->scale = wrap(s->scale + d, scale_count());
-    else s->root = wrap(s->root + d, 12);
+    else if (row == GR_AMOUNT) e->amount = (uint8_t)clampi(e->amount + 5 * d * (big ? 2 : 1), 0, 100);
+    else if (row <= GR_EVO_LAST) e->kinds ^= EVO_BITS[row - GR_EVO0];
+    else if (row == GR_MIN) {
+        e->min_hits = (uint8_t)clampi(e->min_hits + d * (big ? 4 : 1), 0, SEQ_STEPS);
+        if (e->max_hits && e->max_hits < e->min_hits) e->max_hits = e->min_hits;
+    }
+    else if (row == GR_MAX) {   /* 0 = any; stepping down from 1 gives ANY */
+        int v = clampi(e->max_hits + d * (big ? 4 : 1), 0, SEQ_STEPS);
+        if (v && v < e->min_hits) v = d < 0 ? 0 : e->min_hits;
+        e->max_hits = (uint8_t)v;
+    }
+    else if (row == GR_ANCHOR) { if (d > 0) gen_set_anchor(s, u->track); else gen_clear_anchor(s, u->track); }
+    else if (row == GR_PULL) e->pull = (uint8_t)clampi(e->pull + 5 * d * (big ? 2 : 1), 0, 100);
+    else if (row == GR_XFORM) u->xf_op = wrap(u->xf_op + d, XF_COUNT);
+    else if (row == GR_XAMOUNT) u->xf_amt = clampi(u->xf_amt + d * (big ? 4 : 1), -16, 16);
+    else if (row == GR_SLOT || row == GR_STORE) u->slot = wrap(u->slot + d, SEQ_SLOTS);
+    else if (row == GR_CHAIN) {
+        int n = clampi((tr->chain_len > 1 ? tr->chain_len : 1) + d, 1, SEQ_SLOTS);
+        for (int i = 0; i < SEQ_SLOTS; i++) tr->chain[i] = (uint8_t)i;
+        tr->chain_len = (uint8_t)(n > 1 ? n : 0);
+        if (tr->chain_pos >= n) tr->chain_pos = 0;
+    }
+    else if (row == GR_CHAIN_BARS) {
+        int i = 0;
+        while (i < 4 && CHAIN_BARS[i] != tr->chain_bars) i++;
+        tr->chain_bars = (uint8_t)CHAIN_BARS[clampi(i + d, 0, 4)];
+    }
+    else if (row == GR_MORPH) tr->chain_morph = (uint8_t)clampi(tr->chain_morph + 5 * d * (big ? 2 : 1), 0, 100);
+    else if (row == GR_SCALE) seq_set_scale(s, wrap(s->scale + d, scale_count()), s->root, u->snap);
+    else if (row == GR_ROOT) seq_set_scale(s, s->scale, wrap(s->root + d, 12), u->snap);
+    else u->snap ^= 1;
 }
 
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }
 
-#define STEP_ROWS 7
+#define STEP_ROWS 8
 #define TRACK_ROWS 7
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
-    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "PROBABILITY", "LOCK"};
+    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "PROBABILITY", "LOCK"};
     snprintf(label, 24, "%s", L[row]);
     switch (row) {
     case 0: snprintf(val, 24, "%d", u->step + 1); break;
@@ -172,7 +253,8 @@ static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char 
     case 2: { char nn[8]; seq_note_name(st->note, nn); snprintf(val, 24, "%s", nn); break; }
     case 3: snprintf(val, 24, "%d", st->vel); break;
     case 4: snprintf(val, 24, "%d%%", st->gate); break;
-    case 5: snprintf(val, 24, "%d%%", st->prob); break;
+    case 5: if (st->hold) snprintf(val, 24, "+%d STEP%s", st->hold, st->hold > 1 ? "S" : ""); else snprintf(val, 24, "OFF"); break;
+    case 6: snprintf(val, 24, "%d%%", st->prob); break;
     default: snprintf(val, 24, "%s", st->lock ? "LOCKED" : "OFF"); break;
     }
 }
@@ -188,7 +270,8 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
         break;
     case 3: seq_step_adjust(s, u->track, u->step, 0, d * (big ? 10 : 1), 0, 0); break;
     case 4: seq_step_adjust(s, u->track, u->step, 0, 0, d * (big ? 25 : 5), 0); break;
-    case 5: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
+    case 5: seq_step_hold(s, u->track, u->step, d * (big ? 4 : 1)); break;
+    case 6: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
     default: st->lock ^= 1; break;
     }
 }
@@ -220,15 +303,64 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     }
 }
 
-static int page_rows(int page) { return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : GEN_ROWS; }
+/* Main menu, opened with M. Settings that apply to the whole session go here
+ * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
+ * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
+#define MENU_ROWS 4
+enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_QUIT };
+
+static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    val[0] = 0;
+    if (row == MENU_RESUME) snprintf(label, 24, "BACK TO EDITING");
+    else if (row == MENU_STYLE) { snprintf(label, 24, "MUSIC STYLE"); snprintf(val, 24, "%s", style_name(s->style)); }
+    else if (row == MENU_NEW) {
+        snprintf(label, 24, "NEW FROM STYLE");
+        snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
+    }
+    else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
+}
+
+static void menu_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    (void)big;
+    if (row == MENU_STYLE) { s->style = wrap(s->style + d, style_count()); u->confirm_new = 0; }
+}
+
+static void menu_row_select(Seq *s, Ui *u, int row) {
+    if (row == MENU_RESUME) u->page = u->menu_from;
+    else if (row == MENU_NEW) {
+        /* Replaces all four tracks, so it takes a second press. */
+        if (!u->confirm_new) { u->confirm_new = 1; say(u, "PRESS A AGAIN TO REPLACE ALL TRACKS"); return; }
+        u->confirm_new = 0;
+        u->undo_track = -1;
+        int kept = style_apply(s, s->style, 1);
+        u->page = P_GRID;
+        say(u, kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
+    }
+    else if (row == MENU_QUIT) u->quit = 1;
+}
+
+static int page_rows(int page) {
+    return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS : GEN_ROWS;
+}
+
+/* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
+static int grid_steps(const Seq *s) {
+    for (int t = 0; t < SEQ_TRACKS; t++) if (s->track[t].len > GRID_COLS) return SEQ_STEPS;
+    return GRID_COLS;
+}
+
+static void remember(Seq *s, Ui *u) {
+    memcpy(u->undo, s->track[u->track].step, sizeof u->undo);
+    u->undo_len = s->track[u->track].len;
+    u->undo_track = u->track;
+}
 
 static void roll(Seq *s, Ui *u) {
     if (s->track[u->track].gen.type == GEN_NONE) {
         say(u, "NO GENERATOR: PICK ONE ON GENERATE");
         return;
     }
-    memcpy(u->undo, s->track[u->track].step, sizeof u->undo);
-    u->undo_track = u->track;
+    remember(s, u);
     gen_roll(s, u->track);
     say(u, "ROLLED");
 }
@@ -236,15 +368,42 @@ static void roll(Seq *s, Ui *u) {
 static void undo(Seq *s, Ui *u) {
     if (u->undo_track < 0) { say(u, "NOTHING TO UNDO"); return; }
     memcpy(s->track[u->undo_track].step, u->undo, sizeof u->undo);
+    s->track[u->undo_track].len = (uint8_t)u->undo_len;
     u->undo_track = -1;
     say(u, "UNDONE");
 }
 
+/* A on the generate page: the row decides what it does; elsewhere it rolls. */
+static void gen_action(Seq *s, Ui *u, int row) {
+    SeqTrack *tr = &s->track[u->track];
+    if (row == GR_ANCHOR) { gen_set_anchor(s, u->track); say(u, "ANCHOR SET"); }
+    else if (row == GR_XFORM || row == GR_XAMOUNT) {
+        remember(s, u);
+        gen_transform(s, u->track, u->xf_op, u->xf_amt);
+        say(u, gen_xform_name(u->xf_op));
+    }
+    else if (row == GR_SLOT) {
+        if (!tr->slot[u->slot].used) { say(u, "SLOT IS EMPTY"); return; }
+        remember(s, u);
+        seq_slot_recall(s, u->track, u->slot);
+        say(u, "SLOT LOADED");
+    }
+    else if (row == GR_STORE) { seq_slot_store(s, u->track, u->slot); say(u, "SAVED TO SLOT"); }
+    else if (row == GR_SNAP) {
+        remember(s, u);
+        seq_set_scale(s, s->scale, s->root, 1);
+        say(u, "NOTES SNAPPED TO SCALE");
+    }
+    else roll(s, u);
+}
+
 /* Controls (same on every page unless noted):
  *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
+ *   M main menu (B or M again closes it)
  *   GRID: d-pad moves the cursor, A step on/off, X edit the step, Y lock the step
  *   lists: up/down row, left/right value (hold Y for big steps)
- *          STEP A step on/off; GENERATE A roll, X undo */
+ *          STEP A step on/off; GENERATE A rolls, or does the selected row's action
+ *          (set anchor, apply transform, load/save slot, snap notes), X undoes */
 static void press(Ui *u, Btn b) {
     Player *p = u->p;
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
@@ -252,8 +411,14 @@ static void press(Ui *u, Btn b) {
     Seq *s = &p->seq;
     if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
-    else if (b == B_L || b == B_R) u->page = wrap(u->page + (b == B_R ? 1 : -1), P_COUNT);
-    else if (b == B_PAGE) u->page = wrap(u->page + 1, P_COUNT);
+    else if (b == B_MENU) {
+        if (u->page == P_MENU) u->page = u->menu_from;
+        else { u->menu_from = u->page; u->page = P_MENU; }
+    }
+    else if (u->page == P_MENU && b == B_B) u->page = u->menu_from;
+    else if (u->page == P_MENU && b == B_A) menu_row_select(s, u, u->row[P_MENU]);
+    else if (b == B_L || b == B_R) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + (b == B_R ? 1 : -1), P_TABS);
+    else if (b == B_PAGE) u->page = wrap((u->page == P_MENU ? u->menu_from : u->page) + 1, P_TABS);
     else if (b == B_L2 || b == B_R2) u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
     else if (b == B_ROLL) roll(s, u);
     else if (b == B_UNDO) undo(s, u);
@@ -263,15 +428,16 @@ static void press(Ui *u, Btn b) {
         if (b == B_A) seq_step_toggle(s, u->track, u->step);
         else if (b == B_X) u->page = P_STEP;
         else if (b == B_Y) s->track[u->track].step[u->step].lock ^= 1;
-        else if (dx || dy) { u->step = wrap(u->step + dx, SEQ_STEPS); u->track = wrap(u->track + dy, SEQ_TRACKS); }
+        else if (dx || dy) { u->step = wrap(u->step + dx, grid_steps(s)); u->track = wrap(u->track + dy, SEQ_TRACKS); }
     } else {
         int *row = &u->row[u->page], big = u->held[B_Y];
-        if (dy) *row = wrap(*row + dy, page_rows(u->page));
+        if (dy) { *row = wrap(*row + dy, page_rows(u->page)); u->confirm_new = 0; }
         else if (dx && u->page == P_STEP) step_row_adjust(s, u, *row, dx, big);
         else if (dx && u->page == P_TRACK) track_row_adjust(s, u, *row, dx, big);
+        else if (dx && u->page == P_MENU) menu_row_adjust(s, u, *row, dx, big);
         else if (dx) gen_row_adjust(s, u, *row, dx, big);
         else if (b == B_A && u->page == P_STEP) seq_step_toggle(s, u->track, u->step);
-        else if (b == B_A && u->page == P_GEN) roll(s, u);
+        else if (b == B_A && u->page == P_GEN) gen_action(s, u, *row);
         else if (b == B_X && u->page == P_GEN) undo(s, u);
     }
     player_unlock(p);
@@ -433,7 +599,7 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     text(r, 270, 18, 2, DIM, buf);
     text(r, 440, 18, 2, s->playing ? (Col){90, 220, 120} : DIM, s->playing ? "PLAYING" : "STOPPED");
     (void)midi_desc;
-    for (int i = 0, x = 20; i < P_COUNT; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
+    for (int i = 0, x = 20; i < P_TABS; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
         text(r, x, 46, 1, i == u->page ? YELLOW : DIM, PAGE_NAMES[i]);
     snprintf(buf, sizeof buf, "T%d", u->track + 1);
     text(r, 200, 46, 1, TRACK_COL[u->track], buf);
@@ -447,6 +613,11 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
 static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     const Seq s = *sp;
     char buf[160];
+    int view = (u->step / GRID_COLS) * GRID_COLS;   /* 16 steps on screen; the cursor picks which 16 */
+    if (view) {
+        snprintf(buf, sizeof buf, "STEPS %d-%d", view + 1, view + GRID_COLS);
+        text(r, 560, 46, 1, YELLOW, buf);
+    }
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const SeqTrack *tr = &s.track[t];
         int y = ROW_Y0 + t * ROW_H;
@@ -456,10 +627,10 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         snprintf(buf, sizeof buf, "C%d", tr->channel + 1);
         text(r, 12, y + 24, 1, DIM, buf);
         if (tr->mute) text(r, 12, y + 38, 1, DIM, "MUTE");
-        else if (tr->gen.type != GEN_NONE) text(r, 12, y + 38, 1, scale(base, 70), tr->evo.every ? "EVOLVE" : "GEN");
+        else text(r, 12, y + 38, 1, scale(base, tr->evo.every ? 100 : 60), gen_short_name(tr->gen.type));   /* bright = evolving */
         int head = seq_playhead(&s, t);
-        for (int i = 0; i < SEQ_STEPS; i++) {
-            int x = X0 + i * CELL, w = CELL - 4, h = ROW_H - 8;
+        for (int i = view; i < view + GRID_COLS; i++) {
+            int x = X0 + (i - view) * CELL, w = CELL - 4, h = ROW_H - 8;
             if (i >= tr->len) { frame(r, x, y, w, h, 1, (Col){40, 42, 52}); continue; }
             rect(r, x, y, w, h, (i / 4) % 2 ? (Col){38, 40, 52} : (Col){30, 32, 42});
             const SeqStep *st = &tr->step[i];
@@ -467,6 +638,10 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
                 rect(r, x + 3, y + 3, w - 6, h - 6, scale(base, 35 + 65 * st->vel / 127));
                 if (st->prob < 100) rect(r, x + 3, y + 3, (w - 6) * st->prob / 100, 3, WHITE);
                 rect(r, x + 3, y + h - 6, (w - 6) * st->gate / 100, 3, scale(WHITE, 70));
+                if (st->hold) {   /* tied over more steps */
+                    snprintf(buf, sizeof buf, "+%d", st->hold);
+                    text(r, x + 4, y + h - 16, 1, WHITE, buf);
+                }
             }
             if (st->lock) rect(r, x + w - 9, y + 2, 6, 6, YELLOW);
             if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 2, WHITE);
@@ -488,7 +663,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     text(r, 20, y + 44, 2, DIM, buf);
 
     text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A STEP ON/OFF  X EDIT STEP  Y LOCK STEP  START PLAY/STOP");
-    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  B BACK TO GRID  SELECT+START QUIT");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  SELECT+START QUIT");
 }
 
 /* Pattern preview of the current track: height = pitch, brightness = velocity.
@@ -496,7 +671,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
 static void draw_preview(SDL_Renderer *r, const Seq *s, const Ui *u) {
     const SeqTrack *tr = &s->track[u->track];
     Col base = TRACK_COL[u->track];
-    int px = 392, py = 70, pw = 15, ph = 150;
+    int px = 392, py = 70, pw = tr->len > 16 ? 240 / tr->len : 15, ph = 150;
     text(r, px, py - 14, 1, DIM, "PATTERN");
     rect(r, px - 4, py - 2, 16 * pw + 6, ph + 4, (Col){24, 26, 36});
     int lo = tr->gen.base, hi = tr->gen.base + 12 * tr->gen.span;
@@ -520,19 +695,24 @@ static void draw_preview(SDL_Renderer *r, const Seq *s, const Ui *u) {
 static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *midi_desc) {
     const Seq s = *sp;
     char label[24], val[24];
-    int n = page_rows(u->page), pitch = n > 12 ? 22 : 30;
-    for (int row = 0; row < n; row++) {
-        int y = 62 + row * pitch, head = 1;
+    int n = page_rows(u->page), pitch = n > 12 ? 22 : 30, vis = (H - 40 - 62) / pitch;
+    int first = n <= vis ? 0 : clampi(u->row[u->page] - vis / 2, 0, n - vis);   /* scroll long lists */
+    if (first > 0) text(r, 360, 52, 1, DIM, "^");
+    if (first + vis < n) text(r, 360, 62 + vis * pitch - 8, 1, DIM, "v");
+    for (int row = first; row < n && row < first + vis; row++) {
+        int y = 62 + (row - first) * pitch, head = 1;
         label[0] = val[0] = 0;
         if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
+        else if (u->page == P_MENU) menu_row_text(&s, u, row, label, val);
         else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 4; }
-        else { gen_row_text(&s, u->track, row, label, val); head = row == 0 || row == 1 || row == 8 || row == 15; }
+        else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
         text(r, 22, y, 2, sel ? YELLOW : head ? WHITE : DIM, label);
         text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
     }
-    draw_preview(r, &s, u);
+    if (u->page != P_MENU) draw_preview(r, &s, u);
+    else text(r, 392, 62, 2, YELLOW, "MAIN MENU");
     if (u->page == P_GEN) {
         text(r, 392, 240, 1, DIM, "GENERATORS WRITE INTO THE GRID, SO");
         text(r, 392, 252, 1, DIM, "YOU CAN EDIT THE RESULT. LOCKED STEPS");
@@ -547,10 +727,15 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 276, 1, DIM, "LOCKED STEPS ARE NEVER CHANGED");
         text(r, 392, 288, 1, DIM, "BY ROLL OR EVOLVE.");
     }
-    text(r, 20, H - 34, 1, DIM, u->page == P_GEN ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)  A ROLL  X UNDO ROLL"
+    if (u->page == P_MENU) {
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE  A SELECT");
+        text(r, 20, H - 20, 1, DIM, "M OR B CLOSE THE MENU  START PLAY/STOP");
+        return;
+    }
+    text(r, 20, H - 34, 1, DIM, u->page == P_GEN ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG)  A ROLL OR DO ROW  X UNDO"
                               : u->page == P_STEP ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)  A STEP ON/OFF"
                               : "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)");
-    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  B BACK TO GRID  START PLAY/STOP");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  START PLAY/STOP");
 }
 
 static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
@@ -584,7 +769,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     InputMap defaults;
     if (!opt->input) input_defaults(&defaults);
     Dev devs[MAX_DEVS] = {0};   /* opened as SDL_JOYDEVICEADDED arrives, which includes devices present at start */
-    Ui u = {.p = p, .undo_track = -1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
+    Ui u = {.p = p, .undo_track = -1, .xf_amt = 1, .snap = 1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
            .midi_up = -1};
     if (opt->keys) {
         char tmp[256];

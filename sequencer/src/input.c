@@ -6,7 +6,7 @@
 #include <strings.h>
 
 static const char *BTN_NAMES[B_COUNT] = {
-    "up", "down", "left", "right", "a", "b", "x", "y", "l", "r", "l2", "r2", "select", "start",
+    "up", "down", "left", "right", "a", "b", "x", "y", "l", "r", "l2", "r2", "select", "start", "menu",
     "page", "roll", "undo", "lock", "quit",
 };
 
@@ -46,6 +46,7 @@ void input_defaults(InputMap *m) {
      * D-pad on hat 0. L2/R2 are plain buttons, not trigger axes. */
     static const Btn JOY[12] = {B_A, B_B, B_Y, B_X, B_L, B_R, B_SEL, B_START, B_NONE, B_NONE, B_L2, B_R2};
     for (int i = 0; i < 12; i++) m->joy[i] = JOY[i];
+    m->joy[13] = B_MENU;   /* short press of M; 8 (held M) is left to Knulli's hotkeys */
     m->hat[0] = B_UP; m->hat[1] = B_RIGHT; m->hat[2] = B_DOWN; m->hat[3] = B_LEFT;
 
     /* SDL game controller names (used for pads SDL recognises, in auto or controller mode) */
@@ -61,6 +62,7 @@ void input_defaults(InputMap *m) {
     m->pad[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] = B_R;
     m->pad[SDL_CONTROLLER_BUTTON_BACK] = B_SEL;
     m->pad[SDL_CONTROLLER_BUTTON_START] = B_START;
+    m->pad[SDL_CONTROLLER_BUTTON_GUIDE] = B_MENU;
     m->pad_axis[SDL_CONTROLLER_AXIS_TRIGGERLEFT][1] = B_L2;
     m->pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] = B_R2;
 
@@ -68,7 +70,7 @@ void input_defaults(InputMap *m) {
     static const struct { SDL_Keycode k; Btn b; } KEYS[] = {
         {SDLK_UP, B_UP}, {SDLK_DOWN, B_DOWN}, {SDLK_LEFT, B_LEFT}, {SDLK_RIGHT, B_RIGHT},
         {SDLK_z, B_A}, {SDLK_x, B_B}, {SDLK_c, B_X}, {SDLK_v, B_Y},
-        {SDLK_q, B_L}, {SDLK_w, B_R}, {SDLK_1, B_L2}, {SDLK_2, B_R2}, {SDLK_TAB, B_SEL}, {SDLK_SPACE, B_START},
+        {SDLK_q, B_L}, {SDLK_w, B_R}, {SDLK_1, B_L2}, {SDLK_2, B_R2}, {SDLK_TAB, B_SEL}, {SDLK_SPACE, B_START}, {SDLK_m, B_MENU},
         {SDLK_e, B_PAGE}, {SDLK_r, B_ROLL}, {SDLK_u, B_UNDO}, {SDLK_k, B_LOCK}, {SDLK_ESCAPE, B_QUIT},
     };
     for (size_t i = 0; i < sizeof KEYS / sizeof KEYS[0]; i++) set_key(m, KEYS[i].k, KEYS[i].b);
@@ -175,7 +177,7 @@ static void key_name(SDL_Keycode k, char *out, size_t n) {
 void input_save(const InputMap *m, FILE *f) {
     static const char *MODES[3] = {"auto", "joystick", "controller"};
     fprintf(f, "# seq4h button map. Lines: SOURCE CODE BUTTON; later lines win.\n"
-               "# buttons: up down left right a b x y l r l2 r2 select start page roll undo lock quit none\n");
+               "# buttons: up down left right a b x y l r l2 r2 select start menu page roll undo lock quit none\n");
     fprintf(f, "mode %s\nthreshold %d\n", MODES[m->mode], m->axis_threshold);
     for (int i = 0; i < IN_JOY_BUTTONS; i++)
         if (m->joy[i] != B_NONE) fprintf(f, "joy %d %s\n", i, input_btn_name(m->joy[i]));

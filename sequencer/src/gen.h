@@ -13,10 +13,28 @@ typedef enum {
     GEN_CHAOS,      /* logistic map */
     GEN_CELLULAR,   /* 1-D cellular automaton; advances a generation per roll */
     GEN_WEIGHTED,   /* chance of each scale note, like SEQ-4's stochastic mode */
+    GEN_FOLLOW,     /* takes another track's rhythm (and optionally its pitch plus an interval) */
+    GEN_ARP,        /* arpeggiates a chord built from the scale */
+    GEN_TURING,     /* looping shift register; CHANGE sets how often bits flip per roll */
+    GEN_MOTIF,      /* invents a short phrase and develops it (repeat, transpose, invert, reverse) */
     GEN_COUNT
 } GenType;
 
-enum { EVO_PITCH = 1, EVO_RHYTHM = 2, EVO_VEL = 4, EVO_ROTATE = 8, EVO_REGEN = 16 };
+enum { EVO_PITCH = 1, EVO_RHYTHM = 2, EVO_VEL = 4, EVO_ROTATE = 8, EVO_REGEN = 16, EVO_PROB = 32,
+       EVO_ALL = 63 };
+
+/* Hand-editing transforms; all leave locked steps where they are. */
+typedef enum {
+    XF_REVERSE,     /* play the unlocked steps backwards */
+    XF_INVERT,      /* mirror pitches around the first sounding note, in scale degrees */
+    XF_TRANSPOSE,   /* move every note by `amount` scale degrees */
+    XF_SHIFT,       /* rotate the unlocked steps by `amount` (positive = later) */
+    XF_THIN,        /* switch off `amount` sounding steps, quietest and offbeat first */
+    XF_FILL,        /* switch on `amount` silent steps with notes borrowed from neighbours */
+    XF_HUMANIZE,    /* nudge velocities by up to +/- `amount` */
+    XF_CLEAR,       /* switch every unlocked step off: a blank track to write on */
+    XF_COUNT
+} XformType;
 
 enum { SCALE_CHROMATIC = 0, SCALE_MIN_PENT = 9 };
 
@@ -29,6 +47,14 @@ int         seq_in_scale(const Seq *s, int note);
 int gen_pool(const Seq *s, int t, uint8_t pool[64]);
 /* Move `note` by `steps` scale degrees (negative = down), clamped to 0..127. */
 int gen_step_note(const Seq *s, int note, int steps);
+/* Nearest in-scale note (ties go down). */
+int gen_snap_note(const Seq *s, int note);
+/* Scale degree of a note counted from MIDI 0, and back. Notes outside the
+ * scale take the degree of the in-scale note below them. */
+int gen_note_degree(const Seq *s, int note);
+int gen_degree_note(const Seq *s, int degree);
+/* Number of steps switched on within the track's length. */
+int gen_hits(const Seq *s, int t);
 
 const char *gen_name(int type);
 int         gen_param_count(int type);
@@ -45,5 +71,29 @@ void gen_apply(Seq *s, int t);
 void gen_roll(Seq *s, int t);
 /* One evolution tick, called at bar boundaries. */
 void gen_evolve_bar(Seq *s, int t);
+
+/* Remember the track's current pattern as the anchor evolution returns to. */
+void gen_set_anchor(Seq *s, int t);
+void gen_clear_anchor(Seq *s, int t);
+
+/* Each unlocked step that differs from target[] becomes target[i] with chance
+ * pct (its lock flag is kept). Used by the anchor pull and by chain morphing. */
+void gen_morph(Seq *s, int t, const SeqStep *target, int pct);
+
+/* Styles set generator defaults and can lay out a whole starting project. */
+typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_COUNT } Style;
+int         style_count(void);
+const char *style_name(int style);
+/* Set up the style's starting set: tempo, scale, and for each track its
+ * generator, length, gates, holds, evolution and anchor. With keep_manual,
+ * a MANUAL track that has notes is left exactly as it is (it's your own
+ * pattern), and if any track is kept the scale and root stay too, so the new
+ * tracks fit it. Returns how many tracks were kept. */
+int         style_apply(Seq *s, int style, int keep_manual);
+/* Short generator name for the grid ("MANUAL", "EUCLID", "CA", ...), <= 6 chars. */
+const char *gen_short_name(int type);
+
+const char *gen_xform_name(int op);
+void gen_transform(Seq *s, int t, int op, int amount);
 
 #endif

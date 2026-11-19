@@ -22,12 +22,16 @@ all: seq4h
 seq4h: $(SRC) $(wildcard src/*.h)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(MIDI_CFLAGS) -o $@ $(SRC) $(SDL_LIBS) $(MIDI_LIBS) -lpthread
 
-test: tests/test_engine tests/test_input
+test: tests/test_engine tests/test_gen tests/test_input
 	./tests/test_engine
+	./tests/test_gen
 	./tests/test_input
 
 tests/test_engine: tests/test_engine.c src/engine.c src/gen.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c src/gen.c
+
+tests/test_gen: tests/test_gen.c src/engine.c src/gen.c $(wildcard src/*.h)
+	$(CC) $(CFLAGS) -o $@ tests/test_gen.c src/engine.c src/gen.c
 
 tests/test_input: tests/test_input.c src/input.c src/input.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -o $@ tests/test_input.c src/input.c $(SDL_LIBS)
@@ -51,7 +55,7 @@ screenshots: seq4h
 	./tests/harness.sh screenshots
 
 clean:
-	rm -f seq4h seq4h-render tests/test_engine tests/test_engine_asan tests/test_input
+	rm -f seq4h seq4h-render tests/test_engine tests/test_engine_asan tests/test_gen tests/test_input
 	rm -rf out
 
 .PHONY: all test test-asan check screenshots clean

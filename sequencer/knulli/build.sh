@@ -34,8 +34,9 @@ cd "$seq"
 # 1. Engine unit tests on the build machine (portable C, no SDL). The input
 #    tests need SDL, which is only installed for arm64: they run under qemu below.
 make clean PKG="$CROSS_PKG"
-make tests/test_engine PKG="$CROSS_PKG"
+make tests/test_engine tests/test_gen PKG="$CROSS_PKG"
 ./tests/test_engine
+./tests/test_gen
 
 # 2. Cross-build. -mcpu matches the H700's Cortex-A53 cores.
 make clean PKG="$CROSS_PKG"
@@ -60,10 +61,13 @@ if command -v qemu-aarch64-static >/dev/null 2>&1; then
     aarch64-linux-gnu-gcc -O2 -mcpu=cortex-a53 -o tests/test_engine.arm64 \
         tests/test_engine.c src/engine.c src/gen.c
     qemu-aarch64-static tests/test_engine.arm64
+    aarch64-linux-gnu-gcc -O2 -mcpu=cortex-a53 -o tests/test_gen.arm64 \
+        tests/test_gen.c src/engine.c src/gen.c
+    qemu-aarch64-static tests/test_gen.arm64
     aarch64-linux-gnu-gcc -O2 -mcpu=cortex-a53 $($CROSS_PKG --cflags sdl2) -o tests/test_input.arm64 \
         tests/test_input.c src/input.c $($CROSS_PKG --libs sdl2)
     qemu-aarch64-static tests/test_input.arm64
-    rm -f tests/test_engine.arm64 tests/test_input.arm64 smoke.bmp
+    rm -f tests/test_engine.arm64 tests/test_gen.arm64 tests/test_input.arm64 smoke.bmp
     SDL_VIDEODRIVER=dummy qemu-aarch64-static ./seq4h --midi none --demo \
         --screenshot smoke.bmp --keys "Up,Right,z"
     test -s smoke.bmp || { echo "smoke test drew nothing" >&2; exit 1; }
