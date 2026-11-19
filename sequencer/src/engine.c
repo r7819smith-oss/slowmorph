@@ -43,6 +43,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->len = SEQ_DEFAULT_LEN;
         tr->channel = (uint8_t)t;
         tr->sounding = -1;
+        tr->last_note = -1;
         tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t] - 12), 2, 0x9E37u + (uint32_t)t * 0x2F1Bu};
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->chain_bars = 4;
@@ -84,11 +85,34 @@ void seq_start(Seq *s) {
 void seq_stop(Seq *s) {
     if (!s->playing) return;
     s->playing = 0;
+    s->resync = 0;
     for (int t = 0; t < SEQ_TRACKS; t++) {
         release(s, &s->track[t]);
         emit3(s, 0xB0 | s->track[t].channel, 123, 0);   /* all notes off */
     }
     if (s->clock_out) emit1(s, 0xFC);
+}
+
+void seq_panic(Seq *s) {
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        SeqTrack *tr = &s->track[t];
+        if (tr->last_note >= 0 && tr->last_note != tr->sounding)
+            emit3(s, 0x80 | tr->channel, (uint8_t)tr->last_note, 0);
+        release(s, tr);
+    }
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        uint8_t ch = s->track[t].channel;
+        int dup = 0;
+        for (int u = 0; u < t; u++) dup |= s->track[u].channel == ch;
+        if (dup) continue;
+        emit3(s, 0xB0 | ch, 120, 0);   /* all sound off */
+        emit3(s, 0xB0 | ch, 123, 0);   /* all notes off */
+    }
+}
+
+void seq_reconnected(Seq *s) {
+    seq_panic(s);
+    if (s->playing && s->clock_out) s->resync = 1;
 }
 
 void seq_tick(Seq *s) {
@@ -99,6 +123,10 @@ void seq_tick(Seq *s) {
         return;
     }
     uint32_t now = s->tick;
+    if (s->resync && now % (SEQ_PPQN * 4) == 0) {   /* bar line: the receiver's beat 1 */
+        s->resync = 0;
+        if (s->clock_out) { emit1(s, 0xFC); emit1(s, 0xFA); }
+    }
     if (s->clock_out && now % (SEQ_PPQN / 24) == 0) emit1(s, 0xF8);
 
     if (now && now % (SEQ_PPQN * 4) == 0) {          /* a bar boundary */
@@ -130,6 +158,7 @@ void seq_tick(Seq *s) {
         release(s, tr);   /* retrigger */
         emit3(s, 0x90 | tr->channel, st->note, st->vel);
         tr->sounding = st->note;
+        tr->last_note = st->note;
         uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
         tr->off_tick = now + (gl ? gl : 1);
     }

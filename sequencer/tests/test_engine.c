@@ -6,7 +6,7 @@
 #include <string.h>
 
 typedef struct { int on[SEQ_TRACKS]; int off[SEQ_TRACKS]; uint32_t first_on[SEQ_TRACKS];
-                 uint32_t first_off[SEQ_TRACKS]; int clocks, starts, stops, cc123; uint32_t *now; } Log;
+                 uint32_t first_off[SEQ_TRACKS]; int clocks, starts, stops, cc123, cc120; uint32_t *now; } Log;
 
 static void rec(void *ctx, const uint8_t *m, int n) {
     Log *l = ctx; (void)n;
@@ -17,6 +17,7 @@ static void rec(void *ctx, const uint8_t *m, int n) {
     else if (st == 0x90) { if (!l->on[ch]++) l->first_on[ch] = *l->now; }
     else if (st == 0x80) { if (!l->off[ch]++) l->first_off[ch] = *l->now; }
     else if (st == 0xB0 && m[1] == 123) l->cc123++;
+    else if (st == 0xB0 && m[1] == 120) l->cc120++;
 }
 
 static void run(Seq *s, int ticks) { for (int i = 0; i < ticks; i++) seq_tick(s); }
@@ -46,6 +47,27 @@ int main(void) {
     s.clock_out = 0;
     run(&s, 96); seq_start(&s); run(&s, 96);
     CHECK(l.clocks == 0 && l.starts == 0);
+
+    /* reconnect: panic now (note-off for the lost note, CC120 + CC123 per
+     * channel), keep the position, re-send Start at the next bar line */
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    seq_load_demo(&s);
+    seq_start(&s); run(&s, 100);
+    {
+        int offs = l.off[0] + l.off[1] + l.off[2] + l.off[3];
+        seq_reconnected(&s);
+        CHECK(l.off[0] + l.off[1] + l.off[2] + l.off[3] > offs);
+        CHECK(l.cc120 == 4 && l.cc123 == 4);
+        CHECK(s.playing && s.tick == 100 && l.starts == 1);
+        run(&s, 383 - 100);
+        CHECK(l.starts == 1);
+        run(&s, 2);
+        CHECK(l.starts == 2 && l.stops == 1 && s.resync == 0);
+    }
+    /* reconnect while stopped: panic only, no Start */
+    memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
+    seq_reconnected(&s); run(&s, 400);
+    CHECK(l.cc120 == 4 && l.starts == 0 && s.resync == 0);
 
     /* gate: 50% of 24 ticks => note off 12 ticks after on */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;

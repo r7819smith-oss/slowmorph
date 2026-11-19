@@ -185,9 +185,15 @@ Works and tested on desktop Linux:
   `--midi list` shows both kinds (`seq` and `raw` lines); `--midi` matches
   either name, e.g. `--midi FM` or `--midi hw:1,0,0`.
 - **Hot-plug:** if the FM1 is not there at start, or is unplugged, seq4h keeps
-  running, shows `MIDI: WAITING FOR ...` in the header, and reconnects within
-  about a second when it appears. If that happens while playing, it restarts
-  from step 1 with a fresh Start so the FM1's clock is back in phase.
+  running, shows `MIDI: WAITING` in the header, and reconnects within about a
+  second when it appears. On reconnect it sends a note-off for every held and
+  last-played note, then All Sound Off (CC120) and All Notes Off (CC123) on
+  each channel, so a note left hanging while unplugged stops. If playing, it
+  keeps its position and re-sends Stop + Start at the next bar line, so the
+  FM1's clock is back in phase without the pattern jumping back to step 1.
+  (Roy's test, 2026-11-19: Start/Play/Stop worked; unplugging mid-play left
+  the current note hanging, and replugging glitched before resyncing. The old
+  code restarted from step 1 on reconnect and sent no CC120. Both fixed.)
 - **Header status:** top right shows `MIDI: OK` (green) with the port name,
   `MIDI: WAITING` (yellow) with the name it looks for, or `MIDI: NONE`. Each
   connect and disconnect is written to `seq4h/seq4h.log` as
