@@ -331,10 +331,10 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
      * 32 and 16 bars), a slow drifting line, and sparse soft bells that rest
      * now and then. Lengths 32, 28, 20, 27 keep them out of step. */
     [STYLE_DRONE] = {66, 3, 9, 0, {
-        {GEN_DRONE, 32, 38, 1, 100, 64, 100, 0, 32, 5, EVO_REGEN, 0, 0, 0},
-        {GEN_DRONE, 28, 50, 2, 100, 56, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0},
-        {GEN_DRIFT, 20, 62, 2, 100, 60, 90, 0, 16, 10, EVO_REGEN | EVO_PROB, 0, 1, 4},
-        {GEN_BELL, 27, 74, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3},
+        {GEN_DRONE, 32, 38, 1, 100, 64, 100, 0, 32, 5, EVO_REGEN, 0, 0, 0, SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_DRONE, 28, 50, 2, 100, 56, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0, SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_DRIFT, 20, 62, 2, 100, 60, 90, 0, 16, 10, EVO_REGEN | EVO_PROB, 0, 1, 4, SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_BELL, 27, 74, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3, SH_NONE, 0, {0, 0, 0, 0}},
     }},
 };
 
