@@ -202,6 +202,33 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   `test_slot_names` (names, trimming, copy, clear, save/load, old file),
   harness screenshots `slots-*` and a persist check that a rename made on
   the page is autosaved. Not yet tried on hardware.
+- **Note-length bars and offsets** (Roy, 2026-11-20; items 1 and 2 of
+  *Piano roll, drum grid, note lengths and offsets* below).
+  - Grid: a held note is drawn as a bar through the steps it lasts for (in a
+    dimmer track colour), ending part-way through the last step at its gate,
+    or at the next note on the track, which cuts it off. It wraps round the
+    pattern end as playback does. The "+N" label stays. The help line under
+    the grid shows hold as `GATE 50 +2`.
+  - Offset: `SeqStep.nudge`, -11..+11 engine ticks (24 ticks per step), set
+    with the STEP page OFFSET row (shown as EARLY/LATE n% of a step; hold Y
+    for 4 ticks at a time). A step plays at grid time + swing + offset, so a
+    step is due either in its own 1/16 or, when early, in the one before
+    (`seq_tick` checks the current and the next step each tick, and plays
+    both if both are due). An early step 1 plays at Start the first time.
+    Gate and hold count from where the note really starts. MIDI clock is
+    unchanged. On the grid the block moves left or right inside its box.
+  - Save: `o T STEP N`, `so T SLOT STEP N`, `ao T STEP N` after the step's
+    line, written only for non-zero offsets; older builds skip them, older
+    files load with no offsets; still `seq4h 1`.
+  - Rolls reset offsets on unlocked steps (generators write whole steps);
+    evolution, slots, undo and the anchor keep them.
+  - Known limit: an early step 1 in a new bar is read just before the bar
+    line, so on the bar where a chain moves to the next slot (or evolution
+    changes step 1) it plays the old bar's step 1.
+  - Tests: `test_nudge` (late, early, early first step, swing + offset, two
+    steps due on one tick, gate from the real start, unchanged playback
+    without offsets, save/load with slots and anchor, clamping); harness
+    screenshots `step-offset` and `grid-hold-offset`.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -257,6 +284,9 @@ Works and tested on desktop Linux:
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
    - a song mode on top of slot chains
+   - piano roll, drum track and DRUM MAP, HUMANIZE (see *Piano roll, drum
+     grid, note lengths and offsets*); for the drum map, first check on the
+     FM1 which notes Felucca's 8 drum lanes answer to
 
 ## USB MIDI on the RG40XX-V
 
@@ -489,6 +519,17 @@ The newest run is at the bottom; each seq4h run starts with a
    handheld off without quitting: after restart the edit is still there
    (autosave).
 
+**D2. Note lengths and offsets (2026-11-20 build)**
+
+1. [ ] On the grid, put the cursor on a note, press X, go to HOLD and set
+   +2. Back on the grid (B), a bar runs from that note across the next two
+   steps. Add a note inside the bar: the bar now stops there.
+2. [ ] On the STEP page set OFFSET to LATE 25% on one note and EARLY 25% on
+   another. The blocks on the grid move right and left. Play: the late note
+   lands just after the beat, the early one just before. The FM1's tempo
+   doesn't change.
+3. [ ] Quit and restart: the offsets and holds are still there.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -683,7 +724,7 @@ Recommendation: keep 4 tracks while Felucca or Jangada is the firmware. If
 Roy moves to stock V16 or adds a second FM-1, build option 2. A cheaper win
 in the meantime is the optional firmware channel preset above.
 
-## Piano roll, drum grid, note lengths and offsets (evaluated 2026-11-20, not built)
+## Piano roll, drum grid, note lengths and offsets (evaluated 2026-11-20; 1 and 2 built)
 
 Roy asked (2026-11-20) whether seq4h could open a piano roll from the grid for
 fine editing, have a drum grid for a track marked as the drum track (with a
@@ -703,7 +744,7 @@ and let notes sit off the grid. The current grid stays as the main view.
 - On the GRID page, Select on its own does nothing yet (Select+Start quits),
   and the stick press (code 12) is unused.
 
-### 1. Note length on the grid (small, recommended first)
+### 1. Note length on the grid (built 2026-11-20, see Decisions)
 
 Draw a held note as a bar that runs through the following boxes until the
 note ends (or the next note cuts it off), in a dimmer shade of the track
@@ -711,7 +752,7 @@ colour. Keep the "+3" label on the first box. This is a drawing change only:
 no new data and no save-file change. About half a day with tests and
 screenshots. The piano roll would draw lengths the same way.
 
-### 2. Offsets ("nudge") (medium, recommended second)
+### 2. Offsets ("nudge") (built 2026-11-20, see Decisions; HUMANIZE not built)
 
 Add an OFFSET row on the STEP page: -11 to +11 ticks, shown as a percentage
 of a step (about -45% to +45%), with 0 meaning on the grid. Hold Y for big
