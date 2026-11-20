@@ -602,6 +602,87 @@ Options, cheapest first (prices rough, UK, 2026):
    single port in host mode is unknown; some hosts refuse or back-feed
    power. Not recommended without testing.
 
+## Other FM-1 firmware and 8 tracks (researched 2026-11-20, not tested)
+
+Sources: the Jangada README (github.com/zednaked/jangada, including its
+README.felucca.md), the Felucca wiki Features and Controls pages, the
+fm1.jesvs.com firmware list, and news posts on FM1 Open V14 and stock V16
+(matrixsynth.com, synthtopia.com, neoteo.com). None of it was tried on
+hardware. seq4h opens the first USB MIDI output it finds, so a firmware that
+renames its USB device (Jangada shows up as "Jangada") is still found.
+
+### Will seq4h work with other firmware?
+
+| Firmware | Parts seq4h can play | Channels | Follows USB clock + Start/Stop | Verdict |
+|---|---|---|---|---|
+| Felucca (current) | 4 tracks, 8 voices shared | MENU > MIDI > MIDI IN: CH1-4 (also CH5-8, CH9-12, CH13-16, SEL, or TRACK with T1-T4 CHANNEL set to 1-16/OMNI/OFF) | Yes, on Roy's FM1 (HOME > MIXER > CLOCK, source USB) | Works (tested) |
+| Jangada (Felucca fork) | 4 tracks; track 4 is DRUM or SYNTH | Not documented beyond "track 4 SYNTH = channel 4". Felucca's older README, which Jangada carries, says parts on 1-3 and drums on 10 | Yes: GLO > GLOBAL CLK USB "follows the computer's clock (tempo, start, stop)" | Very likely works with no code change |
+| FM1 Open V14 (M-VAVE's open firmware) | 8-track internal sequencer; "NORMAL, PLAY and OFF track roles" | "Configurable MIDI input channels"; defaults not published | Not documented | Unknown; needs a hardware test |
+| Stock V16 (M-VAVE) | 8 parts, 20 voices shared | "Separate MIDI channels" per part; which ones not published | Not documented | Unknown; the only one with 8 real parts |
+
+What to do for each:
+
+- **Jangada:** set GLO > GLOBAL CLK USB. Tracks 1-3 should play on channels
+  1-3. If track 4 is silent, either switch Jangada's track 4 to SYNTH
+  (channel 4), or keep it as DRUM and set seq4h's track 4 MIDI CHANNEL to 10
+  on the TRACK page. If Jangada has Felucca's MIDI IN menu, set it to CH1-4.
+- **FM1 Open V14 and stock V16:** try it, then use the TRACK page MIDI CHANNEL row to
+  match whatever channels the firmware listens on. If the firmware ignores
+  USB clock, leave it on its own clock and set its BPM to match: notes still
+  play on time because seq4h does the note timing, only the FM1's own
+  arpeggiator and synced delay would drift. (seq4h's clock can only be turned
+  off with `--no-clock` or a `clock 0` line in seq4h.pat; there is no on-screen
+  switch yet.)
+- No new code is needed to try any of these: the per-track MIDI CHANNEL setting already
+  covers different channel maps. If Roy switches firmware often, a small
+  "FM1 firmware" preset in the M menu (Felucca 1/2/3/4, Jangada 1/2/3/10,
+  Same channel for all) could set all four MIDI CHANNEL values at once. Optional.
+
+### Is 8 tracks a good idea?
+
+What it would take in seq4h:
+
+- **Screen:** the grid is 4 rows of 64 pixels (y 70 to 326) with the step
+  editor line under it. Eight full-size rows need 512 pixels, which does not
+  fit in 480. Options: eight half-height rows (about 28 pixels, readable but
+  cramped, and the step colours and lock marks get small), or keep four rows
+  and show tracks 1-4 or 5-8 (a "bank" switch).
+- **Navigation:** L2/R2 already step through tracks, so with 8 tracks they
+  would step 1 to 8 and the grid would flip bank when you pass track 4. The
+  mute/solo label column works the same.
+- **CPU and timing:** no problem. The timing thread does a few hundred tiny
+  operations per tick; doubling the tracks is still far below 1% of one H700
+  core. USB MIDI has plenty of room for 8 tracks of notes plus clock.
+- **Save file:** each line already carries its track number and older files
+  load fine (missing tracks get defaults). A file saved with 8 tracks loaded
+  into an old build would just drop tracks 5-8.
+- **Work:** moderate. Mostly the screen, the generators and styles (each
+  style sets up 4 tracks today), the SLOTS page and the tests.
+
+What the synth can use:
+
+- **Felucca and Jangada have 4 parts and 8 voices in total.** Tracks 5-8 would
+  have nothing new to play: they could only double up on parts 1-4 (two
+  patterns into the same sound, sharing the same 8 voices), or drive a second
+  FM-1 set to MIDI IN CH5-8 on a hub.
+- **Stock V16** is the only firmware found with 8 real parts (20 voices).
+  FM1 Open V14 has 8 tracks in its own sequencer, but whether all 8 can be
+  played from outside is not documented.
+
+Options:
+
+1. **Stay at 4 tracks (recommended for now).** It matches Felucca and Jangada
+   exactly, keeps the big readable grid, and costs nothing.
+2. **8 tracks as two banks of 4** (grid shows 1-4 or 5-8; L2/R2 run through
+   all 8). Best layout if it is ever needed. Worth doing only once there is a
+   target with more than 4 parts: stock V16, or a second FM-1.
+3. **8 half-height rows on one screen.** Shows everything at once but every
+   cell is half the size on a 4-inch screen. Not recommended.
+
+Recommendation: keep 4 tracks while Felucca or Jangada is the firmware. If
+Roy moves to stock V16 or adds a second FM-1, build option 2. A cheaper win
+in the meantime is the optional firmware channel preset above.
+
 ## Testing without hardware
 
 `make check` runs the whole hardware-free harness (`tests/harness.sh`) and
