@@ -253,33 +253,230 @@ static void style_defaults(int st, int type, uint8_t p[4]) {
     }
 }
 
+/* Shapes: a style's finishing pass over a generated track, for what the
+ * generators can't do alone (accents, gate variation, chord tones, call and
+ * response). Written into every step's note/velocity/gate, so rolls and
+ * evolution keep the feel; locked steps keep the core fixed. */
+enum { SH_NONE, SH_TECHNO_HATS, SH_TECHNO_BASS, SH_TECHNO_STAB,
+       SH_MEL_BASS, SH_MEL_ARP, SH_MEL_CALL, SH_MEL_ANSWER };
+
 typedef struct {
     uint8_t gen, len, base, span, gate, vel, prob, hold;   /* prob: chance each step plays; hold: tied steps */
     uint8_t every, amount, kinds, pull, min_hits, max_hits;
+    uint8_t shape;      /* SH_*; 0 = none */
+    uint8_t setp;       /* bit k set: generator parameter k becomes p[k] (else the style default) */
+    uint8_t p[4];
 } TrackPreset;
 
 static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } STYLE_SET[STYLE_COUNT] = {
     /* Ambient: slow, polymetric lengths (16, 13, 11, 23) so the tracks rarely line up,
      * long gates, soft velocities, and evolution that wanders but is pulled home. */
     [STYLE_AMBIENT] = {72, 8, 2, 0, {
-        {GEN_TURING, 16, 38, 1, 100, 70, 90, 7, 8, 15, EVO_REGEN, 0, 1, 4},
-        {GEN_ARP, 13, 50, 2, 100, 60, 80, 3, 4, 10, EVO_PITCH | EVO_PROB, 30, 0, 0},
-        {GEN_MOTIF, 11, 62, 2, 100, 70, 70, 1, 4, 15, EVO_PITCH | EVO_RHYTHM | EVO_PROB, 25, 2, 6},
-        {GEN_WEIGHTED, 23, 74, 2, 60, 50, 50, 0, 2, 20, EVO_PITCH | EVO_RHYTHM | EVO_VEL, 20, 1, 5},
+        {GEN_TURING, 16, 38, 1, 100, 70, 90, 7, 8, 15, EVO_REGEN, 0, 1, 4,
+         SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_ARP, 13, 50, 2, 100, 60, 80, 3, 4, 10, EVO_PITCH | EVO_PROB, 30, 0, 0,
+         SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_MOTIF, 11, 62, 2, 100, 70, 70, 1, 4, 15, EVO_PITCH | EVO_RHYTHM | EVO_PROB, 25, 2, 6,
+         SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_WEIGHTED, 23, 74, 2, 60, 50, 50, 0, 2, 20, EVO_PITCH | EVO_RHYTHM | EVO_VEL, 20, 1, 5,
+         SH_NONE, 0, {0, 0, 0, 0}},
     }},
-    [STYLE_TECHNO] = {128, 2, 9, 2, {
-        {GEN_EUCLID, 16, 36, 1, 25, 115, 100, 0, 0, 0, 0, 0, 0, 0},
-        {GEN_FOLLOW, 16, 36, 1, 40, 100, 100, 0, 0, 0, 0, 0, 0, 0},
-        {GEN_TURING, 16, 48, 2, 30, 95, 100, 0, 4, 100, EVO_REGEN, 0, 0, 0},
-        {GEN_CHAOS, 16, 72, 1, 20, 80, 85, 0, 2, 20, EVO_RHYTHM | EVO_VEL, 0, 2, 7},
+    /* Techno: 128 BPM, A phrygian. T1 four-on-the-floor kick (no evolution). T2
+     * offbeat hats, locked, with ghost 16ths whose chance and level drift. T3 a
+     * rolling bass in the kick's gaps (FOLLOW, GAPS): root and octave cells with
+     * a turnaround, accents on the offbeat and varied gates. T4 a short looping
+     * stab riff (TURING) that changes a bit every few bars. */
+    [STYLE_TECHNO] = {128, 4, 9, 2, {
+        {GEN_EUCLID, 16, 33, 1, 30, 120, 100, 0, 0, 0, 0, 0, 0, 0, SH_NONE, 7, {4, 0, 1, 0}},
+        {GEN_EUCLID, 16, 54, 1, 15, 95, 100, 0, 2, 12, EVO_RHYTHM | EVO_PROB | EVO_VEL, 20, 4, 10,
+         SH_TECHNO_HATS, 7, {4, 2, 1, 0}},
+        {GEN_FOLLOW, 16, 33, 1, 25, 90, 100, 0, 4, 10, EVO_PITCH | EVO_VEL | EVO_PROB, 35, 0, 0,
+         SH_TECHNO_BASS, 15, {1, 1, 7, 0}},
+        {GEN_TURING, 16, 57, 1, 20, 90, 85, 0, 4, 10, EVO_REGEN | EVO_PROB, 0, 3, 7,
+         SH_TECHNO_STAB, 15, {1, 3, 3, 16}},
     }},
+    /* Melodic: 100 BPM, D dorian, all tracks 32 steps over a chord progression
+     * (i-IV, i-VII, i-v, ...) with a chord every 8 or 16 steps. T1 bass on the
+     * chord roots (locked on each change) with fifths and pickups. T2 a chord-tone
+     * arpeggio. T3 a motif "call" in steps 1-8 and 17-24; T4 answers it in 9-16
+     * and 25-32, moved or turned over and resolved onto the chord. The silent
+     * halves of T3 and T4 are locked off so rolls and evolution keep the call and
+     * response. Arp and bass use EUCLID with PITCH KEEP, so a roll changes the
+     * rhythm but keeps the chord notes. Gentle evolution, pulled home. */
     [STYLE_MELODIC] = {100, 3, 2, 3, {
-        {GEN_WALK, 16, 38, 1, 100, 100, 100, 1, 8, 15, EVO_PITCH, 40, 0, 0},
-        {GEN_ARP, 16, 50, 2, 50, 85, 100, 0, 4, 15, EVO_PITCH, 30, 0, 0},
-        {GEN_MOTIF, 16, 62, 2, 60, 95, 90, 0, 2, 15, EVO_PITCH | EVO_RHYTHM, 30, 3, 9},
-        {GEN_MARKOV, 16, 67, 2, 50, 80, 75, 0, 4, 20, EVO_REGEN | EVO_VEL, 0, 2, 8},
+        {GEN_EUCLID, 32, 38, 1, 80, 95, 100, 0, 4, 6, EVO_RHYTHM | EVO_VEL, 30, 6, 14, SH_MEL_BASS, 7, {8, 0, 0, 0}},
+        {GEN_EUCLID, 32, 50, 2, 45, 80, 100, 0, 4, 8, EVO_RHYTHM | EVO_VEL, 30, 10, 20, SH_MEL_ARP, 7, {16, 0, 0, 0}},
+        {GEN_MOTIF, 32, 62, 1, 70, 90, 100, 0, 4, 10, EVO_PITCH | EVO_RHYTHM | EVO_VEL, 30, 4, 10,
+         SH_MEL_CALL, 15, {4, 4, 7, 2}},
+        {GEN_MOTIF, 32, 57, 2, 70, 80, 100, 0, 8, 10, EVO_PITCH | EVO_RHYTHM, 35, 3, 10, SH_MEL_ANSWER, 15, {4, 4, 7, 2}},
     }},
 };
+
+/* ---- style shapes ---- */
+
+static int pick(Seq *s, int n);
+static int chance(Seq *s, int pct);
+
+#define OCT 99   /* in the cell tables: an octave above the tonic, whatever the scale size */
+
+/* Scale degree of the first tonic at or above `base`. */
+static int tonic_degree(const Seq *s, int base) {
+    for (int n = base; n <= 127; n++)
+        if (((n - s->root) % 12 + 12) % 12 == 0 && seq_in_scale(s, n)) return gen_note_degree(s, n);
+    return gen_note_degree(s, gen_snap_note(s, base));
+}
+
+/* Tone k of the chord on scale degree `chord`, stacked in thirds from the
+ * tonic `td`: 0 root, 1 third, 2 fifth, 3 seventh, 4 root an octave up, ... */
+static int chord_tone(const Seq *s, int td, int chord, int k) {
+    int deg = td + chord + (k % 4) * 2 + (k / 4) * scale_size(s);
+    return gen_degree_note(s, deg < 0 ? 0 : deg);
+}
+
+/* The chord tone nearest `note` (ties go down). */
+static int nearest_chord_tone(const Seq *s, int note, int td, int chord) {
+    int best = note, bd = 1000, sz = scale_size(s);
+    for (int o = -3; o <= 3; o++)
+        for (int k = 0; k < 4; k++) {
+            int deg = td + chord + 2 * k + o * sz;
+            if (deg < 0) continue;
+            int nn = gen_degree_note(s, deg), d = nn > note ? nn - note : note - nn;
+            if (d < bd || (d == bd && nn < best)) { bd = d; best = nn; }
+        }
+    return best;
+}
+
+/* Chord progressions in scale degrees, one chord per 8 steps of a 32-step bar pair. */
+static const int8_t PROGS[][4] = {{0, 0, 3, 3}, {0, 0, 6, 6}, {0, 0, 4, 4}, {0, 6, 2, 3}, {0, 0, 6, 3}};
+#define NPROGS ((int)(sizeof PROGS / sizeof PROGS[0]))
+
+static void style_shape(Seq *s, int t, int shape, const int8_t *prog) {
+    SeqTrack *tr = &s->track[t];
+    const TrackPreset *pr = &STYLE_SET[s->style].t[t];
+    int len = tr->len, lo = pr->base, hi = pr->base + 12 * pr->span, sz = scale_size(s);
+    int td = tonic_degree(s, lo);
+    switch (shape) {
+    case SH_TECHNO_HATS: {
+        /* Offbeat hats (the generator's hits) are locked; others become quiet,
+         * unlikely ghost 16ths, a few of them on to start. */
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            if (st->on) { st->lock = 1; st->vel = 100; st->gate = 20; st->prob = 100; continue; }
+            st->vel = (uint8_t)(38 + pick(s, 22));
+            st->gate = 12;
+            st->prob = (uint8_t)(30 + pick(s, 35));
+            if (i % 2 == 1 && chance(s, 30)) st->on = 1;
+        }
+        break;
+    }
+    case SH_TECHNO_BASS: {
+        /* Cells for the three 16ths after each kick: degrees above the tonic. */
+        static const int8_t CELL[][3] = {{0, 0, 0}, {0, OCT, 0}, {0, 0, OCT}, {OCT, 0, 0}, {0, OCT, OCT}};
+        static const int8_t TURN[][3] = {{0, 0, 1}, {0, 2, 0}, {0, 4, OCT}, {0, 6, OCT}, {2, 0, 4}};
+        int c0 = pick(s, 5), c1 = pick(s, 5), tn = pick(s, 5);
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            int beat = (i / 4) % 4, pos = i % 4;
+            if (pos == 0) { st->note = (uint8_t)gen_degree_note(s, td); continue; }   /* under the kick */
+            const int8_t *cell = beat == 3 ? TURN[tn] : beat == 1 ? CELL[c1] : CELL[c0];
+            int off = cell[pos - 1] == OCT ? sz : cell[pos - 1];
+            st->note = (uint8_t)gen_degree_note(s, td + off);
+            st->vel = (uint8_t)(pos == 2 ? 118 : pos == 1 ? 86 : 78);
+            st->gate = (uint8_t)(pos == 2 ? 40 : 22);
+            if (chance(s, 15)) st->gate = 65;                  /* the odd longer note */
+            st->prob = (uint8_t)(pos == 2 ? 100 : 94);
+        }
+        break;
+    }
+    case SH_TECHNO_STAB:
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            st->vel = (uint8_t)(i % 4 == 2 ? 110 : 84);
+            st->gate = (uint8_t)(chance(s, 30) ? 35 : 18);
+        }
+        break;
+    case SH_MEL_BASS:
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            int ch = prog[(i / 8) % 4], next = prog[(i / 8 + 1) % 4], pos = i % 8;
+            int root = fold_octave(chord_tone(s, td, ch, 0), lo, hi);
+            st->note = (uint8_t)root;
+            if (pos == 0 && (i % 16 == 0 || ch != prog[(i / 8 + 3) % 4])) {
+                st->on = 1; st->lock = 1; st->vel = 105; st->gate = 90; st->hold = 2;   /* chord change */
+            } else if (pos == 4) {
+                st->note = (uint8_t)fold_octave(chord_tone(s, td, ch, pick(s, 2) ? 2 : 0), lo, hi);
+                st->vel = 82;
+            } else if (pos == 6) {
+                int nr = gen_note_degree(s, fold_octave(chord_tone(s, td, next, 0), lo, hi));
+                st->note = (uint8_t)gen_degree_note(s, nr + (pick(s, 2) ? 1 : -1));   /* step into the next root */
+                st->vel = 72; st->gate = 50;
+                st->on = (uint8_t)chance(s, 40);
+            } else {
+                st->vel = 78;
+            }
+        }
+        break;
+    case SH_MEL_ARP: {
+        /* Four 8ths per chord; the second chord of each pair climbs an inversion. */
+        static const int8_t ORDER[][4] = {{0, 1, 2, 4}, {0, 2, 4, 2}, {0, 2, 1, 3}, {4, 2, 1, 0}};
+        int o = pick(s, 4);
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            int ch = prog[(i / 8) % 4], k = (i % 8) / 2, up = (i / 8) % 2;
+            int tone = (i % 2 ? ORDER[o][(k + 1) % 4] : ORDER[o][k]) + up;   /* 16ths lean to the next tone */
+            st->note = (uint8_t)fold_octave(chord_tone(s, td, ch, tone), lo, hi);
+            st->vel = (uint8_t)(i % 4 == 0 ? 92 : i % 2 == 0 ? 76 : 60);
+            if (i % 2 == 1 && !st->on && chance(s, 20)) { st->on = 1; st->prob = 70; }   /* a few 16th fills */
+        }
+        break;
+    }
+    case SH_MEL_CALL: {
+        int last = -1;
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            int ch = prog[(i / 8) % 4];
+            if ((i / 8) % 2 == 1) { st->on = 0; st->lock = 1; continue; }   /* the answer's half: rest */
+            if (i % 8 == 0) { if (last >= 0) tr->step[last].hold = 1; st->on = 1; last = -1; }
+            if (i % 4 == 0 || i % 8 == 7) st->note = (uint8_t)nearest_chord_tone(s, st->note, td, ch);
+            st->vel = (uint8_t)(i % 4 == 0 ? 100 : 84);
+            if (st->on) last = i;
+        }
+        if (last >= 0) tr->step[last].hold = 1;
+        break;
+    }
+    case SH_MEL_ANSWER: {
+        const SeqTrack *call = &s->track[t > 0 ? t - 1 : 0];
+        for (int half = 0; half < len / 8; half++) {
+            int var = pick(s, 3), first = -1, last = -1;
+            for (int k = 0; k < 8; k++) {
+                int i = half * 8 + k;
+                SeqStep *st = &tr->step[i];
+                if (half % 2 == 0) { st->on = 0; st->lock = 1; continue; }   /* the call's half: rest */
+                const SeqStep *cs = &call->step[(i - 8) % call->len];
+                int ch = prog[(i / 8) % 4], d = gen_note_degree(s, gen_snap_note(s, cs->note));
+                if (first < 0 && cs->on) first = d;
+                if (var == 0) d -= 2;                                   /* a third lower */
+                else if (var == 1 && first >= 0) d = 2 * first - d;     /* turned over */
+                int nn = fold_octave(gen_degree_note(s, d < 0 ? 0 : d), lo, hi);
+                if (k % 4 == 0) nn = nearest_chord_tone(s, nn, td, ch);
+                st->on = cs->on;
+                st->note = (uint8_t)nn;
+                st->vel = (uint8_t)(cs->vel > 20 ? cs->vel - 10 : cs->vel);
+                st->gate = cs->gate;
+                st->hold = 0;
+                if (st->on) last = i;
+            }
+            if (last >= 0 && half == len / 8 - 1) {                     /* the last answer comes home */
+                SeqStep *st = &tr->step[last];
+                st->note = (uint8_t)fold_octave(gen_degree_note(s, td), lo, hi);   /* the tonic, leading round */
+                st->hold = 1;
+            }
+        }
+        break;
+    }
+    default: break;
+    }
+}
 
 /* Blank: an empty page. Bases match seq_init (C2, C3, C4, C5 an octave down). */
 static void style_blank(Seq *s) {
@@ -324,14 +521,21 @@ int style_apply(Seq *s, int st, int keep_manual) {
         for (int i = 0; i < SEQ_STEPS; i++)
             tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold};
         gen_set_type(s, t, pr->gen);
+        for (int k = 0; k < gen_param_count(pr->gen); k++)
+            if (pr->setp & (1 << k))
+                tr->gen.p[k] = (uint8_t)(pr->p[k] < gen_param_min(pr->gen, k) ? gen_param_min(pr->gen, k) :
+                                         pr->p[k] > gen_param_max(pr->gen, k) ? gen_param_max(pr->gen, k) : pr->p[k]);
         tr->evo = (EvolveSettings){pr->every, pr->amount, pr->kinds, pr->pull, pr->min_hits, pr->max_hits};
         tr->chain_len = 0;
         tr->has_anchor = 0;
     }
-    /* Generate in order, so FOLLOW (techno track 2) reads a finished track 1. */
+    /* Generate in order, so FOLLOW (techno bass) reads a finished kick and the
+     * melodic answer reads a finished call. */
+    const int8_t *prog = st == STYLE_MELODIC ? PROGS[pick(s, NPROGS)] : PROGS[0];   /* ambient's rolls stay as they were */
     for (int t = 0; t < SEQ_TRACKS; t++) {
         if (keep[t]) continue;
         gen_apply(s, t);
+        style_shape(s, t, STYLE_SET[st].t[t].shape, prog);
         if (s->track[t].evo.pull) gen_set_anchor(s, t);
     }
     return kept;
