@@ -762,6 +762,134 @@ static void test_nudge(void) {
     CHECK(b.track[0].step[3].nudge == SEQ_MAX_NUDGE);
 }
 
+/* Hats on every 1/16 of track 0, 16 steps, for the shuffle tests. */
+static void hats(Seq *s) {
+    seq_init(s, NULL, NULL);
+    s->track[0].len = 16;
+    for (int i = 0; i < SEQ_STEPS; i++) s->track[0].step[i] = (SeqStep){i < 16, 60, 100, 20, 100, 0, 0, 0};
+}
+
+/* Run `bars` bars and check every 1/16 played exactly once, with its offset
+ * (from the nearest grid line) in [lo, hi] and, if `offgrid`, never within
+ * SEQ_OFFGRID_MIN of the grid. Returns how many different offsets were heard. */
+static int check_shuffled(Seq *s, int bars, int lo, int hi, int offgrid) {
+    static uint32_t at[1024];
+    int n = 0;
+    OnLog l;
+    for (int t = 1; t < SEQ_TRACKS; t++) s->track[t].mute = 1;
+    memset(&l, 0, sizeof l); l.s = s; s->send = log_ons; s->ctx = &l;
+    seq_start(s);
+    for (int i = 0; i < bars * 384; i++) {
+        seq_tick(s);
+        if (l.n) { for (int k = 0; k < l.n && n < 1024; k++) at[n++] = l.at[k]; l.n = 0; }
+    }
+    CHECK(n == bars * 16 || (n == bars * 16 + 1));   /* +1: the next bar's step 1 may already have played early */
+    int seen[2 * SEQ_MAX_NUDGE + 1] = {0}, distinct = 0;
+    int got[1024] = {0};
+    for (int k = 0; k < n; k++) {
+        int g = (int)((at[k] + 12) / 24), off = (int)at[k] - g * 24;
+        if (k == 0 && at[k] == 0) off = lo > 0 ? lo : off;   /* an early first step plays at Start */
+        else {
+            CHECK(off >= lo && off <= hi);
+            if (offgrid) CHECK(off <= -SEQ_OFFGRID_MIN || off >= SEQ_OFFGRID_MIN);
+        }
+        if (g < 1024) got[g]++;
+        if (off >= -SEQ_MAX_NUDGE && off <= SEQ_MAX_NUDGE && !seen[off + SEQ_MAX_NUDGE]++) distinct++;
+    }
+    for (int g = 0; g < bars * 16; g++) CHECK(got[g] == 1);
+    return distinct;
+}
+
+static void test_shuffle(void) {
+    Seq s;
+    /* live shuffle up to 5 ticks: every hat plays once per pass, within +/-5, and it varies */
+    hats(&s);
+    seq_track_shuffle(&s, 0, 5);
+    CHECK(s.track[0].shuffle == 5);
+    CHECK(check_shuffled(&s, 8, -5, 5, 0) >= 6);
+    CHECK(s.track[0].step[3].nudge == 0);   /* the pattern itself is unchanged */
+
+    /* the most, with NEVER ON GRID: nothing on (or within 1 tick of) the grid */
+    hats(&s);
+    seq_track_shuffle(&s, 0, 100);
+    CHECK(s.track[0].shuffle == SEQ_MAX_NUDGE);
+    seq_track_offgrid(&s, 0, 1);
+    CHECK(check_shuffled(&s, 8, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE, 1) >= 12);
+
+    /* NEVER ON GRID alone pushes on-grid notes 2 ticks off, and leaves offset ones alone */
+    hats(&s);
+    seq_track_offgrid(&s, 0, 1);
+    check_shuffled(&s, 2, -SEQ_OFFGRID_MIN, SEQ_OFFGRID_MIN, 1);
+    hats(&s);
+    for (int i = 0; i < 16; i++) s.track[0].step[i].nudge = 6;
+    seq_track_offgrid(&s, 0, 1);
+    CHECK(check_shuffled(&s, 2, 6, 6, 1) == 1);
+
+    /* shuffle around a step's own offset, with swing; still once per pass */
+    hats(&s);
+    s.swing = 6;
+    for (int i = 0; i < 16; i++) s.track[0].step[i].nudge = (int8_t)(i % 2 ? -6 : 0);   /* cancel the swing on odd steps */
+    seq_track_shuffle(&s, 0, 3);
+    CHECK(check_shuffled(&s, 4, -3, 3, 0) >= 4);
+
+    /* SPREAD: every note a different offset, none on the grid; locked notes kept */
+    hats(&s);
+    s.track[0].step[5].lock = 1; s.track[0].step[5].nudge = 0;
+    gen_transform(&s, 0, XF_SPREAD, 0);
+    {
+        int seen[2 * SEQ_MAX_NUDGE + 1] = {0};
+        for (int i = 0; i < 16; i++) {
+            int v = s.track[0].step[i].nudge;
+            if (i == 5) { CHECK(v == 0); continue; }
+            CHECK(v >= -SEQ_MAX_NUDGE && v <= SEQ_MAX_NUDGE && (v <= -SEQ_OFFGRID_MIN || v >= SEQ_OFFGRID_MIN));
+            CHECK(seen[v + SEQ_MAX_NUDGE]++ == 0);
+        }
+    }
+    /* a small range repeats offsets only once all of them are used */
+    hats(&s);
+    gen_transform(&s, 0, XF_SPREAD, 4);   /* -4..-2, 2..4: six offsets */
+    {
+        int seen[2 * SEQ_MAX_NUDGE + 1] = {0};
+        for (int i = 0; i < 16; i++) {
+            int v = s.track[0].step[i].nudge;
+            CHECK(v >= -4 && v <= 4 && (v <= -2 || v >= 2));
+            seen[v + SEQ_MAX_NUDGE]++;
+        }
+        for (int v = -4; v <= 4; v++) if (v <= -2 || v >= 2) CHECK(seen[v + SEQ_MAX_NUDGE] >= 2);
+    }
+    gen_transform(&s, 0, XF_GRID, 0);
+    for (int i = 0; i < 16; i++) CHECK(s.track[0].step[i].nudge == 0);
+
+    /* EVO OFFSET drifts offsets within range; with NEVER ON GRID they stay off it */
+    hats(&s);
+    s.track[0].evo = (EvolveSettings){.every = 1, .amount = 100, .kinds = EVO_OFFSET};
+    s.track[0].offgrid = 1;
+    gen_transform(&s, 0, XF_SPREAD, 0);
+    SeqStep before[SEQ_STEPS];
+    memcpy(before, s.track[0].step, sizeof before);
+    for (int b = 0; b < 30; b++) {
+        gen_evolve_bar(&s, 0);
+        for (int i = 0; i < 16; i++) {
+            int v = s.track[0].step[i].nudge;
+            CHECK(v >= -SEQ_MAX_NUDGE && v <= SEQ_MAX_NUDGE && (v <= -SEQ_OFFGRID_MIN || v >= SEQ_OFFGRID_MIN));
+            CHECK(s.track[0].step[i].on && s.track[0].step[i].note == 60);   /* only offsets change */
+        }
+    }
+    { int changed = 0; for (int i = 0; i < 16; i++) changed += s.track[0].step[i].nudge != before[i].nudge; CHECK(changed >= 8); }
+
+    /* shuffle settings survive save/load; files without them load with none */
+    Seq a, b;
+    seq_init(&a, NULL, NULL);
+    seq_track_shuffle(&a, 3, 7);
+    seq_track_offgrid(&a, 3, 1);
+    FILE *f = tmpfile();
+    seq_save(&a, f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(b.track[3].shuffle == 7 && b.track[3].offgrid == 1 && b.track[0].shuffle == 0 && b.track[0].offgrid == 0);
+}
+
 /* Pitch class of a note, as a scale degree 0..6 from the root (7-note scales). */
 static int degree7(const Seq *s, int note) { return ((gen_note_degree(s, note) - gen_note_degree(s, s->root)) % 7 + 7) % 7; }
 
@@ -1102,6 +1230,7 @@ int main(void) {
     test_style_presets();
     test_hold();
     test_nudge();
+    test_shuffle();
     test_blank_style();
     test_save_all_slots();
     if (fails) { fprintf(stderr, "%d generator check(s) failed\n", fails); return 1; }

@@ -26,6 +26,7 @@ typedef struct {
 } SeqStep;
 #define SEQ_MAX_HOLD 31
 #define SEQ_MAX_NUDGE 11   /* just under half a step either way */
+#define SEQ_OFFGRID_MIN 2  /* NEVER ON GRID keeps a note at least this many ticks away from the grid */
 
 /* Pattern generator for a track. Generators write into the step grid, so the
  * result can be edited by hand afterwards. See gen.h. */
@@ -82,6 +83,14 @@ typedef struct {
     uint8_t swell_depth;        /* 0..100: how far the swell dips below the step's velocity */
     uint8_t rest;               /* 0..100: chance each bar that the track rests for 1-4 bars */
     uint8_t rest_left;          /* bars of the current rest still to go (not saved) */
+    /* Live shuffle: each time a note plays, the next time round it gets a
+     * fresh random offset of up to `shuffle` ticks either side of its own
+     * OFFSET. `offgrid` keeps every note at least SEQ_OFFGRID_MIN ticks off
+     * the grid. The pattern itself is unchanged. */
+    uint8_t shuffle;            /* 0..SEQ_MAX_NUDGE ticks */
+    uint8_t offgrid;            /* 0 or 1 */
+    int8_t jit[SEQ_STEPS];      /* offset each step will use next time it plays (not saved) */
+    uint32_t played[SEQ_STEPS]; /* 1 + the 1/16 number each step last played on, so it plays once per pass (not saved) */
     uint8_t nvoice;             /* chord notes sounding with `sounding` */
     uint8_t voice[SEQ_CHORD_MAX];
     uint8_t last_nvoice;        /* chord notes of the last note sent (for seq_panic) */
@@ -145,6 +154,9 @@ void seq_track_len(Seq *s, int t, int delta);
 void seq_track_channel(Seq *s, int t, int delta);
 void seq_adjust_bpm(Seq *s, int delta);
 void seq_adjust_swing(Seq *s, int delta);
+void seq_track_shuffle(Seq *s, int t, int delta);   /* live shuffle amount, 0..SEQ_MAX_NUDGE ticks */
+void seq_track_offgrid(Seq *s, int t, int on);      /* NEVER ON GRID on (1) or off (0) */
+void seq_reshuffle(Seq *s, int t);                  /* draw fresh live offsets for every step */
 /* Change scale and root. With snap, every step's note moves to the nearest
  * note of the new scale (locked steps included, since they would sound wrong). */
 void seq_set_scale(Seq *s, int scale, int root, int snap);

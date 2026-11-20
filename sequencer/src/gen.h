@@ -24,7 +24,8 @@ typedef enum {
 } GenType;
 
 enum { EVO_PITCH = 1, EVO_RHYTHM = 2, EVO_VEL = 4, EVO_ROTATE = 8, EVO_REGEN = 16, EVO_PROB = 32,
-       EVO_ALL = 63 };
+       EVO_OFFSET = 64,   /* drift step offsets a little */
+       EVO_ALL = 127 };
 
 /* Hand-editing transforms; all leave locked steps where they are. */
 typedef enum {
@@ -36,6 +37,8 @@ typedef enum {
     XF_FILL,        /* switch on `amount` silent steps with notes borrowed from neighbours */
     XF_HUMANIZE,    /* nudge velocities by up to +/- `amount` */
     XF_CLEAR,       /* switch every unlocked step off: a blank track to write on */
+    XF_SPREAD,      /* give every unlocked note a different offset, none on the grid, up to `amount` ticks (0 = the most) */
+    XF_GRID,        /* put every unlocked note back on the grid (offset 0) */
     XF_COUNT
 } XformType;
 

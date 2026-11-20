@@ -131,14 +131,14 @@ typedef struct {
 /* Generate page rows. */
 enum {
     GR_TRACK, GR_GEN, GR_P0, GR_P1, GR_P2, GR_P3, GR_BASE, GR_SPAN,
-    GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 5, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
+    GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 6, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
     GR_XFORM, GR_XAMOUNT, GR_SLOT, GR_STORE, GR_CHAIN, GR_CHAIN_BARS, GR_MORPH,
     GR_SCALE, GR_ROOT, GR_SNAP, GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST, GEN_ROWS
 };
 static const int EVERY[8] = {0, 1, 2, 4, 8, 16, 32, 64};
 static const int SWELL_BARS[6] = {0, 2, 4, 8, 16, 32};
 static const int CHAIN_BARS[5] = {1, 2, 4, 8, 16};
-static const uint8_t EVO_BITS[6] = {EVO_PITCH, EVO_RHYTHM, EVO_VEL, EVO_ROTATE, EVO_REGEN, EVO_PROB};
+static const uint8_t EVO_BITS[7] = {EVO_PITCH, EVO_RHYTHM, EVO_VEL, EVO_ROTATE, EVO_REGEN, EVO_PROB, EVO_OFFSET};
 
 static int wrap(int v, int n) { return (v % n + n) % n; }
 
@@ -153,7 +153,7 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     int t = u->track;
     const SeqTrack *tr = &s->track[t];
     const GenSettings *g = &tr->gen;
-    static const char *EVO_NAMES[6] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN", "EVO PROB"};
+    static const char *EVO_NAMES[7] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN", "EVO PROB", "EVO OFFSET"};
     label[0] = val[0] = 0;
     if (row == GR_TRACK) { snprintf(label, 24, "TRACK"); snprintf(val, 24, "%d", t + 1); }
     else if (row == GR_GEN) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", gen_name(g->type)); }
@@ -201,7 +201,11 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     else if (row == GR_XFORM) { snprintf(label, 24, "TRANSFORM"); snprintf(val, 24, "%s (A)", gen_xform_name(u->xf_op)); }
     else if (row == GR_XAMOUNT) {
         snprintf(label, 24, "  BY");
-        if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT || u->xf_op == XF_CLEAR) snprintf(val, 24, "-");
+        if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT || u->xf_op == XF_CLEAR || u->xf_op == XF_GRID) snprintf(val, 24, "-");
+        else if (u->xf_op == XF_SPREAD) {   /* range in ticks, shown as a share of a step; below 2 = the most */
+            int a = abs(u->xf_amt) < SEQ_OFFGRID_MIN ? SEQ_MAX_NUDGE : abs(u->xf_amt) > SEQ_MAX_NUDGE ? SEQ_MAX_NUDGE : abs(u->xf_amt);
+            snprintf(val, 24, "UP TO %d%%", (a * 100 + 12) / SEQ_TICKS_PER_STEP);
+        }
         else snprintf(val, 24, "%+d", u->xf_amt);
     }
     else if (row == GR_SLOT) {
@@ -292,7 +296,7 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }
 
 #define STEP_ROWS 9
-#define TRACK_ROWS 7
+#define TRACK_ROWS 9
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
@@ -334,15 +338,20 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 
 static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char *val, const char *midi_desc) {
     const SeqTrack *tr = &s->track[u->track];
-    static const char *L[TRACK_ROWS] = {"TRACK", "MIDI CHANNEL", "LENGTH", "MUTE", "BPM", "SWING", "MIDI OUT"};
+    static const char *L[TRACK_ROWS] = {"TRACK", "MIDI CHANNEL", "LENGTH", "MUTE", "SHUFFLE", "NEVER ON GRID", "BPM", "SWING", "MIDI OUT"};
     snprintf(label, 24, "%s", L[row]);
     switch (row) {
     case 0: snprintf(val, 24, "%d", u->track + 1); break;
     case 1: snprintf(val, 24, "%d", tr->channel + 1); break;
     case 2: snprintf(val, 24, "%d STEPS", tr->len); break;
     case 3: snprintf(val, 24, "%s", tr->mute ? "MUTED" : tr->solo ? "OFF, SOLO" : seq_any_solo(s) ? "OFF, NOT SOLO" : "OFF"); break;
-    case 4: snprintf(val, 24, "%d", s->bpm); break;
-    case 5: snprintf(val, 24, "%d", s->swing); break;
+    case 4:   /* live shuffle range, as a share of a step */
+        if (tr->shuffle) snprintf(val, 24, "UP TO %d%%", (tr->shuffle * 100 + 12) / SEQ_TICKS_PER_STEP);
+        else snprintf(val, 24, "OFF");
+        break;
+    case 5: snprintf(val, 24, "%s", tr->offgrid ? "ON" : "OFF"); break;
+    case 6: snprintf(val, 24, "%d", s->bpm); break;
+    case 7: snprintf(val, 24, "%d", s->swing); break;
     default: snprintf(val, 24, "%.14s", midi_desc ? midi_desc : "NONE"); break;
     }
 }
@@ -353,8 +362,10 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     case 1: seq_track_channel(s, u->track, d); break;
     case 2: seq_track_len(s, u->track, d * (big ? 4 : 1)); break;
     case 3: seq_track_mute_toggle(s, u->track); break;
-    case 4: seq_adjust_bpm(s, d * (big ? 10 : 1)); break;
-    case 5: seq_adjust_swing(s, d); break;
+    case 4: seq_track_shuffle(s, u->track, d * (big ? 4 : 1)); break;
+    case 5: seq_track_offgrid(s, u->track, !s->track[u->track].offgrid); break;
+    case 6: seq_adjust_bpm(s, d * (big ? 10 : 1)); break;
+    case 7: seq_adjust_swing(s, d); break;
     default: break;    /* MIDI OUT is information only */
     }
 }
@@ -1063,7 +1074,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
         else if (u->page == P_MENU) menu_row_text(&s, u, row, label, val);
         else if (u->page == P_SLOTS) { slots_row_text(&s, u, row, label, val); head = s.track[u->track].slot[row].used; }
-        else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 4; }
+        else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 6; }
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});

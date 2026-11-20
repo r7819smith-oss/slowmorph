@@ -1005,11 +1005,12 @@ void gen_evolve_bar(Seq *s, int t) {
 
     uint8_t pool[64];
     int n = gen_pool(s, t, pool), len = tr->len;
-    int kinds[4], nk = 0;
+    int kinds[5], nk = 0;
     if (e->kinds & EVO_PITCH) kinds[nk++] = EVO_PITCH;
     if (e->kinds & EVO_RHYTHM) kinds[nk++] = EVO_RHYTHM;
     if (e->kinds & EVO_VEL) kinds[nk++] = EVO_VEL;
     if (e->kinds & EVO_PROB) kinds[nk++] = EVO_PROB;
+    if (e->kinds & EVO_OFFSET) kinds[nk++] = EVO_OFFSET;
 
     for (int i = 0; nk && i < len; i++) {
         SeqStep *st = &tr->step[i];
@@ -1033,6 +1034,13 @@ void gen_evolve_bar(Seq *s, int t) {
         case EVO_PROB: {
             int v = st->prob + (pick(s, 2) ? 1 : -1) * (5 + pick(s, 11));
             st->prob = (uint8_t)(v < 10 ? 10 : v > 100 ? 100 : v);
+            break;
+        }
+        case EVO_OFFSET: {   /* 1-3 ticks earlier or later; with NEVER ON GRID it hops over the grid */
+            int d = (pick(s, 2) ? 1 : -1) * (1 + pick(s, 3));
+            int v = st->nudge + d;
+            if (tr->offgrid && v > -SEQ_OFFGRID_MIN && v < SEQ_OFFGRID_MIN) v = d > 0 ? SEQ_OFFGRID_MIN : -SEQ_OFFGRID_MIN;
+            st->nudge = (int8_t)(v < -SEQ_MAX_NUDGE ? -SEQ_MAX_NUDGE : v > SEQ_MAX_NUDGE ? SEQ_MAX_NUDGE : v);
             break;
         }
         }
@@ -1098,7 +1106,7 @@ int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX
 }
 
 const char *gen_xform_name(int op) {
-    static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR"};
+    static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR", "SPREAD", "ON GRID"};
     return op >= 0 && op < XF_COUNT ? N[op] : "?";
 }
 
@@ -1160,6 +1168,27 @@ void gen_transform(Seq *s, int t, int op, int amount) {
         break;
     case XF_CLEAR:
         for (int k = 0; k < np; k++) tr->step[pos[k]].on = 0;
+        break;
+    case XF_SPREAD: {
+        /* Offsets off the grid: -a..-MIN and MIN..a. Deal them out in a shuffled
+         * order, so no two notes share one until every offset is used. */
+        int a = amount < 0 ? -amount : amount;
+        a = a < SEQ_OFFGRID_MIN ? SEQ_MAX_NUDGE : a > SEQ_MAX_NUDGE ? SEQ_MAX_NUDGE : a;
+        int8_t deck[2 * SEQ_MAX_NUDGE];
+        int nd = 0, used = 0;
+        for (int v = SEQ_OFFGRID_MIN; v <= a; v++) { deck[nd++] = (int8_t)v; deck[nd++] = (int8_t)-v; }
+        for (int k = 0; k < np; k++) {
+            SeqStep *st = &tr->step[pos[k]];
+            if (!st->on) continue;
+            if (used == 0)   /* (re)shuffle the deck */
+                for (int i = nd - 1; i > 0; i--) { int j = pick(s, i + 1); int8_t x = deck[i]; deck[i] = deck[j]; deck[j] = x; }
+            st->nudge = deck[used];
+            used = (used + 1) % nd;
+        }
+        break;
+    }
+    case XF_GRID:
+        for (int k = 0; k < np; k++) tr->step[pos[k]].nudge = 0;
         break;
     case XF_HUMANIZE:
         if (amount <= 0) break;

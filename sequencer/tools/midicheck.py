@@ -199,7 +199,21 @@ def analyse(msgs, a):
         rel = t - t0
         k = round(rel / step_us)
         cands = [k - 1, k, k + 1]
-        e = min(abs(rel - (j * step_us + (swing_us if j % 2 else 0))) for j in cands)
+        # With --offset N a note may sit up to N ticks either side of its grid
+        # line, but still on an engine tick; --min-offset keeps it off the line.
+        tick_us = step_us / TICKS_PER_STEP
+        e = 0 if a.offset and rel <= tol else None   # an early first step plays at Start
+        for j in cands:
+            dt = rel - (j * step_us + (swing_us if j % 2 else 0))
+            if abs(dt) <= a.offset * tick_us + tol:
+                ej = abs(dt - round(dt / tick_us) * tick_us)
+                if a.min_offset and round(abs(dt) / tick_us) < a.min_offset:
+                    ej = max(ej, (a.min_offset - abs(dt) / tick_us) * tick_us)
+            else:
+                ej = abs(dt) - a.offset * tick_us
+            e = ej if e is None else min(e, ej)
+        if a.offset and rel <= tol:
+            e = 0
         errs.append(e)
         if e > worst[0]:
             worst = (e, f"ch{(d[0] & 15) + 1} note {d[1]} at {rel / 1000:.3f} ms")
@@ -302,6 +316,8 @@ def main():
     ap.add_argument("--swing", type=int, default=0, help="swing in ticks (0-12), as in the pattern")
     ap.add_argument("--channels", default="1-4", help="channels notes may use, e.g. 1-4 or 5")
     ap.add_argument("--expect-channels", default="", help="channels that must each get notes")
+    ap.add_argument("--offset", type=int, default=0, help="notes may be up to this many ticks (1/24 step) off the grid")
+    ap.add_argument("--min-offset", type=int, default=0, help="...and at least this many ticks off it (NEVER ON GRID)")
     ap.add_argument("--tolerance-ms", type=float, default=2.0, help="timing error allowed for 99%% of events")
     ap.add_argument("--max-ms", type=float, default=0, help="largest timing error allowed (default 4x tolerance)")
     ap.add_argument("--poly", action="store_true",

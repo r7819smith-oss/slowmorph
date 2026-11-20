@@ -8,6 +8,9 @@
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+static int8_t draw_offset(Seq *s, const SeqTrack *tr, const SeqStep *st);
+static int live_offset(const SeqTrack *tr);
+
 uint32_t seq_rand(Seq *s) {
     uint32_t x = s->rng;
     x ^= x << 13; x ^= x >> 17; x ^= x << 5;
@@ -83,7 +86,11 @@ void seq_start(Seq *s) {
     s->tick = 0;
     s->idle_tick = 0;
     s->playing = 1;
-    for (int t = 0; t < SEQ_TRACKS; t++) s->track[t].rest_left = 0;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        s->track[t].rest_left = 0;
+        memset(s->track[t].played, 0, sizeof s->track[t].played);
+        if (live_offset(&s->track[t])) seq_reshuffle(s, t);
+    }
     if (s->clock_out) emit1(s, 0xFA);
 }
 
@@ -192,12 +199,17 @@ void seq_tick(Seq *s) {
         int phase = (int)(now % SEQ_TICKS_PER_STEP);
         for (int ahead = 0; ahead < 2; ahead++) {
             uint32_t g = gstep + (uint32_t)ahead;
-            const SeqStep *st = &tr->step[g % tr->len];
-            if (!st->on) continue;
-            int when = ((g & 1) ? s->swing : 0) + st->nudge;
+            int idx = (int)(g % tr->len);
+            const SeqStep *st = &tr->step[idx];
+            if (!st->on || tr->played[idx] == g + 1) continue;
+            int live = live_offset(tr);
+            int when = ((g & 1) ? s->swing : 0) + (live ? tr->jit[idx] : st->nudge);
             int due = ahead == 0 ? (when == phase || (when < 0 && now == 0))   /* an early first step plays at Start */
                                  : (when < 0 && when + SEQ_TICKS_PER_STEP == phase);
-            if (due) play_step(s, t, now, st);
+            if (!due) continue;
+            tr->played[idx] = g + 1;
+            if (live) tr->jit[idx] = draw_offset(s, tr, st);   /* where it lands next time round */
+            play_step(s, t, now, st);
         }
     }
     s->tick++;
@@ -240,6 +252,7 @@ void seq_step_hold(Seq *s, int t, int i, int d) {
 void seq_step_nudge(Seq *s, int t, int i, int d) {
     SeqStep *st = &s->track[t].step[i];
     st->nudge = (int8_t)clampi(st->nudge + d, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
+    if (live_offset(&s->track[t])) s->track[t].jit[i] = draw_offset(s, &s->track[t], st);
 }
 
 int seq_any_solo(const Seq *s) {
@@ -281,6 +294,41 @@ void seq_track_channel(Seq *s, int t, int d) {
 
 void seq_adjust_bpm(Seq *s, int d) { s->bpm = clampi(s->bpm + d, 30, 300); }
 void seq_adjust_swing(Seq *s, int d) { s->swing = clampi(s->swing + d, 0, SEQ_MAX_SWING); }
+
+/* The offset a step plays at next: its own OFFSET plus, with live shuffle,
+ * a random amount up to `shuffle` either side; with NEVER ON GRID, never
+ * closer than SEQ_OFFGRID_MIN ticks to the grid. */
+static int8_t draw_offset(Seq *s, const SeqTrack *tr, const SeqStep *st) {
+    int a = tr->shuffle;
+    for (int tries = 0; tries < 16; tries++) {
+        int v = st->nudge + (a ? (int)(seq_rand(s) % (uint32_t)(2 * a + 1)) - a : 0);
+        v = clampi(v, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
+        if (!tr->offgrid || v <= -SEQ_OFFGRID_MIN || v >= SEQ_OFFGRID_MIN) return (int8_t)v;
+        if (!a) break;   /* nothing random to retry with */
+    }
+    /* still too close: push it off the grid, the way it already leans, else either way */
+    int v = st->nudge;
+    int dir = v > 0 ? 1 : v < 0 ? -1 : (seq_rand(s) & 1) ? 1 : -1;
+    return (int8_t)(dir * SEQ_OFFGRID_MIN);
+}
+
+static int live_offset(const SeqTrack *tr) { return tr->shuffle || tr->offgrid; }
+
+void seq_reshuffle(Seq *s, int t) {
+    SeqTrack *tr = &s->track[t];
+    for (int i = 0; i < SEQ_STEPS; i++) tr->jit[i] = live_offset(tr) ? draw_offset(s, tr, &tr->step[i]) : 0;
+}
+
+void seq_track_shuffle(Seq *s, int t, int d) {
+    SeqTrack *tr = &s->track[t];
+    tr->shuffle = (uint8_t)clampi(tr->shuffle + d, 0, SEQ_MAX_NUDGE);
+    seq_reshuffle(s, t);
+}
+
+void seq_track_offgrid(Seq *s, int t, int on) {
+    s->track[t].offgrid = on != 0;
+    seq_reshuffle(s, t);
+}
 
 void seq_set_scale(Seq *s, int scale, int root, int snap) {
     s->scale = clampi(scale, 0, scale_count() - 1);
@@ -385,6 +433,7 @@ void seq_save(const Seq *s, FILE *f) {
         const SeqTrack *tr = &s->track[t];
         fprintf(f, "t %d %d %d %d\n", t, tr->channel, tr->len, tr->mute);
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
+        if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
                 tr->gen.p[3], tr->gen.base, tr->gen.span);
         fprintf(f, "e %d %d %d %d\n", t, tr->evo.every, tr->evo.amount, tr->evo.kinds);
@@ -533,6 +582,10 @@ int seq_load(Seq *s, FILE *f) {
             ev->every = (uint8_t)clampi(b, 0, SEQ_MAX_EVERY);
             ev->amount = (uint8_t)clampi(c, 0, 100);
             ev->kinds = (uint8_t)(d & EVO_ALL);
+        } else if (sscanf(line, "sf %d %d %d", &a, &b, &c) == 3) {
+            if (a < 0 || a >= SEQ_TRACKS) continue;
+            s->track[a].shuffle = (uint8_t)clampi(b, 0, SEQ_MAX_NUDGE);
+            s->track[a].offgrid = c != 0;
         } else if (sscanf(line, "pc %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             SeqTrack *tr = &s->track[a];
