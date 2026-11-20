@@ -76,7 +76,9 @@ More on the GENERATE page (press **A** on a row to do its action):
   a maximum, so a track can't empty out or fill up.
 - **Transforms** for hand editing: reverse, invert (around the first note),
   transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
-  fill (new notes borrowed from neighbours), humanize velocity and clear. All of them
+  fill (new notes borrowed from neighbours), humanize velocity, clear, spread
+  (every note a different offset, none on the grid) and on grid (offsets back
+  to 0). All of them
   leave locked steps in place; rotate also now works around locked steps.
 - **Chord, swell and rests** (at the bottom of the list) colour how a track
   plays without changing its steps. `CHORD` stacks notes from the scale on
@@ -101,6 +103,12 @@ More on the GENERATE page (press **A** on a row to do its action):
   early or late, so it doesn't have to land on the grid. The note's block
   moves left or right in its box on the grid. Rolling a generator puts
   unlocked notes back on the grid.
+- **Shuffle:** `SHUFFLE` on the TRACK page gives every note a fresh random
+  offset (up to the amount, around its own OFFSET) each time it plays, so the
+  track never plays exactly the same twice; the pattern itself doesn't change.
+  `NEVER ON GRID` keeps every note on the track at least 2/24 of a step off
+  the grid. For a fixed loose groove instead, use the `SPREAD` transform, and
+  turn on `EVO OFFSET` to let those offsets drift a little every few bars.
 - **Patterns up to 32 steps:** set `LENGTH` on the TRACK page. The grid shows
   16 steps at a time; move the cursor past step 16 to see steps 17-32.
 
@@ -157,7 +165,7 @@ change bigger.
 | Page | Rows | Also |
 |---|---|---|
 | STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, offset, probability, lock | A = step on/off |
-| TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
+| TRACK | track, MIDI channel, length, mute, shuffle, never on grid, BPM, swing, MIDI port (shown only) | |
 | GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 
 **Main menu** (M): settings for the whole session. Up/down picks a row,

@@ -68,6 +68,11 @@ render)
     check render-ambient-256-bars "$OUT/midi/render-ambient.cap" --bpm 72 --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     ./seq4h-render --style DRONE --bars 256 --out "$OUT/midi/render-drone.cap"
     check render-drone-256-bars "$OUT/midi/render-drone.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
+    # Live shuffle (up to 11 ticks, NEVER ON GRID) on hats, and spread offsets
+    # drifting with EVO OFFSET: every note on an engine tick, 2-11 ticks off
+    # the grid, one note per channel at a time, nothing hung.
+    ./seq4h-render --pattern tests/fixtures/shuffle.pat --bars 128 --out "$OUT/midi/render-shuffle.cap"
+    check render-shuffle-128-bars "$OUT/midi/render-shuffle.cap" --bpm 120 --offset 11 --min-offset 2 --expect-channels 1-2 --tolerance-ms 0.01
     "$PY" tests/test_midicheck.py "$OUT/midi/render-demo.cap"
     result "midicheck catches broken MIDI (wrong channel, hung note, late note, slow clock...)" $?
     note ""
@@ -108,6 +113,9 @@ step-note-up|c,Down,Down,Right,Right
 step-offset|c,Down,Down,Down,Down,Down,Down,Left,Left,Left,Left,Left
 grid-hold-offset|c,Down,Down,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Right,Right,Right,Right,c,Left,Left,Left,Left,Left,Left,Left,Left,x,Right,Right,Right,Right,c,Up,Right,Right,Right,Right,Right,Right,x
 track-page|w,w
+track-shuffle|w,w,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Down,Right
+generate-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right
+grid-after-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right,z,x
 track-length-12|w,w,Down,Down,Left,Left,Left,Left
 track2-muted|2,w,w,Down,Down,Down,Right
 generate-page|w,w,w
@@ -124,7 +132,7 @@ grid-blank|m,Down,Right,Right,Right,Down,z,z
 menu-style-drone|m,Down,Right,Right,Right,Right
 grid-drone|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z
 generate-drone|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w
-generate-drone-chord|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+generate-drone-chord|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
 slots-page|m,Down,Down,Down,z
 slots-saved|m,Down,Down,Down,z,c,Down,c,c,c
 slots-rename|m,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
@@ -136,6 +144,7 @@ EOF
         --differ grid-demo grid-step-locked --differ grid-demo step-page \
         --differ step-page step-note-up --differ step-page step-offset \
         --differ grid-demo grid-hold-offset --differ grid-demo track-page \
+        --differ track-page track-shuffle --differ generate-page generate-spread --differ grid-demo grid-after-spread \
         --differ track-page track-length-12 --differ track-page track2-muted \
         --differ grid-demo generate-page --differ generate-page generate-euclid \
         --differ grid-demo grid-after-euclid-roll --differ grid-demo bat17-grid \
@@ -159,7 +168,7 @@ persist)
     # Generate page (w,w,w), down to SAVE TO SLOT, store slots 1-8 on track 1,
     # then slot 8 on track 2 (R2 = 2): nine stored slots.
     keys="w,w,w"
-    i=0; while [ $i -lt 23 ]; do keys="$keys,Down"; i=$((i + 1)); done
+    i=0; while [ $i -lt 24 ]; do keys="$keys,Down"; i=$((i + 1)); done
     keys="$keys,z"
     i=0; while [ $i -lt 7 ]; do keys="$keys,Right,z"; i=$((i + 1)); done
     keys="$keys,2,z"

@@ -229,6 +229,32 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     steps due on one tick, gate from the real start, unchanged playback
     without offsets, save/load with slots and anchor, clamping); harness
     screenshots `step-offset` and `grid-hold-offset`.
+- **Shuffle, never on grid, spread, EVO OFFSET** (Roy, 2026-11-20: "hihats
+  on every 16th, none of them on the grid or in the same place").
+  - Live shuffle: TRACK page `SHUFFLE` (0..11 ticks, `SeqTrack.shuffle`) and
+    `NEVER ON GRID` (`SeqTrack.offgrid`, keeps notes >= `SEQ_OFFGRID_MIN` = 2
+    ticks off the grid). Each step plays at a pre-drawn offset `jit[step]`
+    (its OFFSET plus random +/-shuffle, clamped to +/-11); right after it
+    plays, the offset for its next pass is drawn, so the early look-ahead
+    always knows when a step is due. `played[step]` (1 + the 1/16 number it
+    last played on) stops a step playing twice in one pass when the redraw
+    moves it. Draws only use the RNG when shuffle or NEVER ON GRID is on, so
+    patterns without them play exactly as before (ambient hash unchanged).
+    Saved as `sf T SHUFFLE OFFGRID`, written only when set.
+  - `XF_SPREAD` transform: deals every unlocked note an offset from a
+    shuffled deck of -A..-2 and 2..A (BY = A ticks; below 2 means 11, the
+    most), so no two notes share an offset until all are used (22 offsets
+    at the most). `XF_GRID` ("ON GRID") sets unlocked offsets back to 0.
+  - `EVO_OFFSET` (bit 64, `EVO_ALL` now 127; GENERATE row `EVO OFFSET`):
+    moves a step's offset 1-3 ticks either way; with NEVER ON GRID it hops
+    over the grid instead of landing on it. The GENERATE page has one more
+    row, so the harness key sequences that walk past it gained a Down.
+  - `tools/midicheck.py --offset N [--min-offset M]` accepts notes up to N
+    ticks off the grid (still on an engine tick) and at least M off it; the
+    harness renders `tests/fixtures/shuffle.pat` (shuffled never-on-grid
+    hats and spread notes with EVO OFFSET) for 128 bars with it. Tests:
+    `test_shuffle`; screenshots `track-shuffle`, `generate-spread`,
+    `grid-after-spread`.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -284,7 +310,7 @@ Works and tested on desktop Linux:
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
    - a song mode on top of slot chains
-   - piano roll, drum track and DRUM MAP, HUMANIZE (see *Piano roll, drum
+   - piano roll, drum track and DRUM MAP (see *Piano roll, drum
      grid, note lengths and offsets*); for the drum map, first check on the
      FM1 which notes Felucca's 8 drum lanes answer to
 
@@ -519,7 +545,7 @@ The newest run is at the bottom; each seq4h run starts with a
    handheld off without quitting: after restart the edit is still there
    (autosave).
 
-**D2. Note lengths and offsets (2026-11-20 build)**
+**D2. Note lengths, offsets and shuffle (2026-11-20 builds)**
 
 1. [ ] On the grid, put the cursor on a note, press X, go to HOLD and set
    +2. Back on the grid (B), a bar runs from that note across the next two
@@ -529,6 +555,13 @@ The newest run is at the bottom; each seq4h run starts with a
    lands just after the beat, the early one just before. The FM1's tempo
    doesn't change.
 3. [ ] Quit and restart: the offsets and holds are still there.
+4. [ ] Shuffle: put hats on every step of a track. On the TRACK page set
+   SHUFFLE to UP TO 25% and NEVER ON GRID to ON. Play: the hats sound loose
+   and never quite repeat. Set SHUFFLE back to OFF: still never on the beat,
+   but steady.
+5. [ ] Spread: on GENERATE pick TRANSFORM SPREAD and press A. The blocks on
+   the grid move to different places. Turn on EVO OFFSET (and EVOLVE every
+   2 bars): the groove drifts slowly. TRANSFORM ON GRID puts it back.
 
 **E. Long run and power**
 
@@ -752,7 +785,7 @@ colour. Keep the "+3" label on the first box. This is a drawing change only:
 no new data and no save-file change. About half a day with tests and
 screenshots. The piano roll would draw lengths the same way.
 
-### 2. Offsets ("nudge") (built 2026-11-20, see Decisions; HUMANIZE not built)
+### 2. Offsets ("nudge") (built 2026-11-20, see Decisions; HUMANIZE became SHUFFLE, SPREAD and EVO OFFSET)
 
 Add an OFFSET row on the STEP page: -11 to +11 ticks, shown as a percentage
 of a step (about -45% to +45%), with 0 meaning on the grid. Hold Y for big
