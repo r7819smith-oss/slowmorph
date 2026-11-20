@@ -62,6 +62,12 @@ render)
     ./seq4h-render --pattern tests/fixtures/evolve.pat --bars 256 --out "$OUT/midi/render-evolve-2.cap"
     cmp -s "$OUT/midi/render-evolve.cap" "$OUT/midi/render-evolve-2.cap"
     result "same pattern renders identically twice" $?
+    # The style starting sets, as NEW FROM STYLE builds them: held notes (up to
+    # 32 steps), and DRONE's chords overlap on a channel, so --poly pairing.
+    ./seq4h-render --style AMBIENT --bars 256 --out "$OUT/midi/render-ambient.cap"
+    check render-ambient-256-bars "$OUT/midi/render-ambient.cap" --bpm 72 --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
+    ./seq4h-render --style DRONE --bars 256 --out "$OUT/midi/render-drone.cap"
+    check render-drone-256-bars "$OUT/midi/render-drone.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     "$PY" tests/test_midicheck.py "$OUT/midi/render-demo.cap"
     result "midicheck catches broken MIDI (wrong channel, hung note, late note, slow clock...)" $?
     note ""
@@ -113,6 +119,10 @@ track-page-solo|Left,x,Down,x,w,w,Down,Down,Down
 bat17-grid|
 menu-style-blank|m,Down,Right,Right,Right
 grid-blank|m,Down,Right,Right,Right,Down,z,z
+menu-style-drone|m,Down,Right,Right,Right,Right
+grid-drone|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z
+generate-drone|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w
+generate-drone-chord|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
 slots-page|m,Down,Down,Down,z
 slots-saved|m,Down,Down,Down,z,c,Down,c,c,c
 slots-rename|m,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
@@ -128,7 +138,9 @@ EOF
         --differ grid-demo grid-after-euclid-roll --differ grid-demo bat17-grid \
         --differ grid-demo grid-label-cursor --differ grid-label-cursor grid-label-muted \
         --differ grid-label-cursor grid-label-solo --differ grid-label-cursor grid-label-back \
-        --differ track-page track-page-solo --differ grid-demo grid-blank \
+        --differ track-page track-page-solo --differ grid-demo grid-blank --differ grid-blank grid-drone --differ grid-demo grid-drone --differ menu-style-blank menu-style-drone \
+        --differ grid-drone generate-drone --differ generate-drone generate-drone-chord \
+        \
         --differ grid-demo slots-page --differ slots-page slots-saved --differ slots-saved slots-rename \
         --differ slots-rename slots-named --differ slots-saved slots-copy-panel \
         > "$OUT/shots/shotcheck.txt" 2>&1

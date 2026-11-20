@@ -37,7 +37,7 @@ typedef struct {
 
 /* Evolution: every `every` bars, change the pattern a little. */
 typedef struct {
-    uint8_t every;   /* 0 = off, else 1, 2, 4 or 8 bars */
+    uint8_t every;   /* 0 = off, else 1, 2, 4, 8, 16, 32 or 64 bars */
     uint8_t amount;  /* 0..100, percent chance each step changes */
     uint8_t kinds;   /* EVO_* bit flags */
     uint8_t pull;    /* 0..100, chance per bar that a changed step returns to the anchor */
@@ -46,6 +46,8 @@ typedef struct {
 } EvolveSettings;
 
 #define SEQ_SLOTS 8   /* stored patterns per track */
+#define SEQ_CHORD_MAX 3   /* notes a chord adds on top of the step's own note */
+#define SEQ_MAX_EVERY 64  /* longest evolution interval, in bars */
 #define SEQ_SLOT_NAME 8   /* characters in a slot name */
 
 typedef struct {
@@ -72,6 +74,16 @@ typedef struct {
     uint8_t chain_pos;          /* index into chain[] */
     uint8_t chain_bars;         /* bars per chain link: 1, 2, 4, 8 or 16 */
     uint8_t chain_morph;        /* 0 = jump to the next slot; else % chance per bar each step moves towards it */
+    /* Playback colour, applied as notes are sent; the step grid is unchanged. */
+    uint8_t chord;              /* CHORD_* (gen.h): notes stacked on each step's note; 0 = single notes */
+    uint8_t swell;              /* 0 = off, else a slow velocity swell lasting this many bars (2..32) */
+    uint8_t swell_depth;        /* 0..100: how far the swell dips below the step's velocity */
+    uint8_t rest;               /* 0..100: chance each bar that the track rests for 1-4 bars */
+    uint8_t rest_left;          /* bars of the current rest still to go (not saved) */
+    uint8_t nvoice;             /* chord notes sounding with `sounding` */
+    uint8_t voice[SEQ_CHORD_MAX];
+    uint8_t last_nvoice;        /* chord notes of the last note sent (for seq_panic) */
+    uint8_t last_voice[SEQ_CHORD_MAX];
     int16_t sounding;   /* note currently held, or -1 */
     int16_t last_note;  /* last note sent on this track, or -1 (seq_panic re-sends its note-off) */
     uint32_t off_tick;
@@ -111,6 +123,9 @@ void seq_panic(Seq *s);
 void seq_reconnected(Seq *s);
 void seq_tick(Seq *s);                 /* advance one tick (1/96 beat) */
 int  seq_playhead(const Seq *s, int t);/* step being played on track t, or -1 */
+/* Velocity a note of velocity `vel` is sent with on track t at tick `now`,
+ * after the track's swell (unchanged when the swell is off). */
+int  seq_swell_vel(const Seq *s, int t, uint32_t now, int vel);
 
 void seq_step_toggle(Seq *s, int t, int i);
 /* Adjust step parameters; a note change also switches the step on. */

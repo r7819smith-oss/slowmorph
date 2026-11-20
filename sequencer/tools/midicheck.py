@@ -208,7 +208,9 @@ def analyse(msgs, a):
             errs and pct(errs, 99) <= tol and max(errs) <= tmax, "worst: " + worst[1] if worst[1] else "")
     if gates:
         r.info["gate lengths"] = f"min {min(gates) / 1000:.1f} ms, max {max(gates) / 1000:.1f} ms"
-        r.check("gates are positive and no longer than one step", min(gates) > 0 and max(gates) <= step_us + tol)
+        limit = (a.max_hold + 1) * step_us
+        what = "one step" if not a.max_hold else f"{a.max_hold + 1} steps (held notes)"
+        r.check(f"gates are positive and no longer than {what}", min(gates) > 0 and max(gates) <= limit + tol)
 
     if a.demo:
         demo_checks(r, notes_on, t0, msgs[-1][0], step_us, swing_us)
@@ -304,6 +306,8 @@ def main():
     ap.add_argument("--max-ms", type=float, default=0, help="largest timing error allowed (default 4x tolerance)")
     ap.add_argument("--poly", action="store_true",
                     help="several tracks share a channel (--channel N): allow overlapping notes per channel")
+    ap.add_argument("--max-hold", type=int, default=0,
+                    help="notes may be held over this many extra steps (the pattern uses HOLD)")
     ap.add_argument("--duration", type=float, default=0, help="run length in seconds, to check the clock count")
     ap.add_argument("--no-clock", action="store_true", help="the run used --no-clock")
     ap.add_argument("--demo", action="store_true", help="also check the built-in demo pattern")
