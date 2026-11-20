@@ -683,6 +683,133 @@ Recommendation: keep 4 tracks while Felucca or Jangada is the firmware. If
 Roy moves to stock V16 or adds a second FM-1, build option 2. A cheaper win
 in the meantime is the optional firmware channel preset above.
 
+## Piano roll, drum grid, note lengths and offsets (evaluated 2026-11-20, not built)
+
+Roy asked (2026-11-20) whether seq4h could open a piano roll from the grid for
+fine editing, have a drum grid for a track marked as the drum track (with a
+way to match drum notes to the right sounds), show how long notes are held,
+and let notes sit off the grid. The current grid stays as the main view.
+
+### How it works today
+
+- Each track plays **one note per step** (plus optional chord notes stacked by
+  the track's CHORD setting). A step has note, velocity, gate (5-100% of a
+  step), hold (0-31 extra steps, a tie), probability and lock.
+- The engine runs at 96 ticks per quarter note, so one 1/16 step is 24 ticks
+  (about 5 ms per tick at 120 BPM). Notes start exactly on the step, apart
+  from the global swing, which delays every other 1/16 by up to 12 ticks.
+- The grid draws each step in its own box. A held note shows a small "+3"
+  label, but the box is the same size as a one-step note.
+- On the GRID page, Select on its own does nothing yet (Select+Start quits),
+  and the stick press (code 12) is unused.
+
+### 1. Note length on the grid (small, recommended first)
+
+Draw a held note as a bar that runs through the following boxes until the
+note ends (or the next note cuts it off), in a dimmer shade of the track
+colour. Keep the "+3" label on the first box. This is a drawing change only:
+no new data and no save-file change. About half a day with tests and
+screenshots. The piano roll would draw lengths the same way.
+
+### 2. Offsets ("nudge") (medium, recommended second)
+
+Add an OFFSET row on the STEP page: -11 to +11 ticks, shown as a percentage
+of a step (about -45% to +45%), with 0 meaning on the grid. Hold Y for big
+jumps as on other rows.
+
+- Engine: a note plays at its step time plus swing plus offset. A negative
+  offset means the note is sent before the step starts, so the engine checks
+  the next step one tick ahead. Gate and hold still count from where the note
+  actually starts. MIDI clock is unchanged, so the FM1 stays in time.
+- Grid: the coloured block inside the box shifts left or right a little, so
+  you can see a step is early or late.
+- Save file: a new optional `o T STEP TICKS` line (and the same in slots and
+  the anchor), written only for steps with an offset. Older builds skip it;
+  older files load with every offset 0. The format stays `seq4h 1`.
+- Nice extra for ambient: a HUMANIZE amount on the GENERATE page that gives
+  rolled notes small random offsets, and an evolution kind that drifts them.
+- About a day with tests.
+
+### 3. Piano roll view (larger)
+
+A full-screen view of one track, opened from the GRID with Select (on release,
+so Select+Start still quits) and closed with B or Select.
+
+- Layout (640x480): steps across (16 at a time, 35 pixels each as on the
+  grid, scrolling for 32), pitches down the left side. Show only the notes in
+  the current scale, two octaves at a time (14 rows of about 24 pixels), with
+  the note names in the left column and the root note rows highlighted.
+  Up/down past the edge scrolls the octave. Notes are bars as long as gate +
+  hold, offsets drawn as a small shift, velocity as brightness.
+- Controls: d-pad moves the cursor (step and pitch). A puts the step's note on
+  that pitch (or turns the step off if the note is already there). Hold Y +
+  left/right makes the note longer or shorter (hold first, then gate). Hold X
+  + left/right nudges the offset. Hold X + up/down changes velocity. L2/R2
+  switch track, so you stay in the roll.
+- Because a track plays one note per step, the roll shows at most one note in
+  each column (plus chord notes in a faint colour, which follow the CHORD
+  setting and are not edited here). That keeps it simple and matches how
+  seq4h and Felucca's parts work.
+- No save-file change. About two days with tests and screenshots.
+
+### 4. Drum track and drum grid (largest)
+
+**Is there a standard?** Yes: the General MIDI (GM) drum map. Felucca's DRUM
+engine is "an 8-lane kit ... on the General MIDI key map" (Felucca wiki,
+Engines), and Jangada's DRUM track uses a GM kit too. The common GM notes are:
+
+| Sound | GM note |
+|---|---|
+| Kick | 36 (C1) |
+| Rim / side stick | 37 |
+| Snare | 38 |
+| Clap | 39 |
+| Closed hi-hat | 42 |
+| Low tom | 45 |
+| Open hi-hat | 46 |
+| Crash | 49 |
+
+Felucca does not publish which 8 GM notes its lanes use, so seq4h needs a
+calibration screen (below) anyway.
+
+**What has to change:** a drum grid needs several hits on the same step (kick
+and hat together), but a seq4h track can only play one note per step. So a
+drum track needs its own data: 8 lanes, each with its own on/off, velocity
+and probability per step, and one MIDI note per lane.
+
+- **TRACK page:** a new TYPE row, NOTES or DRUMS. Any track can be the drum
+  track; the ambient style would default track 4 to DRUMS, matching Felucca's
+  and Jangada's track 4. Switching keeps both kinds of data, so nothing is
+  lost by flipping back.
+- **Drum grid:** opened from the GRID with Select on a drum track (the same
+  key as the piano roll). 8 lane rows of about 36 pixels with the lane names
+  on the left (KICK, SNARE ...), 16 steps across. A toggles a hit, hold X +
+  up/down changes its velocity, Y locks. The main GRID still shows the drum
+  track as one row, with a box lit wherever any lane hits.
+- **Calibrating the notes (M > DRUM MAP):** a list of the 8 lanes, each with a
+  name and a MIDI note. Left/right changes the note, A plays it once so you can
+  hear which sound it is, Y renames the lane. Presets: GM (above), FELUCCA and
+  JANGADA once Roy has checked on hardware which notes their lanes respond to.
+  The map is saved in the pattern file (and could also be a small
+  `seq4h.drums` file shared by every pattern).
+- **Generators:** the drum generators (sparse ambient drums, Techno, etc.)
+  write to lanes instead of picking notes, which is cleaner than today. They
+  have to be updated for this. Evolution works per lane.
+- **Save file:** new optional lines for the track type, lane notes, names and
+  lane hits. Older builds skip them.
+- About four to five days with tests, and a hardware session to fill in the
+  Felucca and Jangada presets.
+
+### Recommended order
+
+1. Note length bars on the grid (quick, no format change).
+2. Offsets, with HUMANIZE as an optional extra.
+3. Piano roll for note tracks.
+4. Drum track type, drum grid and DRUM MAP calibration.
+
+Each step is useful on its own, and 1 and 2 also improve the piano roll and
+drum grid when they arrive.
+
 ## Testing without hardware
 
 `make check` runs the whole hardware-free harness (`tests/harness.sh`) and
