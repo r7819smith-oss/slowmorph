@@ -105,6 +105,8 @@ grid-step-toggled|Right,z
 grid-step-locked|Right,v
 step-page|Right,c
 step-note-up|c,Down,Down,Right,Right
+step-offset|c,Down,Down,Down,Down,Down,Down,Left,Left,Left,Left,Left
+grid-hold-offset|c,Down,Down,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Right,Right,Right,Right,c,Left,Left,Left,Left,Left,Left,Left,Left,x,Right,Right,Right,Right,c,Up,Right,Right,Right,Right,Right,Right,x
 track-page|w,w
 track-length-12|w,w,Down,Down,Left,Left,Left,Left
 track2-muted|2,w,w,Down,Down,Down,Right
@@ -132,7 +134,8 @@ EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
         --differ grid-demo grid-step-locked --differ grid-demo step-page \
-        --differ step-page step-note-up --differ grid-demo track-page \
+        --differ step-page step-note-up --differ step-page step-offset \
+        --differ grid-demo grid-hold-offset --differ grid-demo track-page \
         --differ track-page track-length-12 --differ track-page track2-muted \
         --differ grid-demo generate-page --differ generate-page generate-euclid \
         --differ grid-demo grid-after-euclid-roll --differ grid-demo bat17-grid \

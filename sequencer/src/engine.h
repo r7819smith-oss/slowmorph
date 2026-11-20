@@ -22,8 +22,10 @@ typedef struct {
     uint8_t lock;    /* 1 = generators and evolution leave this step alone */
     uint8_t hold;    /* 0..SEQ_MAX_HOLD extra whole steps the note sustains for (ties), unless
                         the track's next note cuts it off */
+    int8_t nudge;    /* -SEQ_MAX_NUDGE..SEQ_MAX_NUDGE ticks: plays this much early (-) or late (+) */
 } SeqStep;
 #define SEQ_MAX_HOLD 31
+#define SEQ_MAX_NUDGE 11   /* just under half a step either way */
 
 /* Pattern generator for a track. Generators write into the step grid, so the
  * result can be edited by hand afterwards. See gen.h. */
@@ -131,6 +133,7 @@ void seq_step_toggle(Seq *s, int t, int i);
 /* Adjust step parameters; a note change also switches the step on. */
 void seq_step_adjust(Seq *s, int t, int i, int dnote, int dvel, int dgate, int dprob);
 void seq_step_hold(Seq *s, int t, int i, int delta);   /* change a step's hold, 0..SEQ_MAX_HOLD */
+void seq_step_nudge(Seq *s, int t, int i, int delta);  /* change a step's offset, -SEQ_MAX_NUDGE..SEQ_MAX_NUDGE ticks */
 void seq_track_mute_toggle(Seq *s, int t);
 /* Solo: while any track is soloed, only soloed, unmuted tracks play. Several
  * tracks can be soloed at once. Notes held by tracks that go silent are

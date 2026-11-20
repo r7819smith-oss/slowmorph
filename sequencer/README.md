@@ -95,7 +95,12 @@ More on the GENERATE page (press **A** on a row to do its action):
   turn, `BARS PER SLOT` each, and `CHANGE BY` either jumps to the next slot or
   morphs into it a few steps per bar.
 - **Held notes:** `HOLD` on the STEP page ties a note over up to 31 more steps
-  (until the track's next note), for drones and pads.
+  (until the track's next note), for drones and pads. The grid draws a held
+  note as a bar across the steps it lasts for.
+- **Offsets:** `OFFSET` on the STEP page plays a note up to 46% of a step
+  early or late, so it doesn't have to land on the grid. The note's block
+  moves left or right in its box on the grid. Rolling a generator puts
+  unlocked notes back on the grid.
 - **Patterns up to 32 steps:** set `LENGTH` on the TRACK page. The grid shows
   16 steps at a time; move the cursor past step 16 to see steps 17-32.
 
@@ -151,7 +156,7 @@ change bigger.
 
 | Page | Rows | Also |
 |---|---|---|
-| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, probability, lock | A = step on/off |
+| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, offset, probability, lock | A = step on/off |
 | TRACK | track, MIDI channel, length, mute, BPM, swing, MIDI port (shown only) | |
 | GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 

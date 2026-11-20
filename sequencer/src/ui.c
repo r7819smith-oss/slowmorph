@@ -291,12 +291,12 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }
 
-#define STEP_ROWS 8
+#define STEP_ROWS 9
 #define TRACK_ROWS 7
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
-    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "PROBABILITY", "LOCK"};
+    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "OFFSET", "PROBABILITY", "LOCK"};
     snprintf(label, 24, "%s", L[row]);
     switch (row) {
     case 0: snprintf(val, 24, "%d", u->step + 1); break;
@@ -305,7 +305,11 @@ static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char 
     case 3: snprintf(val, 24, "%d", st->vel); break;
     case 4: snprintf(val, 24, "%d%%", st->gate); break;
     case 5: if (st->hold) snprintf(val, 24, "+%d STEP%s", st->hold, st->hold > 1 ? "S" : ""); else snprintf(val, 24, "OFF"); break;
-    case 6: snprintf(val, 24, "%d%%", st->prob); break;
+    case 6:   /* shown as a share of a step: 1 tick = 1/24 step */
+        if (st->nudge) snprintf(val, 24, "%s %d%%", st->nudge < 0 ? "EARLY" : "LATE", (abs(st->nudge) * 100 + 12) / SEQ_TICKS_PER_STEP);
+        else snprintf(val, 24, "ON GRID");
+        break;
+    case 7: snprintf(val, 24, "%d%%", st->prob); break;
     default: snprintf(val, 24, "%s", st->lock ? "LOCKED" : "OFF"); break;
     }
 }
@@ -322,7 +326,8 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     case 3: seq_step_adjust(s, u->track, u->step, 0, d * (big ? 10 : 1), 0, 0); break;
     case 4: seq_step_adjust(s, u->track, u->step, 0, 0, d * (big ? 25 : 5), 0); break;
     case 5: seq_step_hold(s, u->track, u->step, d * (big ? 4 : 1)); break;
-    case 6: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
+    case 6: seq_step_nudge(s, u->track, u->step, d * (big ? 4 : 1)); break;
+    case 7: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
     default: st->lock ^= 1; break;
     }
 }
@@ -862,18 +867,44 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         else if (tr->solo) text(r, 12, y + 38, 1, YELLOW, "SOLO");
         else text(r, 12, y + 38, 1, scale(base, tr->evo.every ? 100 : 60), gen_short_name(tr->gen.type));   /* bright = evolving */
         int head = seq_playhead(&s, t);
+        /* How much of each step a held note from an earlier step covers: 100 =
+         * all of it, less = the note ends part-way (its gate), 0 = none. A held
+         * note runs on until its hold ends or the next note cuts it off, and
+         * wraps round the end of the pattern as it does when playing. */
+        uint8_t tail[SEQ_STEPS] = {0};
+        for (int i = 0; i < tr->len; i++) {
+            const SeqStep *st = &tr->step[i];
+            if (!st->on || !st->hold) continue;
+            for (int k = 1; k <= st->hold && k < tr->len; k++) {
+                int j = (i + k) % tr->len;
+                if (tr->step[j].on) break;
+                int pct = k < st->hold ? 100 : st->gate;
+                if (pct > tail[j]) tail[j] = (uint8_t)pct;
+            }
+        }
         for (int i = view; i < view + GRID_COLS; i++) {
             int x = X0 + (i - view) * CELL, w = CELL - 4, h = ROW_H - 8;
             if (i >= tr->len) { frame(r, x, y, w, h, 1, (Col){40, 42, 52}); continue; }
             rect(r, x, y, w, h, (i / 4) % 2 ? (Col){38, 40, 52} : (Col){30, 32, 42});
             const SeqStep *st = &tr->step[i];
+            int band_y = y + h / 2 - 6;   /* held notes: a bar through the middle of the steps they cover */
+            if (!st->on && tail[i]) {
+                Col tc = scale(base, 55);
+                rect(r, x - 4, band_y, 4, 12, tc);   /* bridge the gap from the step before */
+                rect(r, x, band_y, w * tail[i] / 100, 12, tc);
+            }
             if (st->on) {
-                rect(r, x + 3, y + 3, w - 6, h - 6, scale(base, 35 + 65 * st->vel / 127));
-                if (st->prob < 100) rect(r, x + 3, y + 3, (w - 6) * st->prob / 100, 3, WHITE);
-                rect(r, x + 3, y + h - 6, (w - 6) * st->gate / 100, 3, scale(WHITE, 70));
+                /* An offset moves the block left (early) or right (late) inside its box. */
+                int sh = st->nudge * CELL / SEQ_TICKS_PER_STEP;
+                int bx = x + 3 + (sh > 0 ? sh : 0), bw = w - 6 - (sh < 0 ? -sh : sh);
+                if (st->hold) rect(r, bx + bw, band_y, x + w - bx - bw, 12, scale(base, 55));   /* into the held bar */
+                rect(r, bx, y + 3, bw, h - 6, scale(base, 35 + 65 * st->vel / 127));
+                if (st->prob < 100) rect(r, bx, y + 3, bw * st->prob / 100, 3, WHITE);
+                /* gate: the length within this step; a held note plays all of it */
+                rect(r, bx, y + h - 6, st->hold ? bw : bw * st->gate / 100, 3, scale(WHITE, 70));
                 if (st->hold) {   /* tied over more steps */
                     snprintf(buf, sizeof buf, "+%d", st->hold);
-                    text(r, x + 4, y + h - 16, 1, WHITE, buf);
+                    text(r, bx + 1, y + h - 16, 1, WHITE, buf);
                 }
             }
             if (st->lock) rect(r, x + w - 9, y + 2, 6, 6, YELLOW);
@@ -902,9 +933,18 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  SELECT+START QUIT");
         return;
     }
-    snprintf(buf, sizeof buf, "T%d STEP %02d %s%s  LEN %d  CH %d", u->track + 1, u->step + 1, st->on ? "ON" : "OFF", st->lock ? " LOCKED" : "", tr->len, tr->channel + 1);
+    {
+        char ob[16] = "";
+        if (st->nudge) snprintf(ob, sizeof ob, "  %s %d%%", st->nudge < 0 ? "EARLY" : "LATE", (abs(st->nudge) * 100 + 12) / SEQ_TICKS_PER_STEP);
+        snprintf(buf, sizeof buf, "T%d STEP %02d %s%s%s  LEN %d  CH %d", u->track + 1, u->step + 1, st->on ? "ON" : "OFF",
+                 st->lock ? " LOCKED" : "", ob, tr->len, tr->channel + 1);
+    }
     text(r, 20, y, 2, WHITE, buf);
-    snprintf(buf, sizeof buf, "NOTE %s  VEL %d  GATE %d  PROB %d", nn, st->vel, st->gate, st->prob);
+    {   /* hold rides on the gate ("GATE 50 +2"); the offset goes on the line above */
+        char hb[8] = "";
+        if (st->hold) snprintf(hb, sizeof hb, " +%d", st->hold);
+        snprintf(buf, sizeof buf, "NOTE %s  VEL %d  GATE %d%s  PROB %d", nn, st->vel, st->gate, hb, st->prob);
+    }
     text(r, 20, y + 22, 2, WHITE, buf);
     if (tr->evo.every) snprintf(buf, sizeof buf, "GEN %s  EVOLVE EVERY %d BAR%s %d%%", gen_name(tr->gen.type), tr->evo.every, tr->evo.every > 1 ? "S" : "", tr->evo.amount);
     else snprintf(buf, sizeof buf, "GEN %s  EVOLVE OFF", gen_name(tr->gen.type));
@@ -1046,6 +1086,9 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 252, 1, DIM, "HOLD Y TO MOVE BY OCTAVE.");
         text(r, 392, 276, 1, DIM, "LOCKED STEPS ARE NEVER CHANGED");
         text(r, 392, 288, 1, DIM, "BY ROLL OR EVOLVE.");
+        text(r, 392, 312, 1, DIM, "OFFSET PLAYS THE NOTE A LITTLE");
+        text(r, 392, 324, 1, DIM, "EARLY OR LATE (UP TO 46% OF A STEP).");
+        text(r, 392, 336, 1, DIM, "A ROLL PUTS NOTES BACK ON THE GRID.");
     }
     if (u->page == P_MENU) {
         text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE  A SELECT");

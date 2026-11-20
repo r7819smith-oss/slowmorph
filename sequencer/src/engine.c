@@ -52,7 +52,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->chain_bars = 4;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0, 0};
+            tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0, 0, 0};
     }
 }
 
@@ -122,6 +122,32 @@ void seq_reconnected(Seq *s) {
     if (s->playing && s->clock_out) s->resync = 1;
 }
 
+/* Send one step's note (and its chord notes); called at the tick the step is due. */
+static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
+    SeqTrack *tr = &s->track[t];
+    if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) return;
+
+    release(s, tr);   /* retrigger */
+    int vel = seq_swell_vel(s, t, now, st->vel);
+    emit3(s, 0x90 | tr->channel, st->note, (uint8_t)vel);
+    tr->nvoice = 0;
+    if (tr->chord) {
+        uint8_t cn[SEQ_CHORD_MAX];
+        int nc = gen_chord_notes(s, st->note, tr->chord, cn);
+        int cv = vel * 4 / 5 < 1 ? 1 : vel * 4 / 5;   /* chord notes sit under the step's note */
+        for (int k = 0; k < nc; k++) {
+            emit3(s, 0x90 | tr->channel, cn[k], (uint8_t)cv);
+            tr->voice[tr->nvoice++] = cn[k];
+        }
+    }
+    tr->sounding = st->note;
+    tr->last_note = st->note;
+    tr->last_nvoice = tr->nvoice;
+    memcpy(tr->last_voice, tr->voice, sizeof tr->voice);
+    uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
+    tr->off_tick = now + (gl ? gl : 1);
+}
+
 void seq_tick(Seq *s) {
     if (!s->playing) {
         /* Keep sending clock while stopped, so the FM1 locks to the tempo
@@ -156,37 +182,23 @@ void seq_tick(Seq *s) {
         if (tr->sounding >= 0 && (int32_t)(now - tr->off_tick) >= 0) release(s, tr);
         if (!seq_track_audible(s, t) || tr->rest_left) continue;   /* a rest lets held notes ring out */
 
+        /* A step plays at its grid time + swing + its own offset. Swing follows
+         * the shared 1/16 grid, not the track's own step number, so an
+         * odd-length track stays in the same groove as the others. Swing +
+         * offset is -11..23 ticks, so a step due now is either this 1/16's
+         * step (on time or late) or the next one (early). If both are due on
+         * the same tick, the next step's note cuts the first one off. */
         uint32_t gstep = now / SEQ_TICKS_PER_STEP;
-        uint32_t idx = gstep % tr->len;
-        uint32_t phase = now % SEQ_TICKS_PER_STEP;
-        /* Swing follows the shared 1/16 grid, not the track's own step number,
-         * so an odd-length track stays in the same groove as the others. */
-        uint32_t when = (gstep & 1) ? (uint32_t)s->swing : 0;
-        if (phase != when) continue;
-
-        const SeqStep *st = &tr->step[idx];
-        if (!st->on) continue;
-        if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) continue;
-
-        release(s, tr);   /* retrigger */
-        int vel = seq_swell_vel(s, t, now, st->vel);
-        emit3(s, 0x90 | tr->channel, st->note, (uint8_t)vel);
-        tr->nvoice = 0;
-        if (tr->chord) {
-            uint8_t cn[SEQ_CHORD_MAX];
-            int nc = gen_chord_notes(s, st->note, tr->chord, cn);
-            int cv = vel * 4 / 5 < 1 ? 1 : vel * 4 / 5;   /* chord notes sit under the step's note */
-            for (int k = 0; k < nc; k++) {
-                emit3(s, 0x90 | tr->channel, cn[k], (uint8_t)cv);
-                tr->voice[tr->nvoice++] = cn[k];
-            }
+        int phase = (int)(now % SEQ_TICKS_PER_STEP);
+        for (int ahead = 0; ahead < 2; ahead++) {
+            uint32_t g = gstep + (uint32_t)ahead;
+            const SeqStep *st = &tr->step[g % tr->len];
+            if (!st->on) continue;
+            int when = ((g & 1) ? s->swing : 0) + st->nudge;
+            int due = ahead == 0 ? (when == phase || (when < 0 && now == 0))   /* an early first step plays at Start */
+                                 : (when < 0 && when + SEQ_TICKS_PER_STEP == phase);
+            if (due) play_step(s, t, now, st);
         }
-        tr->sounding = st->note;
-        tr->last_note = st->note;
-        tr->last_nvoice = tr->nvoice;
-        memcpy(tr->last_voice, tr->voice, sizeof tr->voice);
-        uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
-        tr->off_tick = now + (gl ? gl : 1);
     }
     s->tick++;
 }
@@ -223,6 +235,11 @@ void seq_step_adjust(Seq *s, int t, int i, int dn, int dv, int dg, int dp) {
 void seq_step_hold(Seq *s, int t, int i, int d) {
     SeqStep *st = &s->track[t].step[i];
     st->hold = (uint8_t)clampi(st->hold + d, 0, SEQ_MAX_HOLD);
+}
+
+void seq_step_nudge(Seq *s, int t, int i, int d) {
+    SeqStep *st = &s->track[t].step[i];
+    st->nudge = (int8_t)clampi(st->nudge + d, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
 }
 
 int seq_any_solo(const Seq *s) {
@@ -387,6 +404,7 @@ void seq_save(const Seq *s, FILE *f) {
                 const SeqStep *st = &sl->step[i];
                 fprintf(f, "ss %d %d %d %d %d %d %d %d %d\n", t, k, i, st->on, st->note, st->vel, st->gate, st->prob, st->lock);
                 if (st->hold) fprintf(f, "sh %d %d %d %d\n", t, k, i, st->hold);
+                if (st->nudge) fprintf(f, "so %d %d %d %d\n", t, k, i, st->nudge);
             }
         }
         fprintf(f, "ch %d %d %d %d %d %d %d", t, tr->cur_slot, tr->chain_len, tr->chain_pos, tr->chain_bars, tr->chain_morph, SEQ_SLOTS);
@@ -397,11 +415,13 @@ void seq_save(const Seq *s, FILE *f) {
                 const SeqStep *st = &tr->anchor[i];
                 fprintf(f, "a %d %d %d %d %d %d %d\n", t, i, st->on, st->note, st->vel, st->gate, st->prob);
                 if (st->hold) fprintf(f, "ah %d %d %d\n", t, i, st->hold);
+                if (st->nudge) fprintf(f, "ao %d %d %d\n", t, i, st->nudge);
             }
         for (int i = 0; i < SEQ_STEPS; i++) {
             const SeqStep *st = &tr->step[i];
             fprintf(f, "s %d %d %d %d %d %d %d %d\n", t, i, st->on, st->note, st->vel, st->gate, st->prob, st->lock);
             if (st->hold) fprintf(f, "h %d %d %d\n", t, i, st->hold);
+            if (st->nudge) fprintf(f, "o %d %d %d\n", t, i, st->nudge);   /* offset; older versions skip it */
         }
     }
 }
@@ -451,6 +471,15 @@ int seq_load(Seq *s, FILE *f) {
             if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
                 s->track[a].slot[b].step[c].hold = (uint8_t)clampi(d, 0, SEQ_MAX_HOLD);
         }
+        /* offset lines follow their step line too */
+        else if (sscanf(line, "o %d %d %d", &a, &b, &c) == 3) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) s->track[a].step[b].nudge = (int8_t)clampi(c, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
+        } else if (sscanf(line, "ao %d %d %d", &a, &b, &c) == 3) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) s->track[a].anchor[b].nudge = (int8_t)clampi(c, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
+        } else if (sscanf(line, "so %d %d %d %d", &a, &b, &c, &d) == 4) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
+                s->track[a].slot[b].step[c].nudge = (int8_t)clampi(d, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
+        }
         else if (sscanf(line, "sn %d %d %15s", &a, &b, nm) == 3) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS) continue;
             for (char *q = nm; *q; q++) if (*q == '_') *q = ' ';
@@ -464,7 +493,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS || c < 0 || c >= SEQ_STEPS) continue;
             s->track[a].slot[b].step[c] = (SeqStep){(uint8_t)(d != 0), (uint8_t)clampi(e, 0, 127),
                                                     (uint8_t)clampi(g, 1, 127), (uint8_t)clampi(h, 5, 100),
-                                                    (uint8_t)clampi(k, 0, 100), (uint8_t)(n != 0), 0};
+                                                    (uint8_t)clampi(k, 0, 100), (uint8_t)(n != 0), 0, 0};
         } else if (sscanf(line, "ch %d %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g, &h) == 7) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             SeqTrack *tr = &s->track[a];
@@ -496,7 +525,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
             s->track[a].anchor[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
                                               (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
-                                              (uint8_t)clampi(h, 0, 100), 0, 0};
+                                              (uint8_t)clampi(h, 0, 100), 0, 0, 0};
             s->track[a].has_anchor = 1;
         } else if (sscanf(line, "e %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
@@ -520,7 +549,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
             s->track[a].step[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
                                             (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
-                                            (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0};
+                                            (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0, 0};
         }
     }
     return 0;

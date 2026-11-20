@@ -404,7 +404,7 @@ static void test_evolution(void) {
     seq_init(&s, NULL, NULL);
     seq_load_demo(&s);
     gen_set_anchor(&s, 0);
-    s.track[0].step[5] = (SeqStep){1, 40, 77, 33, 66, 1};
+    s.track[0].step[5] = (SeqStep){1, 40, 77, 33, 66, 1, 0, 0};
     s.track[0].evo = (EvolveSettings){1, 100, EVO_ALL, 100, 2, 8};
     gen_set_type(&s, 0, GEN_TURING);
     for (int bar = 0; bar < 50; bar++) {
@@ -541,10 +541,10 @@ static void test_slots_and_chain(void) {
     /* locks are kept through morphing */
     seq_init(&s, NULL, NULL);
     seq_slot_store(&s, 0, 0);
-    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1};
+    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1, 0, 0};
     uint8_t one[1] = {0};
     seq_chain_set(&s, 0, one, 1, 1, 100);
-    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1};
+    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1, 0, 0};
     for (uint32_t bar = 1; bar < 5; bar++) seq_chain_bar(&s, 0, bar);
     CHECK(s.track[0].step[2].note == 70 && s.track[0].step[2].lock);
 
@@ -660,6 +660,106 @@ static void test_hold(void) {
     fclose(f);
     CHECK(b.track[1].step[4].hold == 5 && b.track[1].slot[2].step[4].hold == 9 && b.track[1].anchor[4].hold == 9);
     CHECK(b.track[1].step[3].hold == 0);
+}
+
+/* Note-on times (ticks) of track 0, from a seq_tick run. */
+typedef struct { int n; uint32_t at[64]; uint8_t note[64]; const Seq *s; } OnLog;
+static void log_ons(void *ctx, const uint8_t *m, int n) {
+    OnLog *l = ctx; (void)n;
+    if ((m[0] & 0xF0) == 0x90 && (m[0] & 0x0F) == 0 && l->n < 64) { l->at[l->n] = l->s->tick; l->note[l->n++] = m[1]; }
+}
+
+static void run_ons(Seq *s, OnLog *l, int ticks) {
+    memset(l, 0, sizeof *l);
+    l->s = s; s->send = log_ons; s->ctx = l;
+    for (int t = 1; t < SEQ_TRACKS; t++) s->track[t].mute = 1;
+    seq_start(s);
+    for (int i = 0; i < ticks; i++) seq_tick(s);
+}
+
+static void test_nudge(void) {
+    Seq s; OnLog l;
+    /* range clamp */
+    seq_init(&s, NULL, NULL);
+    seq_step_nudge(&s, 0, 0, 100);
+    CHECK(s.track[0].step[0].nudge == SEQ_MAX_NUDGE);
+    seq_step_nudge(&s, 0, 0, -100);
+    CHECK(s.track[0].step[0].nudge == -SEQ_MAX_NUDGE);
+
+    /* late and early notes on a 16-step track: step 4 late by 5, step 8 early by 7.
+     * Step 0 early by 3 plays at Start the first time, then 3 ticks before
+     * each bar line. */
+    seq_init(&s, NULL, NULL);
+    for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
+    s.track[0].len = 16;
+    s.track[0].step[0] = (SeqStep){1, 60, 100, 50, 100, 0, 0, -3};
+    s.track[0].step[4] = (SeqStep){1, 62, 100, 50, 100, 0, 0, 5};
+    s.track[0].step[8] = (SeqStep){1, 64, 100, 50, 100, 0, 0, -7};
+    run_ons(&s, &l, 2 * 384);
+    CHECK(l.n == 7 && l.at[6] == 2 * 384 - 3);   /* bar 3's step 0, early */
+    CHECK(l.at[0] == 0 && l.note[0] == 60);
+    CHECK(l.at[1] == 4 * 24 + 5 && l.note[1] == 62);
+    CHECK(l.at[2] == 8 * 24 - 7 && l.note[2] == 64);
+    CHECK(l.at[3] == 384 - 3 && l.note[3] == 60);
+    CHECK(l.at[4] == 384 + 4 * 24 + 5);
+    CHECK(l.at[5] == 384 + 8 * 24 - 7);
+
+    /* the offset adds to swing: an odd step with swing 6 and offset -11 plays 5 early */
+    seq_init(&s, NULL, NULL);
+    for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
+    s.track[0].len = 16; s.swing = 6;
+    s.track[0].step[3] = (SeqStep){1, 60, 100, 50, 100, 0, 0, -11};
+    s.track[0].step[5] = (SeqStep){1, 62, 100, 50, 100, 0, 0, 11};   /* swing 6 + 11 = 17 late */
+    run_ons(&s, &l, 384);
+    CHECK(l.n == 2 && l.at[0] == 3 * 24 - 5 && l.at[1] == 5 * 24 + 17);
+
+    /* two steps due on the same tick both play (late step 1 with swing 12, early step 2) */
+    seq_init(&s, NULL, NULL);
+    for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
+    s.track[0].len = 16; s.swing = 12;
+    s.track[0].step[1] = (SeqStep){1, 60, 100, 50, 100, 0, 0, 11};    /* 24 + 23 = 47 */
+    s.track[0].step[2] = (SeqStep){1, 62, 100, 50, 100, 0, 0, -1};    /* 48 - 1 = 47 */
+    run_ons(&s, &l, 100);
+    CHECK(l.n == 2 && l.at[0] == 47 && l.at[1] == 47 && l.note[1] == 62);
+
+    /* gate counts from where the note really starts */
+    seq_init(&s, NULL, NULL);
+    for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
+    s.track[0].step[2] = (SeqStep){1, 60, 100, 50, 100, 0, 0, 4};
+    run_ons(&s, &l, 2 * 24 + 4 + 12);   /* ticks 0..63: the note starts at 52 */
+    CHECK(l.n == 1 && l.at[0] == 52 && s.track[0].sounding == 60);
+    seq_tick(&s);   /* tick 64: 12 ticks (50% of a step) after the note started */
+    CHECK(s.track[0].sounding < 0);
+
+    /* no offsets: playback is unchanged (every step on the grid) */
+    seq_init(&s, NULL, NULL);
+    for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
+    s.track[0].len = 16;
+    for (int i = 0; i < 16; i += 2) s.track[0].step[i].on = 1;
+    run_ons(&s, &l, 384);
+    CHECK(l.n == 8);
+    for (int k = 0; k < l.n; k++) CHECK(l.at[k] == (uint32_t)k * 48);
+
+    /* offsets survive save/load, slots and anchors; old files load with none */
+    Seq a, b;
+    seq_init(&a, NULL, NULL);
+    a.track[2].step[6].nudge = -4;
+    seq_slot_store(&a, 2, 1);
+    gen_set_anchor(&a, 2);
+    a.track[2].step[6].nudge = 9;
+    FILE *f = tmpfile();
+    seq_save(&a, f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(b.track[2].step[6].nudge == 9 && b.track[2].slot[1].step[6].nudge == -4 && b.track[2].anchor[6].nudge == -4);
+    CHECK(b.track[2].step[5].nudge == 0);
+    f = tmpfile();
+    fputs("seq4h 1\ns 0 3 1 60 100 50 100 0\no 0 3 99\n", f); rewind(f);   /* out of range: clamped */
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    fclose(f);
+    CHECK(b.track[0].step[3].nudge == SEQ_MAX_NUDGE);
 }
 
 /* Pitch class of a note, as a scale degree 0..6 from the root (7-note scales). */
@@ -1001,6 +1101,7 @@ int main(void) {
     test_styles();
     test_style_presets();
     test_hold();
+    test_nudge();
     test_blank_style();
     test_save_all_slots();
     if (fails) { fprintf(stderr, "%d generator check(s) failed\n", fails); return 1; }

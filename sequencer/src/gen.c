@@ -515,7 +515,7 @@ static void style_blank(Seq *s) {
         tr->gen.span = 2;
         gen_set_type(s, t, GEN_NONE);
         int note = gen_snap_note(s, base[t] + 12);
-        for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0};
+        for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0};
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->has_anchor = 0;
         tr->chain_len = 0;
@@ -552,7 +552,7 @@ int style_apply(Seq *s, int st, int keep_manual) {
         tr->gen.base = pr->base;
         tr->gen.span = pr->span;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold};
+            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold, 0};
         gen_set_type(s, t, pr->gen);
         for (int k = 0; k < gen_param_count(pr->gen); k++)
             if (pr->setp & (1 << k))
