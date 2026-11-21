@@ -67,6 +67,23 @@ static void usage(void) {
          "  --screenshot F   render the UI to a BMP file and exit (for testing)");
 }
 
+/* The port picked on M > MIDI is kept in seq4h.midi next to the pattern file,
+ * and used whenever --midi is not given or is empty. */
+static void midi_file_path(const char *pattern, char *out, size_t n) {
+    const char *slash = strrchr(pattern, '/');
+    if (slash) snprintf(out, n, "%.*s/seq4h.midi", (int)(slash - pattern), pattern);
+    else snprintf(out, n, "seq4h.midi");
+}
+
+static void midi_file_read(const char *path, char *out, size_t n) {
+    out[0] = 0;
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    if (!fgets(out, (int)n, f)) out[0] = 0;
+    fclose(f);
+    out[strcspn(out, "\r\n")] = 0;
+}
+
 int main(int argc, char **argv) {
     const char *midi_name = "", *pattern = "seq4h.pat", *shot = NULL, *keys = NULL, *capture = NULL;
     const char *input_file = NULL;
@@ -106,6 +123,16 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (dump_input) { input_save(&input, stdout); return 0; }
+
+    char midi_file[512], midi_saved[MIDI_PORT_NAME];
+    midi_file_path(pattern, midi_file, sizeof midi_file);
+    if (!*midi_name && !shot && !demo) {
+        midi_file_read(midi_file, midi_saved, sizeof midi_saved);
+        if (*midi_saved) {
+            fprintf(stderr, "seq4h: MIDI output from %s: %s\n", midi_file, midi_saved);
+            midi_name = midi_saved;
+        }
+    }
 
     Midi *midi;
     if (!strcmp(midi_name, "none")) {
@@ -172,7 +199,7 @@ int main(int argc, char **argv) {
 
     UiOptions opt = {.fullscreen = fullscreen, .screenshot = shot, .keys = keys,
                      .input = &input, .show_input = show_input, .verbose = verbose || show_input,
-                     .autosave = shot ? NULL : pattern};
+                     .autosave = shot ? NULL : pattern, .midi_file = shot ? NULL : midi_file};
     int rc = ui_run(&p, &opt);
 
     if (!shot) {

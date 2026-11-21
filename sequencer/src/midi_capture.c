@@ -82,6 +82,18 @@ static int tee_poll(Midi *m) {
     return up;
 }
 
+static int tee_ports(Midi *m, char (*names)[MIDI_PORT_NAME], int max) {
+    TeeMidi *t = (TeeMidi *)m;
+    return t->a->ports(t->a, names, max);
+}
+
+static void tee_choose(Midi *m, const char *match) {
+    TeeMidi *t = (TeeMidi *)m;
+    t->a->choose(t->a, match);
+    snprintf(t->base.desc, sizeof t->base.desc, "%s", t->a->desc);
+    snprintf(t->base.want, sizeof t->base.want, "%s", t->a->want);
+}
+
 static void tee_close(Midi *m) {
     TeeMidi *t = (TeeMidi *)m;
     t->a->close(t->a);
@@ -95,7 +107,10 @@ Midi *midi_tee_open(Midi *a, Midi *b) {
     t->a = a; t->b = b;
     t->base.send = tee_send;
     t->base.poll = a->poll ? tee_poll : NULL;
+    t->base.ports = a->ports ? tee_ports : NULL;
+    t->base.choose = a->choose ? tee_choose : NULL;
     t->base.close = tee_close;
+    snprintf(t->base.want, sizeof t->base.want, "%s", a->want);
     snprintf(t->base.desc, sizeof t->base.desc, "%s", a->desc);   /* the header shows the real port */
     return &t->base;
 }

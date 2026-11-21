@@ -355,6 +355,7 @@ Works and tested on desktop Linux:
   CLOCK page (tap HOME: HOME > MIXER > CLOCK) but does not name the options.
   Whether Felucca follows MIDI Start/Stop is not documented.
 - Bluetooth: the Felucca wiki text lists only USB and TRS, so don't plan on it.
+- **TRS MIDI into the FM1 not working yet** (2026-11-21): USB cable → DIN → host box → FM1 works; DIN → TRS adapter → FM1 doesn't, most likely a Type B adapter. See *USB MIDI cable to the FM1's TRS in*.
 - `knulli/SEQ4H.sh` launcher works on Roy's RG40XX-V (2026-11-19).
 
 ## Next steps (suggested order)
@@ -452,6 +453,86 @@ port). Findings:
   without the FM1 plugged in. seq4h's battery lines in `seq4h.log` give the
   drain over a session; compare a run with the FM1 freshly charged against
   one where it was low.
+
+### USB MIDI cable to the FM1's TRS in (Roy, 2026-11-21)
+
+Goal: the FM1 runs on its own battery or charger, so the handheld stops
+charging it. Roy has a generic USB MIDI cable (USB on one end, 5-pin DIN
+plugs marked IN and OUT on the other) and a DIN to 3.5 mm TRS adapter.
+
+**What happened (2026-11-21):**
+
+- Handheld → powered "USB MIDI host" box: the box's host light stayed off and
+  seq4h showed `MIDI: WAITING`. That can never work. The box is a USB *host*
+  and so is the handheld, and two hosts can't talk to each other. A host box
+  is for plugging USB MIDI *devices* (like the FM1) into DIN gear.
+- Handheld → USB MIDI cable → DIN → TRS adapter → FM1 TRS MIDI in: no sound
+  with either DIN plug.
+- **Works:** handheld → USB MIDI cable → its DIN OUT plug → the host box's
+  DIN in → host box USB → FM1. So seq4h does find the cable and sends through
+  it, and the cable's OUT plug is the one that carries seq4h's MIDI. The host
+  box powers the FM1, so the handheld no longer charges it. In this chain the
+  FM1 gets MIDI over USB from the box, so **set Felucca's clock source back
+  to USB** (HOME > MIXER > CLOCK).
+- So the part that fails is DIN → TRS adapter → FM1. The FM-1's TRS in is
+  **Type A** (the Roland/Arturia/Make Noise wiring). Users who tried both
+  types report that Type B adapters (Korg/Akai/Novation) don't work
+  ([Elektronauts](https://www.elektronauts.com/t/m-vave-fm-1/252170?page=7),
+  [matrixsynth](https://www.matrixsynth.com/2026/10/how-to-hook-up-your-m-vave-fm-1-to.html)).
+  Felucca's MIDI menu has no input-port setting (MIDI IN only picks channels:
+  CH1-4 by default, or TRACK), so there is nothing in Felucca to switch on
+  for TRS. **The most likely cause is a Type B adapter, or one that isn't
+  for this direction.**
+
+**Checks for the TRS route (no SSH):**
+
+1. **The adapter must be Type A.** Look for "TRS-A", "Type A" or "Roland" on
+   the adapter or its listing. "Type B", "Korg", "Akai" or "Novation" means
+   it won't work with the FM1. If it's unmarked, assume it's the wrong type.
+   An adapter that comes with Korg, Novation or Akai gear is Type B. With a
+   multimeter: Type A has DIN pin 5 to the tip, pin 4 to the ring and pin 2
+   to the sleeve. Type B has pins 4 and 5 swapped.
+2. **The adapter must have a female DIN socket and a male 3.5 mm plug.** The
+   cable's DIN plugs are male. A TRS-to-DIN adapter made for a synth's
+   *output* (male DIN plug) won't fit without a DIN coupler.
+3. **Use the cable's DIN plug marked OUT** (proven by the host-box chain). On
+   some cheap cables the labels are swapped, so if OUT does nothing with a
+   known Type A adapter, try IN.
+4. **Use a 3-pole stereo 3.5 mm plug.** A 2-pole mono plug won't carry MIDI.
+5. **On the FM1:** MENU > MIDI > MIDI IN = CH1-4 (seq4h's channels 1-4).
+   Clock source = TRS when MIDI comes in on TRS, USB when it comes from the
+   host box.
+6. **In seq4h:** M > MIDI OUTPUT should list the cable (often
+   `USB2.0-MIDI` or `USB MIDI Interface`), show it with `*`, and say
+   `USB MIDI, DRIVER SND-USB-AUDIO` under USB DEVICES SEEN. The header then
+   says `MIDI: OK`. If the FM1 and the cable are both plugged in (through a
+   hub), pick the cable here with A. The choice is kept for the next start.
+7. **In the log** (`/userdata/roms/ports/seq4h/seq4h.log`, readable from the
+   SD card or Knulli's network share): `seq4h: USB devices seen` lists each
+   device with its ID, name, `MIDI` or `not MIDI`, and the driver. It's
+   written at start and whenever something is plugged in or out. The next
+   line is `seq4h: MIDI connected to ...` or `MIDI WAITING FOR ...`.
+
+If a known Type A adapter still gives nothing, a ready-made DIN-to-TRS-A
+cable or a USB MIDI interface with a 3.5 mm TRS-A out removes the adapter
+from the chain. The host-box chain works now and can stay the setup.
+
+### M > MIDI OUTPUT page (2026-11-21)
+
+Lists the MIDI output ports (ALSA sequencer ports, or raw MIDI devices when
+the kernel has no sequencer, the same order seq4h connects in) with
+**AUTO (first found)** at the top. A picks one: it sends all notes off to the
+old port, connects to the new one, and saves the name to `seq4h.midi` next
+to `seq4h.pat`. The next start uses that port unless `SEQ4H_MIDI` / `--midi`
+names another. AUTO stores an empty line. `*` marks the port in use. The
+right side shows the connection, the chosen port, every USB device from
+`/sys/bus/usb/devices` (hub, USB MIDI and driver, or "not a USB MIDI
+device"), and a hint: nothing detected, not MIDI class, no driver, no port
+yet, or OK (then swap DIN plugs / Type A / channels). seq4h has never
+filtered by device name, so `WAITING` always means Knulli shows no MIDI
+output port at all. Screenshots
+come from `tests/harness.sh screenshots` (`midi-*`, which uses fake USB and
+`SEQ4H_TEST_PORTS`).
 
 ### Code changes for this
 
@@ -1132,6 +1213,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/input.c`, `input.h`: button mapping and the `seq4h.input` file
 - `tests/test_input.c`: mapping tests
 - `src/battery.c`, `battery.h`: battery level from sysfs; `tests/test_battery.c`
+- `src/usbinfo.c`, `usbinfo.h`: USB devices from sysfs for M > MIDI and the log; `tests/test_usbinfo.c`
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `knulli/SEQ4H.sh`: Ports launcher script
