@@ -12,6 +12,7 @@ typedef struct {
     int show_input;           /* show the last raw input on screen and print it to stderr */
     int verbose;              /* print each input device as it is opened */
     const char *autosave;     /* pattern file to keep saved while running (NULL = none); see autosave() */
+    const char *song_dir;     /* folder of the SONG SAVE files (NULL = songs off) */
     const char *midi_file;    /* where M > MIDI keeps the chosen port (NULL = not kept) */
 } UiOptions;
 
