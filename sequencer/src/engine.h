@@ -126,6 +126,11 @@ typedef struct {
     uint8_t drum_down;          /* bit per lane: its note is sounding (not saved) */
     uint8_t drum_note[SEQ_LANES];   /* note each sounding lane sent */
     uint32_t drum_off[SEQ_LANES];   /* tick its note-off is due */
+    uint32_t drum_step_lock;    /* bit per step: generators and evolution leave every lane's hit on it alone */
+    /* Track lock (Y on the GRID's track box): roll, evolve, transforms and NEW
+     * FROM STYLE leave the whole track alone. Hand edits, slots and chains
+     * still work. */
+    uint8_t locked;
 } SeqTrack;
 
 typedef void (*SeqSend)(void *ctx, const uint8_t *msg, int len);
@@ -191,6 +196,23 @@ int  seq_track_audible(const Seq *s, int t);   /* not muted, and soloed if any t
 void seq_lane_mute_toggle(Seq *s, int t, int lane);
 void seq_lane_solo_toggle(Seq *s, int t, int lane);
 int  seq_lane_audible(const SeqTrack *tr, int lane);   /* not muted, and soloed if any lane is */
+void seq_track_lock_toggle(Seq *s, int t);   /* the track lock (SeqTrack.locked) */
+int  seq_step_locked(const Seq *s, int t, int i);   /* step i is locked (note step lock, or a drum track's step lock) */
+void seq_step_lock_toggle(Seq *s, int t, int i);
+
+/* ALL STEPS: change one setting on every step of a track at once (steps
+ * within the track's length; on a drum track every hit of every lane, and only
+ * ALL_VEL and ALL_PROB apply). Locked steps are changed too: this is a hand
+ * edit, and locks only keep generators away. */
+enum { ALL_VEL, ALL_GATE, ALL_HOLD, ALL_NUDGE, ALL_PROB, ALL_KINDS };
+void seq_all_adjust(Seq *s, int t, int what, int delta);   /* add delta to each, clamped */
+void seq_all_set(Seq *s, int t, int what, int value);      /* give each the same value */
+/* Lowest, highest and average value over the steps that play (on steps, or
+ * hits); returns how many there are (0: lo/hi/avg are 0). */
+int  seq_all_range(const Seq *s, int t, int what, int *lo, int *hi, int *avg);
+/* Step locks of the whole track: lock every step, or (if any is locked) unlock every step. Returns 1 if now locked. */
+int  seq_all_lock_toggle(Seq *s, int t);
+int  seq_locked_steps(const Seq *s, int t);   /* locked steps within the track's length */
 void seq_track_len(Seq *s, int t, int delta);
 void seq_track_channel(Seq *s, int t, int delta);
 void seq_adjust_bpm(Seq *s, int delta);

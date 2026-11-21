@@ -308,6 +308,112 @@ void seq_step_nudge(Seq *s, int t, int i, int d) {
     if (live_offset(&s->track[t])) s->track[t].jit[i] = draw_offset(s, &s->track[t], st);
 }
 
+void seq_track_lock_toggle(Seq *s, int t) { s->track[t].locked ^= 1; }
+
+int seq_step_locked(const Seq *s, int t, int i) {
+    const SeqTrack *tr = &s->track[t];
+    if (i < 0 || i >= SEQ_STEPS) return 0;
+    return tr->type == TRACK_DRUMS ? (int)((tr->drum_step_lock >> i) & 1) : tr->step[i].lock;
+}
+
+void seq_step_lock_toggle(Seq *s, int t, int i) {
+    SeqTrack *tr = &s->track[t];
+    if (i < 0 || i >= SEQ_STEPS) return;
+    if (tr->type == TRACK_DRUMS) tr->drum_step_lock ^= 1u << i;
+    else tr->step[i].lock ^= 1;
+}
+
+/* ---- ALL STEPS ---- */
+
+static int all_get(const SeqStep *st, int what) {
+    switch (what) {
+    case ALL_VEL: return st->vel;
+    case ALL_GATE: return st->gate;
+    case ALL_HOLD: return st->hold;
+    case ALL_NUDGE: return st->nudge;
+    default: return st->prob;
+    }
+}
+
+static void all_put(Seq *s, int t, int i, int what, int v) {
+    SeqTrack *tr = &s->track[t];
+    SeqStep *st = &tr->step[i];
+    switch (what) {
+    case ALL_VEL: st->vel = (uint8_t)clampi(v, 1, 127); break;
+    case ALL_GATE: st->gate = (uint8_t)clampi(v, 5, 100); break;
+    case ALL_HOLD: st->hold = (uint8_t)clampi(v, 0, SEQ_MAX_HOLD); break;
+    case ALL_NUDGE:
+        st->nudge = (int8_t)clampi(v, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
+        if (live_offset(tr)) tr->jit[i] = draw_offset(s, tr, st);
+        break;
+    default: st->prob = (uint8_t)clampi(v, 0, 100); break;
+    }
+}
+
+/* add: 1 = v + value, 0 = value */
+static void all_apply(Seq *s, int t, int what, int value, int add) {
+    SeqTrack *tr = &s->track[t];
+    if (what < 0 || what >= ALL_KINDS) return;
+    if (tr->type == TRACK_DRUMS) {
+        if (what != ALL_VEL && what != ALL_PROB) return;
+        for (int l = 0; l < SEQ_LANES; l++)
+            for (int i = 0; i < tr->len; i++) {
+                uint8_t *v = what == ALL_VEL ? &tr->drum.vel[l][i] : &tr->drum.prob[l][i];
+                if (!tr->drum.vel[l][i]) continue;   /* only hits; a velocity of 0 would remove the hit */
+                int nv = add ? *v + value : value;
+                *v = (uint8_t)(what == ALL_VEL ? clampi(nv, 1, 127) : clampi(nv, 0, 100));
+            }
+        return;
+    }
+    for (int i = 0; i < tr->len; i++) all_put(s, t, i, what, add ? all_get(&tr->step[i], what) + value : value);
+}
+
+void seq_all_adjust(Seq *s, int t, int what, int delta) { all_apply(s, t, what, delta, 1); }
+void seq_all_set(Seq *s, int t, int what, int value) { all_apply(s, t, what, value, 0); }
+
+int seq_all_range(const Seq *s, int t, int what, int *lo, int *hi, int *avg) {
+    const SeqTrack *tr = &s->track[t];
+    int n = 0, sum = 0, mn = 1 << 20, mx = -(1 << 20);
+    for (int i = 0; i < tr->len; i++) {
+        if (tr->type == TRACK_DRUMS) {
+            if (what != ALL_VEL && what != ALL_PROB) break;
+            for (int l = 0; l < SEQ_LANES; l++) {
+                if (!tr->drum.vel[l][i]) continue;
+                int v = what == ALL_VEL ? tr->drum.vel[l][i] : tr->drum.prob[l][i];
+                n++; sum += v; mn = v < mn ? v : mn; mx = v > mx ? v : mx;
+            }
+            continue;
+        }
+        if (!tr->step[i].on) continue;
+        int v = all_get(&tr->step[i], what);
+        n++; sum += v; mn = v < mn ? v : mn; mx = v > mx ? v : mx;
+    }
+    if (!n) mn = mx = 0;
+    *lo = mn; *hi = mx;
+    /* rounded half away from zero, so an average offset of -2.5 is -3 */
+    *avg = !n ? 0 : sum >= 0 ? (sum + n / 2) / n : -((-sum + n / 2) / n);
+    return n;
+}
+
+int seq_locked_steps(const Seq *s, int t) {
+    int n = 0;
+    for (int i = 0; i < s->track[t].len; i++) n += seq_step_locked(s, t, i);
+    return n;
+}
+
+int seq_all_lock_toggle(Seq *s, int t) {
+    SeqTrack *tr = &s->track[t];
+    int lock = seq_locked_steps(s, t) == 0;
+    for (int i = 0; i < SEQ_STEPS; i++) {
+        int in = i < tr->len;
+        if (tr->type == TRACK_DRUMS) {
+            if (lock && in) tr->drum_step_lock |= 1u << i;
+            else if (!lock) tr->drum_step_lock &= ~(1u << i);
+        } else if (lock ? in : 1) tr->step[i].lock = (uint8_t)lock;
+    }
+    return lock;
+}
+
 int seq_any_solo(const Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) if (s->track[t].solo) return 1;
     return 0;
@@ -535,6 +641,8 @@ void seq_save(const Seq *s, FILE *f) {
             fprintf(f, "ty %d %d %d %d %d\n", t, tr->type, tr->drum_lock, tr->drum_busy, tr->drum_mute);
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
+        if (tr->locked) fprintf(f, "tl %d 1\n", t);                                     /* track lock; older versions skip it */
+        if (tr->drum_step_lock) fprintf(f, "dl %d %u\n", t, (unsigned)tr->drum_step_lock);   /* drum step locks, bit per step */
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
                 tr->gen.p[3], tr->gen.base, tr->gen.span);
         fprintf(f, "e %d %d %d %d\n", t, tr->evo.every, tr->evo.amount, tr->evo.kinds);
@@ -616,6 +724,9 @@ int seq_load(Seq *s, FILE *f) {
     while (fgets(line, sizeof line, f)) {
         if (line[0] == 'd') {   /* drum lines */
             if (sscanf(line, "dmv %d", &a) == 1) map_version = a;
+            else if (sscanf(line, "dl %d %u", &a, &u) == 2) {
+                if (a >= 0 && a < SEQ_TRACKS) s->track[a].drum_step_lock = (uint32_t)u;
+            }
             else if (sscanf(line, "dh %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
                 if (a >= 0 && a < SEQ_TRACKS) load_hit(&s->track[a].drum, b, c, d, e);
             } else if (sscanf(line, "dah %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
@@ -637,6 +748,9 @@ int seq_load(Seq *s, FILE *f) {
             s->track[a].type = b == TRACK_DRUMS ? TRACK_DRUMS : TRACK_NOTES;
             s->track[a].drum_lock = (uint8_t)c;
             s->track[a].drum_busy = (uint8_t)clampi(d, 0, 100);
+        }
+        else if (sscanf(line, "tl %d %d", &a, &b) == 2) {
+            if (a >= 0 && a < SEQ_TRACKS) s->track[a].locked = b != 0;
         }
         else if (sscanf(line, "bpm %d", &a) == 1) s->bpm = clampi(a, 30, 300);
         else if (sscanf(line, "swing %d", &a) == 1) s->swing = clampi(a, 0, SEQ_MAX_SWING);

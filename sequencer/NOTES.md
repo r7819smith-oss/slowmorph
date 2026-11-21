@@ -39,6 +39,42 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   (`MUTED`, `OFF, SOLO`, `OFF, NOT SOLO`). **Mute is saved, solo is not**
   (decision made without asking): solo is a temporary listen, and a saved
   solo would make tracks seem broken the next time seq4h starts.
+- **Track box X / Y / Select, track locks, ALL STEPS** (Roy, 2026-11-21:
+  "a missed opportunity to assign something to X and Y" on the track label;
+  he also wanted to lock steps or a whole track from generating, and a
+  select-all to change velocity, gate, probability across a track). On the
+  GRID's track label: **X** rolls that track when released; held for 500 ms
+  it undoes the last roll instead (`label_x_*` in `src/ui.c`). **Y** toggles
+  the track lock `SeqTrack.locked` (orange L badge, saved as `tl T 1`).
+  `gen_roll`, `gen_apply`, `gen_evolve_bar`, `gen_transform` and the drum
+  versions return early for a locked track, and `style_apply` keeps a locked
+  track (NEW FROM STYLE and BLANK). Slot loads, chains and hand edits still
+  work on it (decision made without asking: those are your own patterns,
+  not generation). **Select** opens the ALL STEPS page (`P_ALLSTEPS`): VELOCITY,
+  GATE, HOLD, OFFSET, PROBABILITY, STEP LOCKS (drums: VELOCITY, PROBABILITY,
+  STEP LOCKS over every hit). Left/right is relative (`seq_all_adjust`,
+  clamped), A sets every step to the average (`seq_all_set`), STEP LOCKS A
+  locks all or clears all (`seq_all_lock_toggle`). It acts on locked steps
+  too. **Drum step locks**: Y on the GRID on a drum track now locks the step
+  for every lane (`SeqTrack.drum_step_lock`, a bit per step, saved as
+  `dl T MASK`); drum roll, evolve, morph and transforms skip those steps, and
+  REVERSE/SHIFT/ROTATE move hits only round the unlocked steps. Rotate and
+  transpose on the track box were offered but not built (Roy can ask).
+  Tests: `tests/test_lock.c`. Checklist D6.
+- **Stick up/down, stick press and Select shortcuts** (Roy, 2026-11-21:
+  "Up down for velocity, click for quick roll", Select shortcuts, "Select up
+  and down on joystick could nudge tempo"). New buttons `vup` / `vdown`
+  (`B_VUP`, `B_VDOWN`, default `axis 1-` / `axis 1+`, axis number unverified
+  on the RG40XX-V) and `joy 12 roll`. `stick_vertical` in `src/ui.c`: ±4
+  velocity on the GRID step, piano roll note or drum hit; on the track box
+  every step; on a drum step or lane name every hit on it; on list pages
+  the selected row as right/left. Stick press = `B_ROLL` on every page
+  except while naming. `select_combo`: Select held + A roll, X undo, Y track
+  lock, stick up/down BPM ±1. Select still opens the roll/drum grid only
+  when released on its own (`sel_used`), Select+Start still quits. Menu
+  pages (SLOTS, DRUM MAP, MIDI) keep their own Select. Hold-a-button + stick
+  combos: not built, Roy worried they would get messy, and every face button
+  already has a job on the GRID.
 - **M opens a main menu** for session-wide settings (Roy, 2026-11-19; a
   music-style choice will go there, added by the pattern engine work). Under
   Knulli M is joy 11. Knulli also uses M for its hotkeys (M + another
@@ -527,7 +563,7 @@ Works and tested on desktop Linux:
    - a song arrangement mode on top of slot chains (SONG SAVE keeps whole
      sessions, built 2026-11-21; playing songs one after another is not built)
    - a JANGADA preset on M > DRUM MAP (FELUCCA, GM and BLACKBOX are built),
-     once Roy has checked Jangada's drum notes (D6 step 5)
+     once Roy has checked Jangada's drum notes (D7 step 5)
    - device presets for FM1 Open V14 and stock V16, once their channels
      are known
 
@@ -972,7 +1008,7 @@ hear instead, and send `seq4h.log`.
 7. [ ] Quit and restart: the songs are still listed. On the Mac they are
    `roms/ports/seq4h/seq4h-song1.pat` and so on, next to `seq4h.pat`.
 
-**D6. Device presets, clock and Start/Stop (2026-11-21)**
+**D7. Device presets, clock and Start/Stop (2026-11-21)**
 
 On every device: M > DEVICE + CLOCK, pick the device with left/right, press
 **A** twice. The right side lists what to set on the device itself.
@@ -1026,6 +1062,40 @@ plus MIDI OUTPUT, BLANK, DRONE, generators, evolve, slots and autosave. Each
 test has a PASS/FAIL box. Use it in place of A-E for this build, and copy
 the results into the table below.
 
+**D6. Track box, track lock, ALL STEPS, stick and Select shortcuts (2026-11-21 build)**
+
+1. [ ] On the GRID press left from step 1 so the cursor is on **T2**. The
+   bottom lines now list X ROLL, Y LOCK TRACK and SELECT ALL STEPS.
+2. [ ] Tap **X**: T2 gets a new pattern (header says T2 ROLLED). Tap X
+   again for another. Now **hold X** for a second: it goes back to the one
+   before. (A MANUAL track says NO GENERATOR instead.)
+3. [ ] Press **Y**: an orange **L** appears on T2 and the line says LOCK ON.
+   Tap X: the header says T2 IS LOCKED and nothing changes. Play for a few
+   bars with evolve on: T2 never changes while the other tracks evolve.
+4. [ ] With T2 locked, press M: the T2 row reads LOCKED: KEPT. NEW FROM
+   STYLE (A twice) changes the other tracks but not T2. Press Y on T2's
+   track box again to unlock it.
+5. [ ] On the T1 label press **Select**: the ALL STEPS page opens. On
+   VELOCITY press left a few times: every note on T1 gets quieter (the range
+   moves down). Press **A**: every step is set to the average. Try GATE and
+   PROBABILITY the same way and listen on the FM1. **B** goes back to the T1 label.
+6. [ ] On ALL STEPS go to STEP LOCKS and press A: every step on the grid
+   shows a yellow lock square. Press A again: they all go.
+7. [ ] On the drum track, on the GRID press **Y** on a step with hits: a
+   yellow square appears on it and in the drum grid a yellow bar shows above
+   that step. Roll the drum track (X on its label): that step's hits stay.
+8. [ ] Quit and restart: the track lock and the drum step lock are still there.
+9. [ ] Copy the new `seq4h/seq4h.input` too (it adds the stick lines). On
+   the GRID push the **stick up/down** on a note: the header shows STEP n
+   VELOCITY going up/down. If nothing happens, open M > BUTTON CODES, push
+   the stick up and tell me the AXIS number.
+10. [ ] **Press the stick in**: the current track rolls (T1 MANUAL says NO
+   GENERATOR; pick a track with a generator).
+11. [ ] Hold **Select** and press **A** (roll), **X** (undo), **Y** (lock: L
+   badge). Hold Select and push the stick up/down: BPM changes by 1. Let go
+   of Select: the piano roll must NOT open. Select alone still opens it, and
+   Select + Start still quits.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1073,7 +1143,8 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | PR 29 build | not tested yet: `tests/hardware-sheet-pr29.md` |
 | Drum lane mute/solo (D4) | not tested yet |
 | Song save (D5) | not tested yet |
-| Device presets, clock and Start/Stop (D6) | not tested yet |
+| Track box X/Y/Select, locks, ALL STEPS, stick and Select shortcuts (D6) | not tested yet |
+| Device presets, clock and Start/Stop (D7) | not tested yet |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)

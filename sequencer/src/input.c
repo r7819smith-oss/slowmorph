@@ -7,7 +7,7 @@
 
 static const char *BTN_NAMES[B_COUNT] = {
     "up", "down", "left", "right", "a", "b", "x", "y", "l", "r", "l2", "r2", "select", "start", "menu",
-    "page", "roll", "undo", "lock", "quit", "prev", "next",
+    "page", "roll", "undo", "lock", "quit", "prev", "next", "vup", "vdown",
 };
 
 static const char *HAT_NAMES[4] = {"up", "right", "down", "left"};
@@ -47,13 +47,14 @@ void input_defaults(InputMap *m) {
      * firmware numbers the same buttons 3 lower (A=0 ... Start=7). */
     static const struct { int code; Btn b; } JOY[] = {
         {3, B_A}, {4, B_B}, {5, B_Y}, {6, B_X}, {7, B_L}, {8, B_R},
-        {9, B_SEL}, {10, B_START}, {11, B_MENU}, {13, B_L2}, {14, B_R2},
+        {9, B_SEL}, {10, B_START}, {11, B_MENU}, {12, B_ROLL}, {13, B_L2}, {14, B_R2},
     };
     for (size_t i = 0; i < sizeof JOY / sizeof JOY[0]; i++) m->joy[JOY[i].code] = JOY[i].b;
     m->hat[0] = B_UP; m->hat[1] = B_RIGHT; m->hat[2] = B_DOWN; m->hat[3] = B_LEFT;
     /* the analog stick, left / right: previous / next step (axis 0 is the
      * stick's left-right on SDL's usual numbering; check with BUTTON CODES) */
     m->axis[0][0] = B_PREV; m->axis[0][1] = B_NEXT;
+    m->axis[1][0] = B_VUP; m->axis[1][1] = B_VDOWN;   /* up / down (axis 1, unverified on the RG40XX-V) */
 
     /* SDL game controller names (used for pads SDL recognises, in auto or controller mode) */
     m->pad[SDL_CONTROLLER_BUTTON_DPAD_UP] = B_UP;
@@ -71,6 +72,9 @@ void input_defaults(InputMap *m) {
     m->pad[SDL_CONTROLLER_BUTTON_GUIDE] = B_MENU;
     m->pad_axis[SDL_CONTROLLER_AXIS_LEFTX][0] = B_PREV;
     m->pad_axis[SDL_CONTROLLER_AXIS_LEFTX][1] = B_NEXT;
+    m->pad_axis[SDL_CONTROLLER_AXIS_LEFTY][0] = B_VUP;
+    m->pad_axis[SDL_CONTROLLER_AXIS_LEFTY][1] = B_VDOWN;
+    m->pad[SDL_CONTROLLER_BUTTON_LEFTSTICK] = B_ROLL;   /* stick press: quick roll */
     m->pad_axis[SDL_CONTROLLER_AXIS_TRIGGERLEFT][1] = B_L2;
     m->pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] = B_R2;
 
@@ -80,7 +84,7 @@ void input_defaults(InputMap *m) {
         {SDLK_z, B_A}, {SDLK_x, B_B}, {SDLK_c, B_X}, {SDLK_v, B_Y},
         {SDLK_q, B_L}, {SDLK_w, B_R}, {SDLK_1, B_L2}, {SDLK_2, B_R2}, {SDLK_TAB, B_SEL}, {SDLK_SPACE, B_START}, {SDLK_m, B_MENU},
         {SDLK_e, B_PAGE}, {SDLK_r, B_ROLL}, {SDLK_u, B_UNDO}, {SDLK_k, B_LOCK}, {SDLK_ESCAPE, B_QUIT},
-        {SDLK_COMMA, B_PREV}, {SDLK_PERIOD, B_NEXT},
+        {SDLK_COMMA, B_PREV}, {SDLK_PERIOD, B_NEXT}, {SDLK_RIGHTBRACKET, B_VUP}, {SDLK_LEFTBRACKET, B_VDOWN},
     };
     for (size_t i = 0; i < sizeof KEYS / sizeof KEYS[0]; i++) set_key(m, KEYS[i].k, KEYS[i].b);
 }
