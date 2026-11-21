@@ -2,6 +2,7 @@
 #include "drum.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define BIT(n) (1u << (n))
@@ -117,7 +118,9 @@ static const struct { const char *name; int n; Param p[4]; } GENS[GEN_COUNT] = {
     [GEN_DRONE] = {"DRONE", 3, {{"NOTES", 1, 4, 1}, {"MOVE", 0, 10, 3}, {"HOME", 0, 10, 5}}},
     [GEN_DRIFT] = {"DRIFT", 3, {{"NOTES", 1, 8, 3}, {"HOLD", 0, 10, 8}, {"STEP", 1, 3, 1}}},
     [GEN_BELL] = {"BELL", 4, {{"NOTES", 1, 8, 2}, {"CHANCE", 1, 10, 6}, {"HEIGHT", 0, 2, 1}, {"SOFTEN", 0, 10, 4}}},
+    [GEN_CHORDS] = {"CHORDS", 4, {{"CHANGE", 0, 3, 2}, {"CHORD", 0, 5, 0}, {"MOVE", 0, 10, 6}, {"RHYTHM", 0, 3, 0}}},
 };
+static const char *CHORDS_RHYTHM[4] = {"HOLD", "PULSE", "STABS", "SWAY"};
 static const char *FOLLOW_RHYTHM[4] = {"SAME", "GAPS", "ECHO", "HALF"};
 static const char *FOLLOW_PITCH[3] = {"ROOT", "HARMONY", "KEEP"};
 static const char *ARP_CHORD[6] = {"TRIAD", "SEVENTH", "SUS2", "SUS4", "ADD9", "POWER"};
@@ -184,6 +187,12 @@ void gen_param_text(int type, int k, int v, char out[16]) {
         if (k == 1) { snprintf(out, 16, "%d%%", v * 10); return; }
         if (k == 2) { snprintf(out, 16, "%d DEG", v); return; }
         break;
+    case GEN_CHORDS:
+        if (k == 0) { snprintf(out, 16, "EVERY %d", 4 << (v & 3)); return; }
+        if (k == 1) { snprintf(out, 16, "%s", ARP_CHORD[v % 6]); return; }
+        if (k == 2) { snprintf(out, 16, "%d%%", v * 10); return; }
+        if (k == 3) { snprintf(out, 16, "%s", CHORDS_RHYTHM[v & 3]); return; }
+        break;
     case GEN_BELL:
         if (k == 1 || k == 3) { snprintf(out, 16, "%d%%", v * 10); return; }
         if (k == 2) { snprintf(out, 16, "+%d OCT", v); return; }
@@ -203,6 +212,7 @@ void gen_set_type(Seq *s, int t, int type) {
     /* FOLLOW defaults to the track above (track 1 follows track 2). */
     if (g->type == GEN_FOLLOW) g->p[0] = (uint8_t)(t == 0 ? 2 : t);
     if (g->type == GEN_TURING && g->state == 0) g->state = seq_rand(s) | 1;
+    if (g->type == GEN_CHORDS && !s->track[t].poly) seq_track_poly(s, t, 1);   /* chords need POLY */
 }
 
 void gen_load_settings(GenSettings *g, int type, int p0, int p1, int p2, int p3, int base, int span) {
@@ -592,7 +602,7 @@ static void blank_track(Seq *s, int t) {
     tr->gen.span = 2;
     gen_set_type(s, t, GEN_NONE);
     int note = gen_snap_note(s, base[t] + 12);
-    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0};
+    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0, {0}};
     tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
     tr->has_anchor = 0;
     memset(tr->drum.vel, 0, sizeof tr->drum.vel);   /* a drum track stays one, with empty lanes */
@@ -643,7 +653,7 @@ int style_apply_tracks(Seq *s, int lead, const int style[SEQ_TRACKS], const int 
         tr->gen.base = pr->base;
         tr->gen.span = pr->span;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold, 0};
+            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold, 0, {0}};
         gen_set_type(s, t, pr->gen);
         for (int k = 0; k < gen_param_count(pr->gen); k++)
             if (pr->setp & (1 << k))
@@ -692,7 +702,7 @@ int style_apply(Seq *s, int st, int keep_manual) {
 
 const char *gen_short_name(int type) {
     static const char *N[GEN_COUNT] = {"MANUAL", "EUCLID", "WALK", "MARKOV", "CHAOS", "CA", "WEIGHT",
-                                       "FOLLOW", "ARP", "TURING", "MOTIF", "DRONE", "DRIFT", "BELL"};
+                                       "FOLLOW", "ARP", "TURING", "MOTIF", "DRONE", "DRIFT", "BELL", "CHORDS"};
     return N[tidx(type)];
 }
 
@@ -718,6 +728,8 @@ void gen_apply(Seq *s, int t) {
     uint8_t pool[64];
     int n = gen_pool(s, t, pool), len = tr->len;
     int on[SEQ_STEPS], idx[SEQ_STEPS], note[SEQ_STEPS], vel[SEQ_STEPS], hold[SEQ_STEPS], gate[SEQ_STEPS], prob[SEQ_STEPS];
+    int8_t more[SEQ_STEPS][3];   /* chord notes (GEN_CHORDS); the other generators write single notes */
+    memset(more, 0, sizeof more);
     for (int i = 0; i < SEQ_STEPS; i++) {
         on[i] = tr->step[i].on;
         idx[i] = note[i] = vel[i] = hold[i] = gate[i] = prob[i] = -1;
@@ -1024,12 +1036,72 @@ void gen_apply(Seq *s, int t) {
         }
         break;
     }
+    case GEN_CHORDS: {
+        /* One chord every CHANGE steps. The root moves round the scale (by a
+         * fourth, fifth, third or step) with chance MOVE, and each chord takes
+         * the inversion closest to the last one, so the voices move little.
+         * The step's own note is the chord's lowest note. */
+        int sz = scale_size(s), every = 4 << (p[0] & 3);
+        const int8_t *shape = ARP_DEG[p[1] % 6];   /* in degrees; in the chromatic scale ARP_SEMI */
+        if (sz == 12) shape = ARP_SEMI[p[1] % 6];
+        int nshape = 0;
+        while (nshape < 4 && shape[nshape] >= 0) nshape++;
+        int lo = gen_note_degree(s, pool[0]), hi = gen_note_degree(s, pool[n - 1]);
+        int maxdeg = gen_note_degree(s, 127);
+        static const int8_t MOVES[8] = {3, 4, -3, -4, 2, 5, -2, 1};   /* fourth, fifth, ... in scale degrees */
+        int root = 0, prev[4] = {0}, have_prev = 0;
+        for (int i = 0; i < len; i++) on[i] = 0;
+        for (int c = 0; c * every < len; c++) {
+            if (c > 0 && chance(s, p[2] * 10)) {
+                int mv = MOVES[pick(s, 8)];
+                if (sz != 7 && sz != 12) mv = mv > 0 ? (mv + 1) / 2 : -((1 - mv) / 2);   /* pentatonic etc.: smaller moves */
+                if (sz == 12) mv = mv == 3 ? 5 : mv == 4 ? 7 : mv == -3 ? -5 : mv == -4 ? -7 : mv * 2;
+                root = ((root + mv) % sz + sz) % sz;
+            }
+            /* the inversion nearest the last chord, inside the track's range if it can be */
+            int best[4] = {0}, bscore = 1 << 30;
+            for (int inv = 0; inv < nshape; inv++)
+                for (int oct = -1; oct <= 1; oct++) {
+                    int tone[4], score = 0;
+                    for (int k = 0; k < nshape; k++) {
+                        int j = (k + inv) % nshape;
+                        tone[k] = lo + root + shape[j] + (k + inv >= nshape ? sz : 0) + oct * sz;
+                    }
+                    if (tone[0] < 0 || tone[nshape - 1] > maxdeg) continue;
+                    if (tone[0] < lo) score += 1000 * (lo - tone[0]);
+                    if (tone[nshape - 1] > hi) score += 50 * (tone[nshape - 1] - hi);
+                    for (int k = 0; k < nshape; k++)
+                        score += have_prev ? abs(tone[k] - prev[k]) * 10 : (inv ? 5 : 0) + (oct ? 5 : 0);
+                    if (score < bscore) { bscore = score; memcpy(best, tone, sizeof best); }
+                }
+            memcpy(prev, best, sizeof prev);
+            have_prev = 1;
+            int a = c * every, end = a + every > len ? len : a + every;
+            int hits[8], nh = 0;
+            switch (p[3] & 3) {
+            case 0: hits[nh++] = a; break;                                            /* HOLD */
+            case 1: for (int i = a; i < end && nh < 8; i += 4) hits[nh++] = i; break;  /* PULSE: every beat */
+            case 2: for (int i = a + 2; i < end && nh < 8; i += 4) hits[nh++] = i; break;   /* STABS: off the beat */
+            default: hits[nh++] = a; if (a + every / 2 + 2 < end) hits[nh++] = a + every / 2 + 2; break;   /* SWAY */
+            }
+            for (int h = 0; h < nh; h++) {
+                int i = hits[h], to = h + 1 < nh ? hits[h + 1] : end, span = to - i;
+                on[i] = 1;
+                note[i] = gen_degree_note(s, best[0]);
+                for (int k = 1; k < nshape && k < SEQ_POLY; k++) more[i][k - 1] = (int8_t)(best[k] - best[0]);
+                if ((p[3] & 3) == 2) { hold[i] = 0; gate[i] = 50; }   /* short stabs */
+                else { hold[i] = span - 1 > SEQ_MAX_HOLD ? SEQ_MAX_HOLD : span - 1; gate[i] = 95; }
+            }
+        }
+        break;
+    }
     default: return;
     }
 
     for (int i = 0; i < len; i++) {
         SeqStep *st = &tr->step[i];
         if (st->lock) continue;
+        memcpy(st->more, more[i], sizeof st->more);
         st->on = (uint8_t)(on[i] != 0);
         if (idx[i] >= 0) st->note = pool[idx[i]];
         if (note[i] >= 0) st->note = (uint8_t)(note[i] > 127 ? 127 : note[i]);
@@ -1177,6 +1249,7 @@ void gen_morph(Seq *s, int t, const SeqStep *target, int pct) {
         if (st->lock) continue;
         int differs = st->on != an->on || st->note != an->note || st->vel != an->vel || st->prob != an->prob ||
                       st->gate != an->gate || st->hold != an->hold;
+        differs |= memcmp(st->more, an->more, sizeof st->more) != 0;
         if (differs && chance(s, pct)) { *st = *an; st->lock = 0; }
     }
 }
@@ -1225,7 +1298,8 @@ int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX
 }
 
 const char *gen_xform_name(int op) {
-    static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR", "SPREAD", "ON GRID"};
+    static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR", "SPREAD", "ON GRID",
+                                      "WRITE CHORD"};
     return op >= 0 && op < XF_COUNT ? N[op] : "?";
 }
 
@@ -1250,6 +1324,7 @@ void gen_transform(Seq *s, int t, int op, int amount) {
             SeqStep *st = &tr->step[pos[k]];
             int d = 2 * pivot - gen_note_degree(s, st->note);
             st->note = (uint8_t)gen_degree_note(s, d < 0 ? 0 : d > maxdeg ? maxdeg : d);
+            for (int c = 0; c < 3; c++) st->more[c] = (int8_t)-st->more[c];   /* chords turn over too */
         }
         break;
     }
@@ -1288,7 +1363,12 @@ void gen_transform(Seq *s, int t, int op, int amount) {
         }
         break;
     case XF_CLEAR:
-        for (int k = 0; k < np; k++) tr->step[pos[k]].on = 0;
+        for (int k = 0; k < np; k++) { tr->step[pos[k]].on = 0; memset(tr->step[pos[k]].more, 0, sizeof tr->step[0].more); }
+        break;
+    case XF_CHORD:
+        for (int k = 0; k < np; k++)
+            if (tr->step[pos[k]].on) seq_step_set_chord(s, t, pos[k], tr->chord);
+        if (tr->chord && !tr->poly) seq_track_poly(s, t, 1);
         break;
     case XF_SPREAD: {
         /* Offsets off the grid: -a..-MIN and MIN..a. Deal them out in a shuffled

@@ -1,4 +1,4 @@
-# Test sheet: M > MODULATION (LFOs, CC destinations, MIDI IN, learn) (10 tests)
+# Genvolve test sheet: M > MODULATION (LFOs, CC destinations, MIDI IN, learn) (10 tests)
 
 Install the build linked in the PR (see NOTES.md, *Test checklist > How to
 install a new build*). Your saved pattern, slots, songs and DRUM MAP carry
@@ -128,5 +128,5 @@ with modulation on (listen for timing wobble while several destinations run).
 
 ---
 
-Afterwards, send `seq4h.log` if anything failed: it has a line each time the
+Afterwards, send `genvolve.log` if anything failed: it has a line each time the
 MIDI input opens or closes (`MIDI input open: ...`) and each learned CC.

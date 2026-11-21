@@ -417,7 +417,7 @@ Midi *midi_alsa_open(const char *match, char *err, size_t errlen) {
     snprintf(a->base.in_desc, sizeof a->base.in_desc, "NOT LISTENING");
 
     if (snd_seq_open(&a->seq, "default", SND_SEQ_OPEN_OUTPUT, 0) >= 0) {
-        snd_seq_set_client_name(a->seq, "seq4h");
+        snd_seq_set_client_name(a->seq, "Genvolve");
         a->port = snd_seq_create_simple_port(a->seq, "out", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
                                              SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
         if (a->port < 0) { snd_seq_close(a->seq); a->seq = NULL; }

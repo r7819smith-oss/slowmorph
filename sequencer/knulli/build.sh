@@ -1,14 +1,14 @@
 #!/bin/sh
-# Reproducible aarch64 build of seq4h for Knulli (RG40XX-V), packaged as a zip.
+# Reproducible aarch64 build of Genvolve (built as seq4h, its old name) for
+# Knulli (RG40XX-V), packaged as a zip.
 #
 # Needs only Docker. Run from anywhere:
 #   sequencer/knulli/build.sh
 # Output:
-#   sequencer/dist/seq4h          aarch64 binary
-#   sequencer/dist/seq4h-knulli-aarch64.zip   unzip into /userdata/roms/ports/
-#     (SEQ4H.sh, USB-MIDI-CHECK.sh, seq4h/seq4h, seq4h/seq4h.input,
-#     seq4h/README.md; the zip keeps
-#     the execute bits)
+#   sequencer/dist/genvolve       aarch64 binary
+#   sequencer/dist/genvolve-knulli-aarch64.zip   unzip into /userdata/roms/ports/
+#     (GENVOLVE.sh, SHOW-BUTTONS.sh, USB-MIDI-CHECK.sh, genvolve/genvolve,
+#     genvolve/seq4h.input, genvolve/README.md; the zip keeps the execute bits)
 #
 # SEQ4H_IMAGE=name   use an image you already built instead of building one.
 # SEQ4H_IN_CONTAINER=1   skip Docker and use this machine's tools (used inside
@@ -79,18 +79,19 @@ else
     echo "qemu-aarch64-static not found: skipping aarch64 smoke test"
 fi
 
-# 5. Package in the layout the Ports launcher expects.
+# 5. Package in the layout the Ports launcher expects. The source and make
+#    target keep the old name seq4h; the installed app is genvolve.
 rm -rf dist
-mkdir -p dist/pkg/seq4h
-cp seq4h dist/seq4h
-cp seq4h dist/pkg/seq4h/seq4h
-cp knulli/SEQ4H.sh knulli/SHOW-BUTTONS.sh knulli/USB-MIDI-CHECK.sh dist/pkg/
-cp README.md dist/pkg/seq4h/README.md
-cp knulli/seq4h.input dist/pkg/seq4h/seq4h.input
-chmod 755 dist/pkg/*.sh dist/pkg/seq4h/seq4h
+mkdir -p dist/pkg/genvolve
+cp seq4h dist/genvolve
+cp seq4h dist/pkg/genvolve/genvolve
+cp knulli/GENVOLVE.sh knulli/SHOW-BUTTONS.sh knulli/USB-MIDI-CHECK.sh dist/pkg/
+cp README.md dist/pkg/genvolve/README.md
+cp knulli/seq4h.input dist/pkg/genvolve/seq4h.input
+chmod 755 dist/pkg/*.sh dist/pkg/genvolve/genvolve
 # Fixed timestamps so the zip is byte-for-byte reproducible.
 find dist/pkg -exec touch -h -d '2000-01-01 00:00:00' {} +
-(cd dist/pkg && TZ=UTC zip -X -r -q ../seq4h-knulli-aarch64.zip SEQ4H.sh SHOW-BUTTONS.sh USB-MIDI-CHECK.sh seq4h)
+(cd dist/pkg && TZ=UTC zip -X -r -q ../genvolve-knulli-aarch64.zip GENVOLVE.sh SHOW-BUTTONS.sh USB-MIDI-CHECK.sh genvolve)
 rm -rf dist/pkg
 make clean PKG="$CROSS_PKG" >/dev/null
-( cd dist && sha256sum seq4h seq4h-knulli-aarch64.zip )
+( cd dist && sha256sum genvolve genvolve-knulli-aarch64.zip )

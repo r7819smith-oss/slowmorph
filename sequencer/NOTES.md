@@ -1,4 +1,4 @@
-# seq4h handoff notes
+# Genvolve (was seq4h) handoff notes
 
 Use this to resume work in a new chat or a Claude Project. For usage and
 controls see [README.md](README.md). The sequencer is on `main`. USB MIDI
@@ -16,6 +16,24 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 
 ## Decisions made
 
+- **Renamed to Genvolve** (Roy, 2026-11-21, from the build after main
+  f2f57f2). What changed: the header and window title read GENVOLVE, the
+  Ports launcher is `knulli/GENVOLVE.sh` with a `genvolve/` folder and a
+  `genvolve` binary, the log is `genvolve/genvolve.log`, the ALSA client is
+  `Genvolve`, the CI workflow is *Genvolve aarch64 build* and the artifact
+  and zip are `genvolve-knulli-aarch64`. `GENVOLVE_MIDI` and
+  `GENVOLVE_SHOW_INPUT` replace `SEQ4H_MIDI` / `SEQ4H_SHOW_INPUT` (the old
+  names still work). What kept the old name, on purpose: the saved files
+  (`seq4h.pat`, `seq4h.midi`, `seq4h-song1..8.pat`, `seq4h.input`) and the
+  `seq4h 1` file header, so no saved work needs converting and older builds
+  still read them; and the source, make targets (`make seq4h`,
+  `seq4h-render`), header guards, `SEQ4H_*` test variables and the `seq4h:`
+  log prefix, so parallel branches don't conflict. The GitHub repo stays
+  `slowmorph`. On its first start `GENVOLVE.sh` copies `seq4h.pat`,
+  `seq4h.midi` and `seq4h-song*.pat` from an old `seq4h/` folder next to it
+  into `genvolve/`, never overwriting a file already there and leaving the
+  old folder untouched. Roy's steps: README *Moving from seq4h* and
+  checklist D8.
 - **C, SDL2, ALSA sequencer.** The engine (`src/engine.c`, `src/gen.c`) is pure
   C with a send callback, so it is unit-tested on a normal machine. The ALSA
   sequencer backend was chosen because USB MIDI and BlueZ BLE-MIDI both show up
@@ -200,9 +218,9 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     per track; a rest lasts 1-4 bars and is always followed by at least one
     played bar; rests let held notes ring out; the running rest is not saved
     and `seq_start` clears it.
-  - **Not verified on the FM1:** whether a Felucca track plays several notes
-    at once on its channel. If it is monophonic, a chord track will just
-    play its top note; turn CHORD off on that track.
+  - Whether a Felucca track plays several notes at once: yes, when that FM1
+    track's voice mode is POLY (EDIT > VOICE, `VCE`); see *Polyphonic
+    tracks* below. Not yet checked by ear.
   - Evolution every 16, 32 or 64 bars (`SEQ_MAX_EVERY`), and AMOUNT moves
     in 1% steps below 10%.
   - `STYLE_DRONE` (appended after BLANK): A dorian, 66 BPM, DRONE bass with
@@ -456,6 +474,75 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Tests: `test_drum` `test_lane_mute_solo` (mute, solo, solo on a muted
     lane, hit released on mute, saved mutes, unsaved solos, old `ty` line);
     screenshots `drums-lane-mute`, `drums-lane-solo`.
+- **Polyphonic tracks** (Roy, 2026-11-21: "the midi is set up for
+  monophonic, tracks should also be able to be polyphonic").
+  - **What Felucca accepts** (from its firmware source, github
+    hugelton/Felucca at ca1db43, `firmware/src/core.h`, `voice.c`,
+    `params.c`): each FM1 track has a voice mode `VCE` on EDIT > VOICE
+    (knob 1): POLY, MONO, LEG (legato) or UNI (unison). Only POLY plays
+    chords; MONO/LEG/UNI play one note. Presets marked mono load as LEG, so
+    check it per sound. In POLY a track has up to 8 voices (`NVOICE`), fewer
+    on some engines (FM6 6, VOICE 4, GRAIN 3, PHYS 3), and **all four tracks
+    share one budget of 8 sounding voices**. When it is full, Felucca takes
+    the oldest released voice, then extra UNISON voices, then the oldest held
+    note of a POLY track that is not its lowest note (the bass is kept). The
+    DRUM engine is always POLY (its lanes). MIDI IN plays every note it gets
+    on a track's channel through the same allocator. So two 4-note chord
+    tracks already fill the FM1; keep chords to 3 notes, or let pads ring on
+    one track only, when other tracks play too.
+  - **seq4h:** `SeqTrack.poly` (TRACK page, last row **VOICES**, so the
+    other rows and the harness key sequences stay put). MONO is the default
+    and plays exactly as before (one note at a time, the next cuts the last;
+    the CHORD row's colour chord still stacks, as before). POLY plays a
+    step's chord notes and lets every note ring for its own gate + hold over
+    later notes, in a per-track voice table (`pv_note`/`pv_off`, 8 =
+    `SEQ_POLY_VOICES`, matching Felucca): the same note again is
+    note-off then note-on, and when 8 are sounding the one due to end first
+    is released. Every release path (stop, mute/solo, VOICES change, channel
+    change, TYPE change, panic on replug, rests let notes ring) empties the
+    table, and a stop also sends CC123.
+  - **Chord notes per step:** `SeqStep.more[3]` = up to 3 notes besides the
+    step's own (4 in all, `SEQ_POLY`), stored as **scale degrees from the
+    step's note** (not MIDI notes). Decided without asking: this way a chord
+    moves with its note (NOTE row, piano roll Y + up/down, TRANSPOSE,
+    evolution pitch, scale snap, a new scale) and always stays in the scale;
+    INVERT turns chords over (offsets negated); CLEAR empties them; morph and
+    the anchor pull carry them. All chord notes play at the step's velocity
+    (CHORD-row notes stay at 80%). MONO keeps a step's chord notes but does
+    not send them. Taking a step's own note out in the piano roll hands that
+    role to its lowest chord note.
+  - **Editing:** piano roll on a POLY track: A adds the cursor's pitch to the
+    step's chord or takes it out (4 at most, "4 NOTES A STEP AT MOST"); MONO
+    keeps the old A (move the note). STEP page: new last row **CHORD** sets
+    a shape on the step (OFF/FIFTH/TRIAD/SUS2/SUS4/SEVENTH/OPEN, from
+    `gen_chord_notes`), shows "n NOTES" for a hand-made chord, and lists the
+    notes on the right. A chord edit on a MONO track switches it to POLY
+    (and says so). Grid and roll: POLY notes are drawn ringing past the next
+    note; white dots on a grid step = its chord notes; the info line shows
+    "C3+2".
+  - **Generators:** new `GEN_CHORDS` (appended after BELL): one chord every
+    4/8/16/32 steps, root moving by a fourth/fifth/third/step with chance
+    MOVE (smaller moves in 5-note scales), the inversion nearest the last
+    chord (voice leading, kept in the track's range), RHYTHM
+    HOLD/PULSE/STABS/SWAY; choosing it sets POLY. The other generators now
+    write single notes (they clear unlocked steps' chord notes; lock a step
+    to keep its chord). New transform **WRITE CHORD** (`XF_CHORD`, appended):
+    the CHORD row's chord becomes each sounding step's own chord notes and
+    the track goes POLY; with CHORD OFF it clears them. The CHORD row itself
+    is unchanged, so the AMBIENT and DRONE sets sound as before.
+  - **Save format** still `seq4h 1`: `vo T 1` for a POLY track, and
+    `x T I a b c` / `ax T I a b c` / `sx T K I a b c` (chord degrees of a
+    step, anchor step and slot step), written only when used, after their
+    step line. Older builds skip these lines (the track plays MONO single
+    notes); older files load as MONO with no chords.
+  - Tests: `tests/test_poly.c` (chord helpers, MONO vs POLY playback and
+    overlap, retrigger, the 8-voice cap, every release path, save/load
+    round trip and old files, CHORDS generator and voice leading, WRITE
+    CHORD/INVERT/CLEAR/morph, 1500 bars of the DRONE set all POLY with no
+    note-on twice and nothing left sounding). Harness: a 256-bar render of
+    `tests/fixtures/poly.pat` (`midicheck --poly`) and six screenshots
+    (`track-voices-poly`, `step-chord`, `roll-chord`, `grid-chord`,
+    `generate-chords`, `roll-chords-gen`).
 - **Song save** (Roy, 2026-11-21: "a song save mode as well as the
   pattern/track save ... from the M menu but separate to the Slots, perhaps
   rename that pattern save and song save"). M > SLOTS is now **PATTERN
@@ -577,7 +664,8 @@ Works and tested on desktop Linux:
   Whether Felucca follows MIDI Start/Stop is not documented.
 - Bluetooth: the Felucca wiki text lists only USB and TRS, so don't plan on it.
 - **TRS MIDI into the FM1 not working yet** (2026-11-21): USB cable → DIN → host box → FM1 works; DIN → TRS adapter → FM1 doesn't, most likely a Type B adapter. See *USB MIDI cable to the FM1's TRS in*.
-- `knulli/SEQ4H.sh` launcher works on Roy's RG40XX-V (2026-11-19).
+- `knulli/SEQ4H.sh` launcher works on Roy's RG40XX-V (2026-11-19). It is now
+  `knulli/GENVOLVE.sh` (2026-11-21), not yet run on the device: checklist D8.
 
 ## Next steps (suggested order)
 
@@ -587,7 +675,8 @@ Works and tested on desktop Linux:
 1. Run the short sheet for PR 29 (`tests/hardware-sheet-pr29.md`: per-track
    NEW FROM STYLE, the new styles, the sparser ambient kit, roll locks), then
    add to the results table.
-   Still open: a hub and the FM1 audio fluttering.
+   Still open: a hub, the FM1 audio fluttering, checklist D3 (piano roll,
+   drum grid, Felucca's drum notes) and D6 (polyphonic tracks).
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
    fullscreen on the device; adjust `seq4h.input`.
@@ -866,30 +955,35 @@ a Mac. Tick each box or write what happened. Steps that need SSH are in
 **How to install a new build**
 
 1. On the Mac, open the repo on GitHub and click **Actions**.
-2. On the left, click **seq4h aarch64 build**. Click the newest run with a
-   green tick whose branch is **main**.
+2. On the left, click **Genvolve aarch64 build** (called **seq4h aarch64
+   build** before 2026-11-21). Click the newest run with a green tick whose
+   branch is **main**.
 3. Scroll to **Artifacts** at the bottom and click
-   **seq4h-knulli-aarch64** to download it.
-4. Unzip it. Inside is another zip, `seq4h-knulli-aarch64.zip`. Unzip that
+   **genvolve-knulli-aarch64** to download it.
+4. Unzip it. Inside is another zip, `genvolve-knulli-aarch64.zip`. Unzip that
    one too. (Safari may already have done the first unzip for you.) You now
-   have `SEQ4H.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and a `seq4h`
-   folder.
+   have `GENVOLVE.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and a
+   `genvolve` folder. (Builds before the rename: `SEQ4H.sh` and `seq4h`.)
 5. Switch the handheld off and put its SD card in the Mac, or open the
    handheld's **SHARE** over the network.
 6. Copy all of those into `roms/ports/`. When the Mac asks, choose
-   **Replace** for every file. Replacing the `seq4h` folder's files is fine:
-   your saved patterns (`seq4h.pat`) are not in the zip, so they stay.
-   If you once edited `seq4h/seq4h.input` yourself, replace it anyway: an
+   **Replace** for every file. Replacing the `genvolve` folder's files is
+   fine: your saved patterns (`seq4h.pat`) are not in the zip, so they stay.
+   If you once edited `genvolve/seq4h.input` yourself, replace it anyway: an
    old one overrides the new button codes.
+   **First Genvolve build only:** also delete the old `SEQ4H.sh` from
+   `roms/ports/`, and keep the old `seq4h` folder until checklist D8 passes:
+   Genvolve copies your saved work out of it on its first start.
 7. Eject the card, put it back and switch the handheld on.
 8. On the handheld, press Start for the main menu, then **Game settings >
-   Update game lists**. **SEQ4H**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**
+   Update game lists**. **GENVOLVE**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**
    appear under **Ports**.
 
 **How to read the logs on the Mac**
 
-seq4h writes `roms/ports/seq4h/seq4h.log`, and USB-MIDI-CHECK writes
-`roms/ports/seq4h/usb-midi-check.log`. Quit seq4h first (Select + Start),
+Genvolve writes `roms/ports/genvolve/genvolve.log`, and USB-MIDI-CHECK writes
+`roms/ports/genvolve/usb-midi-check.log` (before the rename: the same files in
+`roms/ports/seq4h/`, the log called `seq4h.log`). Quit Genvolve first (Select + Start),
 then open the SD card or SHARE on the Mac and open the file in TextEdit.
 The newest run is at the bottom; each seq4h run starts with a
 `=== ... seq4h start` line.
@@ -1045,6 +1139,37 @@ hear instead, and send `seq4h.log`.
 7. [ ] Quit and restart: the songs are still listed. On the Mac they are
    `roms/ports/seq4h/seq4h-song1.pat` and so on, next to `seq4h.pat`.
 
+**D6. Polyphonic tracks (build after PR 31, 2026-11-21)**
+
+1. [ ] **FM1 track to POLY.** On the FM1 pick the track seq4h track 2 plays
+   (FM1 track 2), open EDIT, turn to the **VOICE** page and set the first
+   knob, **VCE**, to **POLY**. Use a pad-like sound (ANALOG is fine).
+2. [ ] **A chord by hand.** In seq4h go to the **TRACK** page, track 2, last
+   row **VOICES**: press right, it reads POLY. B to the grid, put the cursor
+   on a T2 note, press **Select** (piano roll). Move up two rows and press
+   **A**, up two more and **A** again: the column now has three notes, and
+   you hear each one. Press Start: the FM1 plays the three notes together.
+3. [ ] **A chord from the STEP page.** On the grid press **X** on another T2
+   note, go to the last row **CHORD** and press right until it reads TRIAD
+   (then SEVENTH). The right side lists the notes; on play they sound
+   together. White dots on that grid step show its chord notes.
+4. [ ] **Notes ring on.** On a POLY step set **HOLD** to +4: it keeps
+   sounding while the next notes play (on MONO it would be cut off).
+5. [ ] **CHORDS generator.** GENERATE page, track 2, GENERATOR: press left
+   from MANUAL to reach **CHORDS**, then **A** to roll. You get held chords
+   that change every bar; try RHYTHM PULSE and STABS. The piano roll shows
+   the chords and you can change single notes.
+6. [ ] **MONO again.** TRACK page, VOICES back to MONO: only one note per
+   step plays and nothing is left hanging.
+7. [ ] **No hung notes.** While chords are ringing: Stop, mute T2 from the
+   grid label, and unplug/replug the FM1. Every time the sound stops (the
+   replug may leave one note until it is back, as before).
+8. [ ] Quit and restart: VOICES and the chords are kept.
+
+If the FM1 plays only one note of a chord, check step 1 (VCE) on that FM1
+track. If notes drop out when several tracks play chords, that is Felucca's
+shared 8 voices: use fewer chord notes or POLY on fewer tracks.
+
 **D7. Device presets, clock and Start/Stop (2026-11-21)**
 
 On every device: M > DEVICE + CLOCK, pick the device with left/right, press
@@ -1161,10 +1286,31 @@ Short form:
 4. [ ] Optional: a hub with power. Does the handheld charge and still see
    the FM1?
 
+**D8. Rename to Genvolve: first install (first build after 2026-11-21)**
+
+Do this once, on the Mac, with the handheld's SD card (or SHARE):
+
+1. [ ] Copy `GENVOLVE.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and the
+   `genvolve` folder into `roms/ports/`, choosing **Replace** for the two
+   old `.sh` files.
+2. [ ] Delete `roms/ports/SEQ4H.sh`. Leave the `seq4h` folder where it is.
+3. [ ] On the handheld: **Game settings > Update game lists**. Ports shows
+   **GENVOLVE**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**, and no SEQ4H.
+4. [ ] Start GENVOLVE. The header top left reads **GENVOLVE**, and the
+   pattern you had in seq4h is playing (same BPM, slots, mutes).
+5. [ ] M > SONG SAVE lists your saved songs. M > MIDI OUTPUT has the same
+   port picked as before. M > DEVICE + CLOCK keeps your device and clock.
+6. [ ] SHOW-BUTTONS from Ports starts Genvolve with the button codes showing.
+7. [ ] Quit. On the Mac, `roms/ports/genvolve/genvolve.log` has
+   `copied old .../seq4h/seq4h.pat to genvolve/seq4h.pat` lines (one per
+   file) on the first start only.
+8. [ ] Once all is well, delete the old `seq4h` folder (or keep it as a
+   backup; Genvolve no longer reads it once its own copies exist).
+
 **F. Problem reports**
 
 If something goes wrong, note what you pressed and what happened, then quit
-and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
+and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi-check.log` if MIDI never connects: run
 **USB-MIDI-CHECK** from Ports first).
 
 **Results so far (Roy's RG40XX-V and FM1, 2026-11-19 to 2026-11-21)**
@@ -1199,8 +1345,10 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Song save (D5) | not tested yet |
 | Track box X/Y/Select, locks, ALL STEPS, stick and Select shortcuts (D6) | not tested yet |
 | Device presets, clock and Start/Stop (D7) | Roy, 2026-11-21: the presets work; on the Blackbox 2 he had to build his own map for its 909 kit, which is now the BLACKBOX preset |
+| Rename to Genvolve (D8) | not tested yet |
 | Modulation, MIDI IN and learn (D9, `tests/hardware-sheet-mod.md`) | not tested yet |
 | Hub | not tested yet |
+| Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 
 ### Appendix: advanced checks (SSH)
 
@@ -1247,7 +1395,7 @@ player lock. Nothing was ever read back.
   same card (same `hw:C,D,S` first), or a sequencer input port connected
   from the device's readable port. Non-blocking, read by the UI thread each
   frame under the player lock, only while wanted; closed on unplug, port
-  change and quit. `seq4h --midi list` now also lists inputs.
+  change and quit. `genvolve --midi list` now also lists inputs.
 - `src/mod.c`: the LFO engine, run from `seq_tick` on every tick (playing
   or not), a byte parser (running status, real time inside messages,
   SysEx skipped), the monitor and learn. Pattern lines `mo`, `lf`, `md`.
@@ -1261,7 +1409,7 @@ player lock. Nothing was ever read back.
 - **Handheld side: probably yes.** The kernel's USB MIDI driver
   (snd-usb-audio) creates an input substream for every IN jack the device
   describes, on the same card as the output. Whether Roy's Knulli build
-  shows one is untested: `seq4h --midi list` (SSH) or the MIDI IN page's
+  shows one is untested: `genvolve --midi list` (SSH) or the MIDI IN page's
   top line tell. A splitter that separates power from data passes the data
   lines through, so it should not matter.
 - **FM1 side: yes in Felucca's descriptor.** Felucca's USB descriptor
@@ -1297,7 +1445,7 @@ player lock. Nothing was ever read back.
 - Other FM-1 firmware (stock, FM1 Open, Jangada) may send knob moves as
   CCs, but they may be generic or relative encoder messages rather than the
   parameter's CC: check on MIDI IN before relying on LEARN.
-- Feedback: seq4h never echoes input. Felucca has no MIDI thru that we
+- Feedback: Genvolve never echoes input. Felucca has no MIDI thru that we
   know of. A device set to pass MIDI through would send our
   own CCs back: MIDI IN marks those `(OUR OWN CC: ECHO?)` and LEARN ignores
   them.
@@ -1643,7 +1791,7 @@ and by CI:
   SDL means Knulli's own video and input backends are used. The code only
   calls SDL functions from 2.0.5 or older, so the device's SDL version does
   not matter. If a future Knulli lacked one of these, bundle the `.so` next to
-  the binary and set `LD_LIBRARY_PATH` in `SEQ4H.sh`.
+  the binary and set `LD_LIBRARY_PATH` in `GENVOLVE.sh`.
 - `-mcpu=cortex-a53` for the H700. The script fails if the result is not
   aarch64 or lacks ALSA.
 - **Tests:** unit tests natively, the same tests built for aarch64 under
@@ -1652,7 +1800,8 @@ and by CI:
   not that it works on the handheld.
 - **Reproducible:** `-ffile-prefix-map`, a stripped binary and a zip with
   fixed timestamps give identical SHA-256s on every run.
-- **Package:** `dist/seq4h-knulli-aarch64.zip` in the Ports layout. CI
+- **Package:** `dist/genvolve-knulli-aarch64.zip` in the Ports layout
+  (`GENVOLVE.sh`, `genvolve/genvolve`; the make target is still `seq4h`). CI
   uploads the zip inside the artifact, because GitHub artifacts drop the
   execute bit.
 - Behind a proxy that blocks plain HTTP, the apt sources need switching to
@@ -1705,7 +1854,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `tests/hardware-sheet-133.md`: 20 on-device tests (PASS/FAIL) for build #133
-- `knulli/SEQ4H.sh`: Ports launcher script
-- `knulli/SHOW-BUTTONS.sh`: Ports entry that starts seq4h with button codes shown
+- `knulli/GENVOLVE.sh`: Ports launcher script (was `SEQ4H.sh`); copies saved work from an old `seq4h/` folder on first start
+- `knulli/SHOW-BUTTONS.sh`: Ports entry that starts Genvolve with button codes shown
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
 - `knulli/build.sh`, `knulli/Dockerfile`: aarch64 cross-build and packaging

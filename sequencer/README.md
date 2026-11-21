@@ -1,4 +1,10 @@
-# seq4h
+# Genvolve
+
+*Genvolve was called seq4h until November 2026. The source, the desktop
+binary (`./seq4h`) and the saved files (`seq4h.pat`, `seq4h.midi`,
+`seq4h-song1.pat`..., `seq4h.input`) keep the old name, so nothing saved is
+lost; on Knulli the app is installed as `GENVOLVE.sh` and `genvolve/`. See
+"Moving from seq4h" below.*
 
 A four-track step sequencer for the Anbernic RG40XX-V running Knulli. It sends
 MIDI to an M-VAVE FM1 running Felucca firmware (or any other MIDI device). It is inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares
@@ -12,6 +18,8 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 
 - 4 tracks x 16 steps (1/16 notes), each with its own MIDI channel and length (1-16, so tracks can be polymetric)
 - Per step: on/off, note, velocity, gate length, probability, and a **lock**
+- **MONO or POLY** per track: a POLY track plays up to 4 notes on a step (a
+  chord) and lets notes ring on over the next ones
 - A global **scale and root** (12 scales). Editing a note steps by scale degree.
 - **Pattern generators** and **evolution** (below)
 - Swing, mute and solo per track (from the grid) and per drum lane (from the drum grid), BPM 30-300
@@ -51,6 +59,7 @@ square) are never touched by a roll or by evolution.
 | DRONE | One to four long notes that fill the pattern (more than one alternates with the fifth above). Each roll the drone may move (`MOVE`) to another stable tone within a fifth (root, fourth, fifth, sixth, third), or go back to the root (`HOME`). Pair it with `CHORD` for a pad, and Evolve regen every 16-32 bars so it shifts now and then. | notes, move chance, home chance |
 | DRIFT | A few long notes spread over the pattern, each at most `STEP` scale degrees from the last, starting from the track's current first note, so the line keeps wandering slowly from roll to roll. `HOLD` is how much of the gap to the next note each one is held for. | notes, hold, step (largest move) |
 | BELL | Sparse, soft notes, never two in a row, on weighted stable tones (root, fifth, third) `HEIGHT` octaves above the lowest note. Each plays only `CHANCE` of the time and is up to `SOFTEN` quieter. | notes, chance, height, soften |
+| CHORDS | A chord progression written as real chords (up to 4 notes per step, editable in the piano roll). One chord every `CHANGE` steps (4, 8, 16 or 32); each chord's root moves round the scale (by a fourth, fifth, third or step) with chance `MOVE`, and each chord takes the inversion nearest the last one, so the voices move little. `RHYTHM`: HOLD (held to the next chord), PULSE (every beat), STABS (short, off the beat) or SWAY (twice per chord). Choosing it sets the track to POLY. Other generators write single notes. | change, chord (triad, seventh, sus2, sus4, add9, power), move chance, rhythm |
 
 **Evolve** changes a track every 1, 2, 4, 8, 16, 32 or 64 bars while it plays.
 `AMOUNT` is the chance each step changes; below 10% it moves in 1% steps, for
@@ -79,14 +88,18 @@ More on the GENERATE page (press **A** on a row to do its action):
 - **Transforms** for hand editing: reverse, invert (around the first note),
   transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
   fill (new notes borrowed from neighbours), humanize velocity, clear, spread
-  (every note a different offset, none on the grid) and on grid (offsets back
-  to 0). All of them
+  (every note a different offset, none on the grid), on grid (offsets back
+  to 0) and write chord (the `CHORD` row's chord becomes each note's own
+  chord notes, which you can then edit; with CHORD OFF it makes every step a
+  single note again). All of them
   leave locked steps in place; rotate also now works around locked steps.
 - **Chord, swell and rests** (at the bottom of the list) colour how a track
   plays without changing its steps. `CHORD` stacks notes from the scale on
   every note the track plays: FIFTH, TRIAD, SUS2, SUS4, SEVENTH or OPEN (fifth
   plus the third an octave up), a little softer than the step's own note, all
-  on the track's channel. `SWELL` slowly raises and lowers velocity over 2 to
+  on the track's channel. On a MONO track the next note cuts the chord off,
+  as before; on a POLY track it rings for the note's length, and only steps
+  without chord notes of their own get it. `SWELL` slowly raises and lowers velocity over 2 to
   32 bars, dipping by `SWELL DEPTH`; each track's swell is a quarter turn
   behind the one before. `RESTS` is the chance each bar that the track sits
   out for 1 to 4 bars (held notes ring on), and it always plays at least a bar
@@ -111,6 +124,19 @@ More on the GENERATE page (press **A** on a row to do its action):
   `NEVER ON GRID` keeps every note on the track at least 2/24 of a step off
   the grid. For a fixed loose groove instead, use the `SPREAD` transform, and
   turn on `EVO OFFSET` to let those offsets drift a little every few bars.
+- **MONO and POLY tracks:** `VOICES` on the TRACK page (the last row).
+  MONO (the default, as before) plays one note at a time: the next note cuts
+  the last one off, and a step's chord notes are kept but not sent. POLY
+  plays every note of a step at once (up to 4, all at the step's velocity)
+  and lets each note ring for its own length (gate plus hold) over the notes
+  after it, up to 8 at once per track (the one due to end first makes room).
+  Give a step a chord with `CHORD` on the STEP page (FIFTH, TRIAD, SUS2,
+  SUS4, SEVENTH, OPEN), by hand in the piano roll, with the CHORDS generator
+  or the write chord transform. Chord notes are kept as scale degrees from
+  the step's note, so they move with it (NOTE, transpose, evolution) and stay
+  in the scale. Felucca plays chords only when its own track is on POLY too:
+  on the FM1, EDIT > VOICE, first knob `VCE` = POLY (mono presets load as
+  LEG). All four FM1 tracks share 8 voices.
 - **Patterns up to 32 steps:** set `LENGTH` on the TRACK page. The grid shows
   16 steps at a time; move the cursor past step 16 to see steps 17-32.
 
@@ -184,25 +210,29 @@ change too. B or Select goes back to the track label.
 
 Muted tracks turn grey and show an **M** badge; soloed tracks show a yellow
 **S** badge, and while anything is soloed the other tracks are dimmed and
-silent. Mute is saved with the pattern; solo is not, so seq4h always starts
+silent. Mute is saved with the pattern; solo is not, so Genvolve always starts
 with every unmuted track playing. The TRACK page's MUTE row is the same
 setting.
 
 **Piano roll** (Select on the GRID, note tracks): one track full screen,
 steps across (16 at a time, as on the grid) and the scale's notes down the
 left, 14 rows at a time with the root's rows lighter. Each note is a bar as
-long as it sounds (gate plus hold, cut off by the next note), moved by its
-offset, brighter when louder; a note outside the scale has a white outline
-and chord notes (from CHORD) are drawn faintly. A track still plays one note
-per step, so each column holds one note. B or Select goes back to the grid;
+long as it sounds (gate plus hold, cut off by the next note on a MONO track),
+moved by its offset, brighter when louder; a note outside the scale has a
+white outline and chord notes from the CHORD row are drawn faintly. On a
+MONO track each column holds one note. On a POLY track a column can hold a
+chord of up to 4 notes: A adds the cursor's note to the step or takes it out
+(taking out the step's own note hands that role to its lowest chord note),
+and hold Y + up/down moves the whole chord. The grid marks a POLY step's
+chord notes with small white dots. B or Select goes back to the grid;
 L2/R2 changes track (a drum track opens its drum grid).
 
 | Input | Action |
 |---|---|
 | D-pad | move the cursor: left/right step, up/down pitch (scrolls at the edge) |
-| A [Z] | put the step's note on this pitch, or take it off if it is already there (heard once while stopped) |
+| A [Z] | MONO: put the step's note on this pitch, or take it off if it is already there. POLY: add this pitch to the step's chord, or take it out (4 notes at most). Heard once while stopped |
 | hold Y [V] + left / right | shorter / longer: a quarter step at a time up to one step, then whole steps (that is HOLD). This also sets the length new notes get |
-| hold Y + up / down | move the step's note up / down a scale degree (the cursor follows) |
+| hold Y + up / down | move the step's note (and its chord) up / down a scale degree (the cursor follows) |
 | Y on its own (press and let go) | lock / unlock the step under the cursor, as Y on the grid: a locked note has a yellow corner and a locked step's column a dim yellow frame. Rolls and evolution leave it alone |
 | hold X [C] + left / right | offset: 1 tick (1/24 step) earlier / later |
 | hold X + up / down | velocity up / down by 8 |
@@ -371,7 +401,7 @@ one map shared by every drum track and saved in `seq4h.pat` (lines `dm LANE
 NOTE NAME`, after a `dmv 2` line). It starts as the **FELUCCA** preset, the
 notes Felucca's DRUM engine is built around (from its firmware source):
 KICK 36, SNARE 38, HAT CL 42, HAT OP 46, CLAP 39, RIM 37, TOM 45, BELL 56
-(seq4h names notes with middle C = C4 = 60, so 36 shows as C2). The **GM**
+(Genvolve names notes with middle C = C4 = 60, so 36 shows as C2). The **GM**
 preset is the same with a crash (49) instead of the bell. Each row shows
 the lane's note and what Felucca plays for it, for example `41 TOM -7` (a
 tom, 7 semitones down): Felucca plays every note from 35 to 81 as one of
@@ -446,7 +476,7 @@ MIDI clock and Start/Stop for the output in use.
 | Row | What it does |
 |---|---|
 | DEVICE | left/right picks FELUCCA, JANGADA, DIGITONE or BLACKBOX 2; A twice puts the four tracks' MIDI channels, the DRUM MAP, clock and Start/Stop on it. `*` = the settings match it now. Notes, track types and everything else stay. The right side lists what to set on the device itself |
-| MIDI CLOCK | SEND (seq4h is the clock master, also while stopped) or OFF (the device keeps its own tempo) |
+| MIDI CLOCK | SEND (Genvolve is the clock master, also while stopped) or OFF (the device keeps its own tempo) |
 | START/STOP | SEND or OFF. Off: Start on the handheld does not start the device's own sequencer |
 | OUTPUT | the port these settings belong to (pick it on M > MIDI OUTPUT) |
 
@@ -471,7 +501,7 @@ start as SLOT 1 to SLOT 8. Up/down changes the letter under the cursor,
 left/right moves along, X makes it a space, A keeps the name and B cancels.
 Names are saved in `seq4h.pat` (lines `sn TRACK SLOT NAME`, spaces written as
 `_`); a copy takes the name with it and clearing a slot resets its name.
-Older versions of seq4h load the file and ignore the names.
+Older versions of Genvolve (and seq4h) load the file and ignore the names.
 
 On the first run (no saved `seq4h.pat` and no `--demo`), seq4h starts from the
 ambient set.
@@ -496,7 +526,7 @@ RG40XX-V (with the older stock-firmware table, L1 started playback and
 Start moved between tracks). Press **M > BUTTON CODES** to check them on
 your unit (below).
 
-| Button | Code | seq4h default |
+| Button | Code | Genvolve default |
 |---|---|---|
 | Volume - / + | joy 1 / joy 2 | not used |
 | A | joy 3 | a |
@@ -531,10 +561,10 @@ No terminal needed. Either:
 
 - open the main menu with **M**, go to **BUTTON CODES** and press **A**, or
 - start **SHOW-BUTTONS** from the Ports menu (useful if M itself does not
-  work), which starts seq4h with the codes already showing.
+  work), which starts Genvolve with the codes already showing.
 
 The top right of the screen then shows each press as its raw code and the
-seq4h button it does, for example `JOY 10 = START` or `JOY 12 = NONE`. The
+Genvolve button it does, for example `JOY 10 = START` or `JOY 12 = NONE`. The
 buttons keep working while the codes show. The same lines go to `seq4h.log`,
 along with each pad's name, GUID and its numbers of buttons, hats and axes.
 If a button shows the wrong action, add a line for its code to
@@ -595,7 +625,7 @@ as quoted to me; I could not open the wiki myself):
 
 - Felucca takes MIDI on **USB** and the **TRS MIDI IN** jack. With
   `MENU > MIDI > MIDI IN` set to **CH1-4**, MIDI channels 1-4 play tracks 1-4.
-  That is `seq4h`'s default (track 1 on channel 1 ... track 4 on channel 4), so
+  That is Genvolve's default (track 1 on channel 1 ... track 4 on channel 4), so
   the four sequencer tracks drive the four Felucca tracks with no setup.
 - Other `MIDI IN` modes: **CH5-8**, **CH9-12**, **CH13-16** (another block of
   four, for example for two FM-1s on one cable), **SEL** (every channel plays
@@ -605,28 +635,35 @@ as quoted to me; I could not open the wiki myself):
   from internal, USB or TRS. It also responds to track CCs (5 glide, 7 level,
   10 pan, 71 resonance, 72/73/75 release/attack/decay, 74 brightness,
   91/93/94 reverb/chorus/delay sends) and Program Change (loads a track's
-  sound by its preset number). `seq4h` does not send CCs or Program Change yet.
+  sound by its preset number). Genvolve does not send CCs or Program Change yet.
+- Each Felucca track has a voice mode (EDIT > VOICE, `VCE`: POLY, MONO, LEG,
+  UNI). For Genvolve's POLY tracks set it to **POLY**, or the FM1 plays only one
+  note of each chord. In POLY most engines play up to 8 notes per track (FM6
+  6, VOICE 4, GRAIN and PHYS 3), but all four tracks share 8 voices; when
+  they run out the oldest released note goes first, and a track's lowest
+  held note (its bass) is kept. DRUM always plays its lanes together. (From
+  the Felucca firmware source, `core.h` and `voice.c`.)
 
 Setup:
 
 1. Connect the FM1's USB-C to the handheld's USB-C (its only port, also used
    for charging). The handheld must act as USB host. Other H700 projects
-   report this works, but it is **unverified** for seq4h, as is whether it
+   report this works, but it is **unverified** for Genvolve, as is whether it
    powers the FM1 and whether Knulli's kernel has the USB MIDI driver. Run
    `USB-MIDI-CHECK` from Ports to find out; see the checklist in
    [NOTES.md](NOTES.md).
 2. On the FM1, set `MENU > MIDI > MIDI IN` to **CH1-4** (see the wiki for the
    current default).
-3. Set the FM1's **clock source to USB** so it follows `seq4h`'s tempo: it is
+3. Set the FM1's **clock source to USB** so it follows Genvolve's tempo: it is
    on the CLOCK page (tap HOME to cycle HOME, MIXER, CLOCK). Without it the
    FM1 keeps its own clock and only the notes line up.
 4. Run `./seq4h --midi list` and check the FM1 appears, then
    `./seq4h --midi FM --midi-test` to hear one note on each track, then
    `./seq4h --midi FM` (or part of the name the list shows).
 
-If the FM1 is unplugged or plugged in after start, seq4h shows
+If the FM1 is unplugged or plugged in after start, Genvolve shows
 `MIDI: WAITING FOR ...` and connects when it appears. Without the ALSA
-sequencer in the kernel, seq4h uses raw MIDI devices (`hw:C,D,S`) instead.
+sequencer in the kernel, Genvolve uses raw MIDI devices (`hw:C,D,S`) instead.
 
 The header also shows the handheld's battery, e.g. `BAT 78%` (`+` while
 charging, amber below 20%, red below 10%). The level is written to `seq4h.log`
@@ -634,11 +671,11 @@ at start, every hour, when the charger is plugged in or out, and at quit.
 
 For the other `MIDI IN` modes:
 
-- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in `seq4h` on the
+- **CH5-8 / CH9-12 / CH13-16:** set each track's channel in Genvolve on the
   TRACK page.
 - **SEL:** run `./seq4h --channel N` so all four tracks use one channel. The
   FM1 then plays them all on the track you've selected on the device.
-- **TRACK:** set the matching channels in `seq4h` the same way.
+- **TRACK:** set the matching channels in Genvolve the same way.
 
 Settings are saved in `seq4h.pat`, so you only set channels once.
 
@@ -658,14 +695,31 @@ Knulli release), links the device's own SDL2 and ALSA libraries, runs the unit
 tests natively and under qemu, draws one frame of the aarch64 binary under
 qemu as a smoke test, and writes:
 
-- `dist/seq4h`, the aarch64 binary
-- `dist/seq4h-knulli-aarch64.zip`, holding `SEQ4H.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh`,
-  `seq4h/seq4h` and `seq4h/seq4h.input`. Unzip it into `/userdata/roms/ports/` and refresh the
+- `dist/genvolve`, the aarch64 binary
+- `dist/genvolve-knulli-aarch64.zip`, holding `GENVOLVE.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh`,
+  `genvolve/genvolve` and `genvolve/seq4h.input`. Unzip it into `/userdata/roms/ports/` and refresh the
   game list. The zip keeps the execute bits.
 
 The output is byte-for-byte reproducible. GitHub Actions runs the same script
-on every change (workflow *seq4h aarch64 build*, artifact
-`seq4h-knulli-aarch64`). It has been run on a Knulli RG40XX-V driving an FM1.
+on every change (workflow *Genvolve aarch64 build*, artifact
+`genvolve-knulli-aarch64`). It has been run on a Knulli RG40XX-V driving an FM1.
+
+### Moving from seq4h
+
+Builds before the rename installed `SEQ4H.sh` and a `seq4h/` folder. To move
+over (no SSH needed, the SD card on a computer is enough):
+
+1. Copy `GENVOLVE.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and the
+   `genvolve` folder from the zip into `roms/ports/`, replacing the old
+   `SHOW-BUTTONS.sh` and `USB-MIDI-CHECK.sh`.
+2. Delete the old `SEQ4H.sh`, so the Ports menu shows only GENVOLVE. Keep the
+   old `seq4h` folder for now.
+3. Start GENVOLVE once. It copies `seq4h.pat`, `seq4h.midi` and
+   `seq4h-song1.pat`... from `seq4h/` into `genvolve/` (it never overwrites a
+   file already in `genvolve/`, and leaves `seq4h/` untouched), and logs each
+   copy in `genvolve/genvolve.log`.
+4. Once your patterns, songs and MIDI port look right, the `seq4h` folder can
+   be deleted (or kept as a backup).
 
 ## Layout
 

@@ -104,7 +104,7 @@ static int test_note_step_locks(void) {
     seq_init(&s, nosend, NULL);
     gen_set_type(&s, 0, GEN_MARKOV);
     SeqTrack *tr = &s.track[0];
-    tr->step[3] = (SeqStep){1, 61, 33, 44, 55, 0, 2, -3};
+    tr->step[3] = (SeqStep){1, 61, 33, 44, 55, 0, 2, -3, {0}};
     seq_step_lock_toggle(&s, 0, 3);
     CHECK(seq_step_locked(&s, 0, 3));
     SeqStep keep = tr->step[3];
@@ -124,7 +124,7 @@ static int test_all_steps(void) {
     seq_init(&s, nosend, NULL);
     SeqTrack *tr = &s.track[2];
     tr->len = 8;
-    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, 60, 100, 50, 100, 0, 0, 0};
+    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, 60, 100, 50, 100, 0, 0, 0, {0}};
     tr->step[1].on = tr->step[4].on = 1;
     tr->step[1].vel = 60; tr->step[4].vel = 90;
     int lo, hi, avg;
