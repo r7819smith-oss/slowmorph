@@ -201,11 +201,18 @@ drums-hiphop|w,w,Down,Right,x,m,Down,Right,Right,Right,Right,Right,Down,Down,Dow
 grid-dnb|m,Down,Right,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z
 roll-locked|Tab,Right,v,Right,Right,v,Up,Up,z,v
 midinone-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+device-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+device-digitone|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right
+device-blackbox-used|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Left,z,z
+device-clock-off|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
+device-transport-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down
 EOF
     unset SEQ4H_TEST_PORTS
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
         --differ grid-demo grid-step-locked --differ grid-demo grid-mixed --differ menu-hiphop menu-mixed --differ grid-demo grid-hiphop --differ grid-hiphop grid-dnb --differ roll-page roll-locked --differ grid-demo step-page \
+        --differ device-page device-digitone --differ device-page device-blackbox-used \
+        --differ device-page device-clock-off --differ device-page device-transport-row \
         --differ step-page step-note-up --differ step-page step-offset \
         --differ grid-demo grid-hold-offset --differ grid-demo track-page \
         --differ track-page track-shuffle --differ generate-page generate-spread --differ grid-demo grid-after-spread \
@@ -278,6 +285,17 @@ persist)
     cat "$P/run4.log"
     grep -q 'MIDI output from .*seq4h.midi: FM-1:FM-1 MIDI 1' "$P/run4.log"
     result "the next start uses the kept port" $?
+    # M > DEVICE: DIGITONE (two presses of A) on that port keeps its clock on
+    # and Start/Stop off for this port in seq4h.midi, and the next start
+    # brings them back.
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" \
+        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,z,z,Escape" 2> "$P/run5.log"
+    grep -qx 'out 1 0 DIGITONE FM-1:FM-1 MIDI 1' "$P/seq4h.midi" && [ "$(head -1 "$P/seq4h.midi")" = "FM-1:FM-1 MIDI 1" ] \
+        && grep -qx 'transport 0' "$P/seq4h.pat"
+    result "a device picked on M > DEVICE is kept for its output in seq4h.midi" $?
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" --keys Escape 2> "$P/run6.log"
+    grep -q 'output settings: device DIGITONE, clock on, start/stop off' "$P/run6.log"
+    result "the next start brings back that output's clock and Start/Stop" $?
     note ""
     ;;
 alsa)

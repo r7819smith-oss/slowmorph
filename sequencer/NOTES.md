@@ -423,6 +423,26 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
+- **Device presets and clock options (2026-11-21, Roy approved).** M > DEVICE
+  + CLOCK has a preset per instrument (FELUCCA, JANGADA, DIGITONE, BLACKBOX 2)
+  that sets the four channels, the DRUM MAP, MIDI clock and Start/Stop, plus
+  MIDI CLOCK and START/STOP rows. Clock and Start/Stop belong to the output:
+  `seq4h.midi` keeps them, with the device, per port (`out CLOCK TRANSPORT
+  DEVICE PORT` lines after the chosen-port line), so going back to a port
+  brings its device back. See *Device presets and clock options* below.
+  - Engine: `Seq.transport_out` split off `clock_out` (clock = 0xF8,
+    transport = 0xFA/0xFC and the reconnect re-Start). `seq_set_sync`
+    turns them on/off; Start/Stop turned on while playing sends Start at
+    the next bar line. Pattern file: new `transport` line after `clock`;
+    an old `clock 0` turns both off, as before.
+  - `src/device.c`: preset table, `device_apply` / `device_match` /
+    `device_guess` (from the port name), and the `seq4h.midi` reader and
+    writer (`MidiConf`, up to 16 outputs, the oldest is dropped).
+  - DRUM MAP gained a third preset, BLACKBOX (36-43, PAD 1-8).
+  - Mono/poly per device was left out: polyphony is being built in a
+    parallel thread. Add a per-device voice default there if wanted.
+  - Tests: `tests/test_device.c`; harness persist checks for a device kept
+    per output and brought back at the next start; screenshots `device-*`.
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -477,7 +497,10 @@ Works and tested on desktop Linux:
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
    - a song mode on top of slot chains
-   - a JANGADA preset on M > DRUM MAP (FELUCCA and GM are built)
+   - a JANGADA preset on M > DRUM MAP (FELUCCA, GM and BLACKBOX are built),
+     once Roy has checked Jangada's drum notes (D5 step 5)
+   - device presets for FM1 Open V14 and stock V16, once their channels
+     are known
 
 ## USB MIDI on the RG40XX-V
 
@@ -636,6 +659,42 @@ filtered by device name, so `WAITING` always means Knulli shows no MIDI
 output port at all. Screenshots
 come from `tests/harness.sh screenshots` (`midi-*`, which uses fake USB and
 `SEQ4H_TEST_PORTS`).
+
+### Device presets and clock options (researched 2026-11-21, not tested on hardware yet)
+
+What each preset sets, and why. Only Felucca has been tested with seq4h.
+
+| Preset | Channels | DRUM MAP | Clock | Start/Stop | Source |
+|---|---|---|---|---|---|
+| FELUCCA | 1-4 | FELUCCA (36 38 42 46 39 37 45 56) | on | on | hardware-tested; firmware `eng_drum.c` |
+| JANGADA | 1-4 | GM | on | on | Jangada README: GLO > GLOBAL CLK USB follows tempo, start, stop; track 4 SYNTH = ch 4. Its drum notes and drum channel are not published (Felucca's old README says drums on 10) |
+| DIGITONE | 1-4 | GM | on | off | Digitone manual: MIDI CONFIG > CHANNELS has TRACK 1-4 CHANNEL and AUTO CHANNEL; SYNC has CLOCK RECEIVE; PORT CONFIG has INPUT FROM (DISABLED/MIDI/USB/MIDI+USB) and RECEIVE NOTES. The manual text read gives no default values, so channels 1-4 is the usual Elektron setting, to check on the unit |
+| BLACKBOX 2 | 1-4 | BLACKBOX (36-43 = pads 1-8) | on | on | Blackbox 2 guide v1.1 (2026-10): four tracks, its included projects map track n to channel n, per-track MIDI In Chan; USB MIDI in on the PWR/DATA port (it does not send MIDI over USB). Pad notes 36-51 and following Start/Stop/Clock come from the original Blackbox manual (TOOLS > MIDI In, ClockSource) |
+
+Choices:
+
+- **Digitone Start/Stop off by default.** With it on, Start also plays the
+  Digitone's own pattern, so notes would double up. Clock stays on so its
+  LFOs and delays follow seq4h. Turn START/STOP on to run both.
+- **Blackbox pad recording.** With Pad Rec on, notes 68 and up on a
+  track's channel start a recording (guide p.46-47). Melodic seq4h tracks
+  often go that high, so keep Pad Rec off.
+- **Blackbox USB.** It receives MIDI on its PWR/DATA port as a USB device,
+  so the handheld (host) should drive it directly like the FM1. Its MIDI
+  HOST port is for controllers and cannot take the handheld (host to host).
+- **Per output, not per pattern.** The device is a fact about the cable, so
+  it lives in `seq4h.midi`; channels and the DRUM MAP stay in `seq4h.pat`
+  as before. Choosing a port that has settings applies its device preset
+  (channels and DRUM MAP too); a port with none keeps everything and, if
+  its name looks like a known device (FM-1, Jangada, Digitone, Blackbox),
+  shows a hint.
+- Not built: mono/poly per device (the polyphony thread), FM1 Open V14 and
+  stock V16 presets (their channels are not published; set channels by
+  hand and save as CUSTOM), Program Change.
+
+Sources: Blackbox 2 User Guide v1.1, 1010music.com (2026-10-10); 1010music
+Blackbox User Manual 1.7 (manualslib, pp. 86-96); Elektron Digitone user
+manual (manualslib pp. 60-62); Jangada README (github.com/zednaked/jangada).
 
 ### Code changes for this
 
@@ -863,6 +922,53 @@ hear instead, and send `seq4h.log`.
    thin bars are dim in the drum track's row. Quit and restart: the lane
    is still muted. A lane solo is not kept (like track solo).
 
+**D5. Device presets, clock and Start/Stop (2026-11-21)**
+
+On every device: M > DEVICE + CLOCK, pick the device with left/right, press
+**A** twice. The right side lists what to set on the device itself.
+
+FM1 on Felucca:
+
+1. [ ] DEVICE shows **FELUCCA \*** on a fresh start (it matches the
+   defaults). Play: everything as before.
+2. [ ] MIDI CLOCK **OFF** while playing: notes still play; the FM1's tempo
+   no longer follows the BPM row (change BPM to hear it). Back to SEND:
+   it follows again.
+3. [ ] START/STOP **OFF**, then Start: seq4h plays, the FM1's own sequencer
+   stays stopped (if it has a pattern). Turn START/STOP back on while
+   playing: the FM1 starts at the next bar.
+4. [ ] Quit and restart: DEVICE still shows FELUCCA, and the clock and
+   Start/Stop are as you left them (`seq4h.log`: `output settings: ...`).
+
+FM1 on Jangada (if you flash it):
+
+5. [ ] Pick **JANGADA**. On the FM1: GLO > GLOBAL CLK USB. Tracks 1-3 play;
+   track 4 as SYNTH plays from channel 4. If track 4 on DRUM is silent, set
+   seq4h T4's MIDI CHANNEL to 10 on TRACK. Note which notes the drums
+   answer to (DRUM MAP, A plays each lane).
+
+Elektron Digitone (USB into the Digitone):
+
+6. [ ] On the Digitone: SETTINGS > MIDI CONFIG > PORT CONFIG > INPUT FROM
+   USB (or MIDI+USB), RECEIVE NOTES on; CHANNELS: TRACK 1-4 on 1-4;
+   SYNC > CLOCK RECEIVE on. Pick the Digitone on M > MIDI OUTPUT, then
+   **DIGITONE** here.
+7. [ ] Play: the four tracks play Digitone tracks 1-4; its tempo follows
+   seq4h; its own pattern does not start. Turn START/STOP on: it starts at
+   the next bar.
+8. [ ] Switch M > MIDI OUTPUT back to the FM1: the message says its
+   settings are back (FELUCCA), and the FM1 plays as before. Switch to the
+   Digitone again: DIGITONE comes back.
+
+1010music Blackbox 2 (USB into its PWR/DATA port):
+
+9. [ ] M > MIDI OUTPUT lists it (note the name it shows). Pick it, then
+   **BLACKBOX 2** here. On the Blackbox: each track's MIDI In Chan = its
+   number; Glob Settings clock source USB; Pad Rec off.
+10. [ ] Play: does it follow tempo and Start/Stop? Set a seq4h track to
+    DRUMS on the channel of a pad track: do lanes 1-8 hit pads 1-8? Write
+    down what pad notes it really uses.
+
 **Full 20-test sheet for build #133** (2026-11-21, Roy asked for one sheet
 that checks everything): `tests/hardware-sheet-133.md`. Tests 1-7 are the
 PR 25 features (D3 above, with expected results), tests 8-20 recheck A-E
@@ -904,7 +1010,8 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | FM1's own sequencer | also plays along on Start; clear it with REC > CLEAR |
 | Unplug while playing | a note hangs until you plug back in, then it clears (expected) |
 | Power | the handheld charges the FM1 over USB and drains its own battery; charge the FM1 first or use a powered hub |
-| Audio | quiet fluttering noise on the FM1 output with sparse tracks; probably USB power or ground noise, not investigated yet |
+| Audio | quiet fluttering noise on the FM1 output with sparse tracks: gone with a USB splitter (2026-11-21), so it was power |
+| USB splitter vs MIDI hub | both work; Roy finds the direct USB link with a splitter much better than the MIDI hub chain (2026-11-21) |
 | Styles, per-track generators, MANUAL, 32 steps, slots, chaining | work |
 | Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14); slots name/load/copy/clear/restart all good on build #124 |
 | Hold bars, offset, shuffle, spread, EVO OFFSET, BLANK, DRONE, battery % | good on build #124 (2026-11-21) |
@@ -915,6 +1022,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Roy's feedback on #133 | NEW FROM STYLE kept one track and redid the other three (it kept MANUAL tracks with notes); he wants to choose all / one / several tracks and mix styles. Wants hip hop and drum n bass (more drum styles). AMBIENT felt busier than the first version. Wants step locks in the piano roll. All four done in PR 29 (sheet `tests/hardware-sheet-pr29.md`) |
 | PR 29 build | not tested yet: `tests/hardware-sheet-pr29.md` |
 | Drum lane mute/solo (D4) | not tested yet |
+| Device presets, clock and Start/Stop (D5) | not tested yet |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)
@@ -1318,7 +1426,8 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 - `src/engine.c`, `engine.h`: tracks, steps, tick processing, save/load
 - `src/gen.c`, `gen.h`: scales, generators, evolution
-- `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP (FELUCCA and GM presets, Felucca sound table), audition, drum
+- `src/device.c`, `device.h`: device presets (M > DEVICE + CLOCK) and the per-output `seq4h.midi` file; `tests/test_device.c`
+- `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP (FELUCCA, GM and BLACKBOX presets, Felucca sound table), audition, drum
   kit generator, drum evolution, morph and transforms
 - `tests/test_drum.c`: drum track tests
 - `src/player.c`: timing thread and lock

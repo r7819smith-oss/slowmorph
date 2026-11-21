@@ -75,14 +75,6 @@ static void midi_file_path(const char *pattern, char *out, size_t n) {
     else snprintf(out, n, "seq4h.midi");
 }
 
-static void midi_file_read(const char *path, char *out, size_t n) {
-    out[0] = 0;
-    FILE *f = fopen(path, "r");
-    if (!f) return;
-    if (!fgets(out, (int)n, f)) out[0] = 0;
-    fclose(f);
-    out[strcspn(out, "\r\n")] = 0;
-}
 
 int main(int argc, char **argv) {
     const char *midi_name = "", *pattern = "seq4h.pat", *shot = NULL, *keys = NULL, *capture = NULL;
@@ -124,14 +116,13 @@ int main(int argc, char **argv) {
     }
     if (dump_input) { input_save(&input, stdout); return 0; }
 
-    char midi_file[512], midi_saved[MIDI_PORT_NAME];
+    char midi_file[512];
+    static MidiConf conf;   /* seq4h.midi: the chosen port, and each output's clock, Start/Stop and device */
     midi_file_path(pattern, midi_file, sizeof midi_file);
-    if (!*midi_name && !shot && !demo) {
-        midi_file_read(midi_file, midi_saved, sizeof midi_saved);
-        if (*midi_saved) {
-            fprintf(stderr, "seq4h: MIDI output from %s: %s\n", midi_file, midi_saved);
-            midi_name = midi_saved;
-        }
+    if (!shot) midiconf_load(&conf, midi_file);
+    if (!*midi_name && !shot && !demo && *conf.port) {
+        fprintf(stderr, "seq4h: MIDI output from %s: %s\n", midi_file, conf.port);
+        midi_name = conf.port;
     }
 
     Midi *midi;
@@ -179,7 +170,13 @@ int main(int argc, char **argv) {
     } else {
         style_apply(&p.seq, STYLE_AMBIENT, 0);   /* first run: an evolving ambient starting set */
     }
-    if (no_clock) p.seq.clock_out = 0;
+    const OutConf *out = shot || demo ? NULL : midiconf_get(&conf, midi->want);
+    if (out) {   /* this output's own clock and Start/Stop (M > DEVICE) */
+        seq_set_sync(&p.seq, out->clock, out->transport);
+        fprintf(stderr, "seq4h: output settings: device %s, clock %s, start/stop %s\n", device_name(out->device),
+                out->clock ? "on" : "off", out->transport ? "on" : "off");
+    }
+    if (no_clock) p.seq.clock_out = p.seq.transport_out = 0;
     if (bpm && (bpm < 30 || bpm > 300)) { fprintf(stderr, "seq4h: --bpm must be 30-300\n"); return 2; }
     if (bpm) p.seq.bpm = bpm;
     if (headless > 0) autoplay = 1;
@@ -199,7 +196,8 @@ int main(int argc, char **argv) {
 
     UiOptions opt = {.fullscreen = fullscreen, .screenshot = shot, .keys = keys,
                      .input = &input, .show_input = show_input, .verbose = verbose || show_input,
-                     .autosave = shot ? NULL : pattern, .midi_file = shot ? NULL : midi_file};
+                     .autosave = shot ? NULL : pattern, .midi_file = shot ? NULL : midi_file,
+                     .midi_conf = &conf};
     int rc = ui_run(&p, &opt);
 
     if (!shot) {

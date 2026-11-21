@@ -136,7 +136,8 @@ typedef struct {
     int swing;          /* 0..SEQ_MAX_SWING ticks */
     int scale;          /* index into the scale list (see gen.h) */
     int root;           /* 0..11, C = 0 */
-    int clock_out;      /* send MIDI clock/start/stop; as clock master, clock also runs while stopped */
+    int clock_out;      /* send MIDI clock (0xF8); as clock master, clock also runs while stopped */
+    int transport_out;  /* send MIDI Start/Stop (0xFA/0xFC) */
     int style;          /* Style (gen.h): sets generator defaults; STYLE_AMBIENT by default */
     int playing;
     uint32_t tick;      /* next tick to process */
@@ -163,6 +164,10 @@ void seq_panic(Seq *s);
  * re-send Start at the next bar line so the receiver's clock is back in phase
  * without the pattern jumping back to step 1. */
 void seq_reconnected(Seq *s);
+/* Turn MIDI clock and Start/Stop on or off (M > DEVICE). Turning Start/Stop
+ * on while playing sends Start at the next bar line, so the receiver joins in
+ * on beat 1. */
+void seq_set_sync(Seq *s, int clock, int transport);
 void seq_tick(Seq *s);                 /* advance one tick (1/96 beat) */
 int  seq_playhead(const Seq *s, int t);/* step being played on track t, or -1 */
 /* Velocity a note of velocity `vel` is sent with on track t at tick `now`,

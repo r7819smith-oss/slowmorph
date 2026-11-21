@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "battery.h"
+#include "device.h"
 #include "drum.h"
 #include "gen.h"
 #include "input.h"
@@ -80,10 +81,10 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 /* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
-               P_MENU = P_TABS, P_SLOTS, P_DRUMMAP, P_MIDI,     /* SLOTS, DRUM MAP and MIDI open from the main menu */
+               P_MENU = P_TABS, P_SLOTS, P_DRUMMAP, P_MIDI, P_DEVICE,   /* these open from the main menu */
                P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
                P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS", "DRUM MAP", "MIDI", "ROLL", "DRUMS"};
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS", "DRUM MAP", "MIDI", "DEVICE", "ROLL", "DRUMS"};
 #define MAX_PORTS 8   /* M > MIDI lists this many output ports */
 #define MAX_USB 8     /* ...and this many USB devices */
 #define MAP_ROWS (SEQ_LANES + 1)   /* DRUM MAP: the 8 lanes, then RESET TO GM */
@@ -148,6 +149,9 @@ typedef struct {
     size_t saved_len;
     int save_failed;          /* the last autosave failed (logged once) */
     const char *midi_file;    /* where the port chosen on M > MIDI is kept */
+    MidiConf *conf;           /* ...with each output's clock, Start/Stop and device (NULL = not kept) */
+    int dev_pick;             /* M > DEVICE: preset shown on the first row */
+    int dev_confirm;          /* M > DEVICE: A was pressed once on the preset row */
     char ports[MAX_PORTS][MIDI_PORT_NAME];   /* M > MIDI: output ports, refreshed every second */
     int nports;
     UsbDev usb[MAX_USB];      /* USB devices, refreshed every second */
@@ -443,9 +447,9 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 12
+#define MENU_ROWS 13
 enum { MENU_RESUME, MENU_STYLE, MENU_T1, MENU_T4 = MENU_T1 + SEQ_TRACKS - 1, MENU_NEW, MENU_SLOTS, MENU_DRUMMAP,
-       MENU_MIDI, MENU_CODES, MENU_QUIT };
+       MENU_MIDI, MENU_DEVICE, MENU_CODES, MENU_QUIT };
 
 /* The T1-T4 rows start as each track's own style and part. */
 static void plan_from_tracks(const Seq *s, Ui *u) {
@@ -508,6 +512,7 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
     else if (row == MENU_SLOTS) { snprintf(label, 24, "SLOTS"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_DRUMMAP) { snprintf(label, 24, "DRUM MAP"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_MIDI) { snprintf(label, 24, "MIDI OUTPUT"); snprintf(val, 24, "A: OPEN"); }
+    else if (row == MENU_DEVICE) { snprintf(label, 24, "DEVICE + CLOCK"); snprintf(val, 24, "%s", device_name(device_match(s))); }
     else if (row == MENU_CODES) { snprintf(label, 24, "BUTTON CODES"); snprintf(val, 24, "%s", u->show_input ? "ON" : "OFF"); }
     else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
 }
@@ -575,13 +580,23 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->page = P_MIDI;
         u->row[P_MIDI] = 0;
     }
+    else if (row == MENU_DEVICE) {
+        int d = device_match(s);
+        u->page = P_DEVICE;
+        u->row[P_DEVICE] = 0;
+        u->dev_pick = d < DEV_COUNT ? d : 0;
+        u->dev_confirm = 0;
+    }
     else if (row == MENU_CODES) toggle_codes(u);
     else if (row == MENU_QUIT) u->quit = 1;
 }
 
+#define DEVICE_ROWS 4
+enum { DR_DEVICE, DR_CLOCK, DR_TRANSPORT, DR_OUTPUT };
+
 static int page_rows(const Ui *u, int page) {
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
-         : page == P_SLOTS ? SEQ_SLOTS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : GEN_ROWS;
+         : page == P_SLOTS ? SEQ_SLOTS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : page == P_DEVICE ? DEVICE_ROWS : GEN_ROWS;
 }
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
@@ -958,13 +973,47 @@ static void midi_row_text(const Ui *u, int row, const char *desc, char *label, c
     snprintf(label, 24, "%s%.21s", port_in_use(desc, nm) ? "* " : "  ", nm);
 }
 
+/* Writes seq4h.midi: the chosen port, and each output's own settings. */
+static void conf_save(Ui *u) {
+    if (!u->midi_file || !u->conf) return;
+    if (midiconf_save(u->conf, u->midi_file) != 0) fprintf(stderr, "seq4h: cannot write %s\n", u->midi_file);
+}
+
 /* Keeps the choice for the next start (seq4h.midi; empty = AUTO). */
 static void midi_keep(Ui *u, const char *name) {
-    if (!u->midi_file) return;
-    FILE *f = fopen(u->midi_file, "w");
-    if (!f) { fprintf(stderr, "seq4h: cannot write %s\n", u->midi_file); return; }
-    fprintf(f, "%s\n", name);
-    fclose(f);
+    if (!u->conf) return;
+    snprintf(u->conf->port, sizeof u->conf->port, "%s", name);
+    conf_save(u);
+}
+
+/* The output the settings on M > DEVICE belong to: the port asked for ("" = AUTO). */
+static const char *out_key(const Ui *u) { return u->p->midi ? u->p->midi->want : ""; }
+
+/* Keeps the current clock and Start/Stop for this output. `device` is the
+ * preset it was set to; -1 keeps the one it had (or what the settings match). */
+static void out_keep(Seq *s, Ui *u, int device) {
+    if (!u->conf) return;
+    OutConf *o = midiconf_get(u->conf, out_key(u));
+    if (device < 0) device = o ? o->device : device_match(s);
+    midiconf_set(u->conf, out_key(u), s, device);
+    conf_save(u);
+}
+
+/* A port was chosen: bring back its own settings, or suggest a preset. */
+static void out_switched(Seq *s, Ui *u, const char *name) {
+    OutConf *o = u->conf ? midiconf_get(u->conf, name) : NULL;
+    if (o) {
+        if (o->device < DEV_COUNT && device_match(s) != o->device) device_apply(s, o->device);
+        seq_set_sync(s, o->clock, o->transport);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "PORT KEPT. ITS SETTINGS: %s", device_name(o->device));
+        say(u, u->msg_buf);
+        return;
+    }
+    int g = device_guess(name);
+    if (g < DEV_COUNT && device_match(s) != g) {
+        snprintf(u->msg_buf, sizeof u->msg_buf, "%s? SET IT ON M > DEVICE", device_name(g));
+        say(u, u->msg_buf);
+    } else say(u, *name ? "MIDI PORT CHOSEN AND KEPT" : "MIDI: FIRST PORT FOUND");
 }
 
 static void midi_press(Ui *u, Btn b, int dy) {
@@ -978,7 +1027,43 @@ static void midi_press(Ui *u, Btn b, int dy) {
         m->choose(m, name);
         u->midi_up = 0;   /* the next poll re-sends Start and clears held notes */
         midi_keep(u, name);
-        say(u, *row == 0 ? "MIDI: FIRST PORT FOUND" : "MIDI PORT CHOSEN AND KEPT");
+        out_switched(&u->p->seq, u, name);
+    }
+}
+
+/* ---- DEVICE (M > DEVICE + CLOCK): presets, and clock and Start/Stop for this output ---- */
+
+static void device_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    val[0] = 0;
+    if (row == DR_DEVICE) {
+        snprintf(label, 24, "DEVICE");
+        if (u->dev_confirm) snprintf(val, 24, "A AGAIN: USE IT");
+        else snprintf(val, 24, "%.11s%s", device_name(u->dev_pick), device_match(s) == u->dev_pick ? " *" : " (A)");
+    }
+    else if (row == DR_CLOCK) { snprintf(label, 24, "MIDI CLOCK"); snprintf(val, 24, "%s", s->clock_out ? "SEND" : "OFF"); }
+    else if (row == DR_TRANSPORT) { snprintf(label, 24, "START/STOP"); snprintf(val, 24, "%s", s->transport_out ? "SEND" : "OFF"); }
+    else { snprintf(label, 24, "OUTPUT"); snprintf(val, 24, "%.12s", out_key(u)[0] ? out_key(u) : "AUTO"); }
+}
+
+static void device_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    int *row = &u->row[P_DEVICE], confirm = u->dev_confirm;
+    u->dev_confirm = 0;
+    if (dy) *row = wrap(*row + dy, DEVICE_ROWS);
+    else if (b == B_B) u->page = P_MENU;
+    else if (*row == DR_DEVICE && dx) u->dev_pick = wrap(u->dev_pick + dx, DEV_COUNT);
+    else if (*row == DR_DEVICE && b == B_A) {   /* it rewrites the channels and the DRUM MAP: A twice */
+        if (!confirm) { u->dev_confirm = 1; say(u, "A AGAIN: CHANNELS, DRUM MAP AND CLOCK"); return; }
+        device_apply(s, u->dev_pick);
+        out_keep(s, u, u->dev_pick);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "%s IN USE, KEPT FOR THIS PORT", device_name(u->dev_pick));
+        say(u, u->msg_buf);
+    }
+    else if ((*row == DR_CLOCK || *row == DR_TRANSPORT) && (dx || b == B_A)) {
+        if (*row == DR_CLOCK) seq_set_sync(s, !s->clock_out, s->transport_out);
+        else seq_set_sync(s, s->clock_out, !s->transport_out);
+        out_keep(s, u, -1);
+        say(u, *row == DR_CLOCK ? (s->clock_out ? "MIDI CLOCK ON" : "CLOCK OFF: DEVICE USES ITS OWN TEMPO")
+                                : (s->transport_out ? "START/STOP ON (STARTS AT THE NEXT BAR)" : "START/STOP OFF"));
     }
 }
 
@@ -1058,14 +1143,14 @@ static void press(Ui *u, Btn b) {
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
-    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_DRUMMAP || u->page == P_MIDI;
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_DRUMMAP || u->page == P_MIDI || u->page == P_DEVICE;
     int was_midi = u->page == P_MIDI;
     int sub = u->page == P_ROLL || u->page == P_DRUMS;   /* opened from the GRID */
     int from = in_menu ? u->menu_from : sub ? P_GRID : u->page;   /* where L1/R1 count from */
     if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
     else if (b == B_MENU) {
-        u->naming = u->slot_more = u->slot_confirm = u->map_confirm = 0;
+        u->naming = u->slot_more = u->slot_confirm = u->map_confirm = u->dev_confirm = 0;
         if (in_menu) u->page = u->menu_from;
         else { u->menu_from = u->page; u->page = P_MENU; if (!u->plan_init) plan_from_tracks(s, u); }
     }
@@ -1073,6 +1158,7 @@ static void press(Ui *u, Btn b) {
     else if (u->page == P_DRUMMAP && u->naming) map_press(s, u, b, dx, dy);
     else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
     else if (u->page == P_MIDI && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) midi_press(u, b, dy);
+    else if (u->page == P_DEVICE && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) device_press(s, u, b, dx, dy);
     else if (u->page == P_SLOTS && (b == B_L2 || b == B_R2)) {
         u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
         u->slot_more = u->slot_confirm = 0;
@@ -1575,6 +1661,49 @@ static void draw_midi_side(SDL_Renderer *r, const Ui *u, const char *desc) {
     text(r, 20, H - 20, 1, DIM, "B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
 }
 
+/* Right-hand side of the DEVICE page: what to set on the device itself. */
+static void draw_device_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    char buf[64];
+    const DevPreset *p = device_preset(u->dev_pick);
+    int k = u->row[P_DEVICE], in_use = device_match(s);
+    text(r, 392, 62, 2, YELLOW, "DEVICE");
+    snprintf(buf, sizeof buf, "IN USE: %s", device_name(in_use));
+    text(r, 392, 86, 1, WHITE, buf);
+    snprintf(buf, sizeof buf, "CHANNELS %d %d %d %d  DRUM MAP %s", s->track[0].channel + 1, s->track[1].channel + 1,
+             s->track[2].channel + 1, s->track[3].channel + 1, seq_drum_map_is(s, DRUM_FELUCCA) ? "FELUCCA"
+             : seq_drum_map_is(s, DRUM_GM) ? "GM" : seq_drum_map_is(s, DRUM_BLACKBOX) ? "BLACKBOX" : "OWN");
+    text(r, 392, 98, 1, DIM, buf);
+    int y = 120;
+    if (k == DR_DEVICE) {
+        snprintf(buf, sizeof buf, "%s SETS:", p->name);
+        text(r, 392, y, 1, YELLOW, buf);
+        snprintf(buf, sizeof buf, " CHANNELS %d %d %d %d, DRUM MAP %s", p->channel[0] + 1, p->channel[1] + 1,
+                 p->channel[2] + 1, p->channel[3] + 1, seq_drum_preset_name(p->drum_map));
+        text(r, 392, y + 12, 1, WHITE, buf);
+        snprintf(buf, sizeof buf, " CLOCK %s, START/STOP %s", p->clock ? "ON" : "OFF", p->transport ? "ON" : "OFF");
+        text(r, 392, y + 24, 1, WHITE, buf);
+        text(r, 392, y + 44, 1, YELLOW, "ON THE DEVICE:");
+        for (int i = 0; i < 8 && p->setup[i]; i++) text(r, 392, y + 56 + 12 * i, 1, WHITE, p->setup[i]);
+    } else if (k == DR_CLOCK) {
+        text(r, 392, y, 1, WHITE, "SEND: SEQ4H IS THE CLOCK MASTER,");
+        text(r, 392, y + 12, 1, WHITE, "24 PER BEAT, ALSO WHILE STOPPED.");
+        text(r, 392, y + 32, 1, WHITE, "OFF: THE DEVICE RUNS ITS OWN");
+        text(r, 392, y + 44, 1, WHITE, "TEMPO; NOTES STILL PLAY.");
+    } else if (k == DR_TRANSPORT) {
+        text(r, 392, y, 1, WHITE, "SEND: START PLAYS THE DEVICE'S");
+        text(r, 392, y + 12, 1, WHITE, "OWN SEQUENCER TOO, STOP STOPS IT.");
+        text(r, 392, y + 32, 1, WHITE, "OFF: ONLY SEQ4H'S NOTES (AND THE");
+        text(r, 392, y + 44, 1, WHITE, "CLOCK, IF ON) GO OUT.");
+    } else {
+        text(r, 392, y, 1, WHITE, "PICK THE PORT ON M > MIDI OUTPUT.");
+    }
+    text(r, 392, y + 160, 1, DIM, "CLOCK AND START/STOP ARE KEPT FOR");
+    text(r, 392, y + 172, 1, DIM, "THIS OUTPUT (SEQ4H.MIDI): CHOOSING");
+    text(r, 392, y + 184, 1, DIM, "IT AGAIN BRINGS ITS DEVICE BACK.");
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT PICK  A USE THE DEVICE (TWICE)  A/LEFT/RIGHT ON/OFF");
+    text(r, 20, H - 20, 1, DIM, "B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
+}
+
 /* Right-hand side of the DRUM MAP page. */
 static void draw_map_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
     char buf[64], nn[8];
@@ -1694,6 +1823,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == TRACK_BPM_ROW; }
         else if (u->page == P_DRUMMAP) map_row_text(&s, u, row, label, val);
         else if (u->page == P_MIDI) { midi_row_text(u, row, midi_desc, label, val); head = row == 0; }
+        else if (u->page == P_DEVICE) device_row_text(&s, u, row, label, val);
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
@@ -1704,6 +1834,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
     if (u->page == P_SLOTS) { draw_slots_side(r, &s, u); return; }
     if (u->page == P_DRUMMAP) { draw_map_side(r, &s, u); return; }
     if (u->page == P_MIDI) { draw_midi_side(r, u, midi_desc); return; }
+    if (u->page == P_DEVICE) { draw_device_side(r, &s, u); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
     else {
         text(r, 392, 62, 2, YELLOW, "MAIN MENU");
@@ -1985,7 +2116,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     if (!opt->input) input_defaults(&defaults);
     Dev devs[MAX_DEVS] = {0};   /* opened as SDL_JOYDEVICEADDED arrives, which includes devices present at start */
     Ui u = {.p = p, .roll_len = 100, .undo_track = -1, .xf_amt = 1, .snap = 1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
-           .midi_up = -1, .midi_file = opt->midi_file};
+           .midi_up = -1, .midi_file = opt->midi_file, .conf = opt->midi_conf};
     if (opt->keys) {
         static char tmp[4096];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);
