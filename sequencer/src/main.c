@@ -7,6 +7,7 @@
 
 #include "gen.h"
 #include "player.h"
+#include "song.h"
 #include "ui.h"
 
 static void sleep_ms(long ms) {
@@ -49,6 +50,8 @@ static void usage(void) {
          "                   'capture:FILE' = write timestamped MIDI to FILE, see tools/midicheck.py)\n"
          "  --capture FILE   also write timestamped MIDI to FILE while sending to --midi\n"
          "  --pattern FILE   pattern file to load and autosave (default seq4h.pat)\n"
+         "  --songs DIR      folder for the M > SONG SAVE files seq4h-song1..8.pat (default:\n"
+         "                   the pattern file's folder; with --screenshot, songs are off unless given)\n"
          "  --channel N      put all four tracks on MIDI channel N (1-16), e.g. for Felucca's\n"
          "                   MIDI IN: SEL mode, where every channel plays the selected track\n"
          "  --input FILE     button mapping file (default seq4h.input if it exists)\n"
@@ -78,7 +81,7 @@ static void midi_file_path(const char *pattern, char *out, size_t n) {
 
 int main(int argc, char **argv) {
     const char *midi_name = "", *pattern = "seq4h.pat", *shot = NULL, *keys = NULL, *capture = NULL;
-    const char *input_file = NULL;
+    const char *input_file = NULL, *songs = NULL;
     int show_input = 0, dump_input = 0;
     int fullscreen = 0, no_clock = 0, demo = 0, verbose = 0, autoplay = 0, channel = 0, test = 0, bpm = 0;
     double headless = 0;
@@ -92,6 +95,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--bpm") && i + 1 < argc) bpm = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--headless") && i + 1 < argc) headless = atof(argv[++i]);
         else if (!strcmp(argv[i], "--input") && i + 1 < argc) input_file = argv[++i];
+        else if (!strcmp(argv[i], "--songs") && i + 1 < argc) songs = argv[++i];
         else if (!strcmp(argv[i], "--show-input")) show_input = 1;
         else if (!strcmp(argv[i], "--dump-input")) dump_input = 1;
         else if (!strcmp(argv[i], "--fullscreen")) fullscreen = 1;
@@ -194,9 +198,13 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    char song_dir[512];
+    if (songs) snprintf(song_dir, sizeof song_dir, "%s", songs);
+    else song_dir_of(pattern, song_dir, sizeof song_dir);
     UiOptions opt = {.fullscreen = fullscreen, .screenshot = shot, .keys = keys,
                      .input = &input, .show_input = show_input, .verbose = verbose || show_input,
                      .autosave = shot ? NULL : pattern, .midi_file = shot ? NULL : midi_file,
+                     .song_dir = songs || !shot ? song_dir : NULL,
                      .midi_conf = &conf};
     int rc = ui_run(&p, &opt);
 

@@ -93,7 +93,7 @@ More on the GENERATE page (press **A** on a row to do its action):
 - **Scale snap:** with `SNAP NOTES` on, changing scale or root moves every
   note into the new scale. A on that row snaps the notes now.
 - **Slots and chains:** each track has 8 pattern slots. `SAVE TO SLOT` stores
-  the live pattern; A on `SLOT` loads it back. **M > SLOTS** lists them by
+  the live pattern; A on `SLOT` loads it back. **M > PATTERN SAVE** lists them by
   name, with load, save, rename, copy and clear (see *Slots page* below). `CHAIN` plays slots 1 to N in
   turn, `BARS PER SLOT` each, and `CHANGE BY` either jumps to the next slot or
   morphs into it a few steps per bar.
@@ -302,12 +302,15 @@ you were on. Rows:
   seventh-chord stabs, a light arpeggio, four on the floor); TRIP HOP at 80
   BPM in D minor (a slow drifting bass, a dark swelling seventh pad, sparse
   bells that rest, half-time drums).
-- *Slots*: A opens the **Slots page** (below).
+- *Pattern save*: A opens the **Pattern save page** (below), the 8 stored
+  patterns of the current track (called SLOTS before).
+- *Song save*: A opens the **Song save page** (below), 8 saved whole
+  sessions.
 - *Drum map*: A opens the **Drum map page** (below).
 - *Button codes*: show each button's raw code (see *Button mapping*).
 - *Save and quit*
 
-**Slots page** (M > SLOTS, A): the 8 slots of the current track, each with
+**Pattern save page** (M > PATTERN SAVE, A): the 8 slots of the current track, each with
 its name and length, or EMPTY. `<` marks the slot last loaded or saved. The
 right side shows the selected slot's pattern. L2/R2 changes track.
 
@@ -319,6 +322,25 @@ right side shows the selected slot's pattern. L2/R2 changes track.
 | Y [V] | rename the slot |
 | Select [Tab] | copy or clear: COPY TO (left/right picks the slot), CLEAR SLOT, BACK; A does it, and A again confirms replacing a full slot or clearing |
 | B [X] | back to the main menu (closes the copy/clear panel first) |
+| M [M] | close the menu |
+
+**Song save page** (M > SONG SAVE, A): 8 songs. A song is everything: all
+four tracks with their stored patterns, names and chains, BPM, swing, scale,
+root, style, MIDI channels, mutes, track types and the drum map. Each song is
+its own file next to `seq4h.pat` (`seq4h-song1.pat` to `seq4h-song8.pat`, the
+same format plus a `name` line), so songs can be copied on the Mac; a song
+file copied over `seq4h.pat` loads as the session. Rows show the name and
+BPM, or EMPTY; `<` marks the song last loaded or saved. The right side shows
+what the selected song holds.
+
+| Input | Action |
+|---|---|
+| Up / down | pick a song |
+| A [Z] | load the song; A again confirms, since it replaces all four tracks. While playing, it keeps playing in time with the new song |
+| X [C] | save the whole session as this song (a full song asks for X again) |
+| Y [V] | rename the song (as slot names, start as SONG 1 to SONG 8) |
+| Select [Tab] | COPY TO (left/right picks the song), CLEAR SONG, UNDO LOAD (back to the session before the last load), BACK; A does it, A again confirms replacing or clearing |
+| B [X] | back to the main menu |
 | M [M] | close the menu |
 
 **Drum map page** (M > DRUM MAP, A): the MIDI note each drum lane plays,
