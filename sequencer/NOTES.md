@@ -373,6 +373,34 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Tests: `test_drum` `test_lane_mute_solo` (mute, solo, solo on a muted
     lane, hit released on mute, saved mutes, unsaved solos, old `ty` line);
     screenshots `drums-lane-mute`, `drums-lane-solo`.
+- **Song save** (Roy, 2026-11-21: "a song save mode as well as the
+  pattern/track save ... from the M menu but separate to the Slots, perhaps
+  rename that pattern save and song save"). M > SLOTS is now **PATTERN
+  SAVE** (same page, same keys) and **M > SONG SAVE** is new, right under
+  it. A song is the **whole session**: all four tracks with their 8 pattern
+  slots, names and chains, generator/evolve/colour settings, BPM, swing,
+  scale, root, style, channels, mutes, track types and the DRUM MAP.
+  8 songs, each its own file next to `seq4h.pat`: `seq4h-song1.pat` ...
+  `seq4h-song8.pat`, in the same `seq4h 1` format plus a `name NAME` line
+  (older builds skip it), so a song file can be copied over `seq4h.pat` on
+  the Mac and the other way round. Written like the autosave: `.tmp`,
+  fsync, rename. Installing a new zip does not touch them (not in the zip).
+  Keys mirror PATTERN SAVE: A load, X save here, Y rename, Select opens COPY
+  TO / CLEAR SONG / UNDO LOAD / BACK. Decisions made without asking:
+  **loading takes a second A** (it replaces all four tracks); UNDO LOAD in
+  the Select panel puts back the session from before the last load (once;
+  pressing it again goes back to the song), kept in memory until quit.
+  Loading while playing keeps playing in time: notes are released first,
+  the tick position, play state and the MIDI clock setting stay (the FM1's
+  clock does not restart); the new BPM applies at once. Solo is cleared.
+  The live session (`seq4h.pat`) then autosaves as the loaded song, and the
+  song file itself is only written by X, rename or copy. File work runs
+  after the button press with the player unlocked, so the SD card never
+  holds up MIDI. Code: `src/song.c` / `song.h`, page in `ui.c`
+  (`songs_press`, `song_do`, `draw_songs_side`); tests in
+  `tests/test_song.c` and the harness (`song-*` screenshots, persist
+  checks). `--songs DIR` moves the song folder (screenshot mode has songs
+  off unless it is given).
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -428,7 +456,8 @@ Works and tested on desktop Linux:
    - painting per-note chances for WEIGHTED, closer to SEQ-4's stochastic mode
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
-   - a song mode on top of slot chains
+   - a song arrangement mode on top of slot chains (SONG SAVE keeps whole
+     sessions, built 2026-11-21; playing songs one after another is not built)
    - a JANGADA preset on M > DRUM MAP (FELUCCA and GM are built)
 
 ## USB MIDI on the RG40XX-V
@@ -814,6 +843,27 @@ hear instead, and send `seq4h.log`.
 5. [ ] Mute a lane, press **Select** to go back to the grid: that lane's
    thin bars are dim in the drum track's row. Quit and restart: the lane
    is still muted. A lane solo is not kept (like track solo).
+**D5. Song save (build after the song save PR, 2026-11-21)**
+
+1. [ ] Press **M**. The menu reads PATTERN SAVE (the old SLOTS, works the
+   same) and, under it, **SONG SAVE**. Open SONG SAVE: 8 rows, SONG 1 to
+   SONG 8, all EMPTY on the first go.
+2. [ ] On SONG 1 press **X**: "SAVED AS SONG 1", the row shows the BPM and
+   `<`, and the right side shows BPM, scale, style, stored patterns and the
+   four tracks.
+3. [ ] **Y** renames it (up/down letter, left/right move, A keeps). The new
+   name shows on the row.
+4. [ ] Go back to editing (M), change something big: MUSIC STYLE + NEW FROM
+   STYLE, or the BPM, or a track's TYPE.
+5. [ ] M > SONG SAVE, SONG 1, press **A**: it asks "A AGAIN". Press **A**
+   again while playing: the old session is back (BPM, all 4 tracks, their
+   pattern slots and the drum map), the FM1 keeps playing in time and no
+   note hangs.
+6. [ ] **Select** > **UNDO LOAD** > A: the session from step 4 is back.
+   Select > COPY TO (left/right picks SONG 2) > A copies it; CLEAR SONG > A,
+   A empties a song.
+7. [ ] Quit and restart: the songs are still listed. On the Mac they are
+   `roms/ports/seq4h/seq4h-song1.pat` and so on, next to `seq4h.pat`.
 
 **Full 20-test sheet for build #133** (2026-11-21, Roy asked for one sheet
 that checks everything): `tests/hardware-sheet-133.md`. Tests 1-7 are the
@@ -864,6 +914,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Piano roll (build #127) | works; needed moving between steps while editing and a length for new notes (fixed in PR 25) |
 | Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
 | Drum lane mute/solo (D4) | not tested yet |
+| Song save (D5) | not tested yet |
 | PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
 | Hub | not tested yet |
 
@@ -1268,6 +1319,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 - `src/engine.c`, `engine.h`: tracks, steps, tick processing, save/load
 - `src/gen.c`, `gen.h`: scales, generators, evolution
+- `src/song.c`, `song.h`: M > SONG SAVE song files (save, read, apply a whole session); `tests/test_song.c`
 - `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP (FELUCCA and GM presets, Felucca sound table), audition, drum
   kit generator, drum evolution, morph and transforms
 - `tests/test_drum.c`: drum track tests

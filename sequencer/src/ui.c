@@ -4,6 +4,7 @@
 #include "drum.h"
 #include "gen.h"
 #include "input.h"
+#include "song.h"
 #include "usbinfo.h"
 
 #include <SDL.h>
@@ -80,17 +81,21 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 /* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
-               P_MENU = P_TABS, P_SLOTS, P_DRUMMAP, P_MIDI,     /* SLOTS, DRUM MAP and MIDI open from the main menu */
+               P_MENU = P_TABS, P_SLOTS, P_SONGS, P_DRUMMAP, P_MIDI,   /* PATTERN SAVE, SONG SAVE, DRUM MAP and MIDI open from the main menu */
                P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
                P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS", "DRUM MAP", "MIDI", "ROLL", "DRUMS"};
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "ROLL", "DRUMS"};
 #define MAX_PORTS 8   /* M > MIDI lists this many output ports */
 #define MAX_USB 8     /* ...and this many USB devices */
 #define MAP_ROWS (SEQ_LANES + 1)   /* DRUM MAP: the 8 lanes, then RESET TO GM */
 
 /* SLOTS page: a second press confirms anything that overwrites or empties a slot. */
-enum { CF_NONE, CF_SAVE, CF_COPY, CF_CLEAR };
+enum { CF_NONE, CF_SAVE, CF_COPY, CF_CLEAR, CF_LOAD };
 enum { MORE_COPY, MORE_CLEAR, MORE_BACK, MORE_ROWS };   /* rows of the Select panel */
+enum { SMORE_COPY, SMORE_CLEAR, SMORE_UNDO, SMORE_BACK, SMORE_ROWS };   /* ...and of SONG SAVE's */
+/* SONG SAVE file work, done after the button press with the player unlocked
+ * (the SD card is slow, and MIDI timing must not wait for it). */
+enum { SO_NONE, SO_SAVE, SO_LOAD, SO_RENAME, SO_COPY, SO_CLEAR, SO_UNDO };
 /* Letters for slot names, in up/down order. */
 static const char NAME_CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 
@@ -128,6 +133,13 @@ typedef struct {
     int map_confirm;          /* DRUM MAP: the preset row's A was pressed once */
     int map_preset;           /* DRUM MAP: preset picked on the last row (DRUM_FELUCCA / DRUM_GM) */
     int roll_len;             /* piano roll: length new notes get, hundredths of a step (gate + 100 per held step) */
+    const char *song_dir;     /* SONG SAVE: folder of the song files (NULL = songs off) */
+    SongInfo song[SEQ_SONGS]; /* ...what each song file holds, read as the page opens */
+    int cur_song;             /* song last loaded or saved this session, -1 = none */
+    int song_op, song_to;     /* SO_* waiting to run after the press, and the song it copies to */
+    int song_scan_due;        /* re-read the song files after the press */
+    Seq *song_undo;           /* the session as it was before the last song load (UNDO LOAD) */
+    int song_undo_ok;
     int step_back;            /* page B returns to from STEP (the piano roll, if STEP was opened from it), 0 = the grid */
     const char *msg;
     Uint32 msg_until;
@@ -439,8 +451,8 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 8
-enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_SLOTS, MENU_DRUMMAP, MENU_MIDI, MENU_CODES, MENU_QUIT };
+#define MENU_ROWS 9
+enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_SLOTS, MENU_SONGS, MENU_DRUMMAP, MENU_MIDI, MENU_CODES, MENU_QUIT };
 
 static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     val[0] = 0;
@@ -450,7 +462,8 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         snprintf(label, 24, "NEW FROM STYLE");
         snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
     }
-    else if (row == MENU_SLOTS) { snprintf(label, 24, "SLOTS"); snprintf(val, 24, "A: OPEN"); }
+    else if (row == MENU_SLOTS) { snprintf(label, 24, "PATTERN SAVE"); snprintf(val, 24, "A: OPEN"); }
+    else if (row == MENU_SONGS) { snprintf(label, 24, "SONG SAVE"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_DRUMMAP) { snprintf(label, 24, "DRUM MAP"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_MIDI) { snprintf(label, 24, "MIDI OUTPUT"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_CODES) { snprintf(label, 24, "BUTTON CODES"); snprintf(val, 24, "%s", u->show_input ? "ON" : "OFF"); }
@@ -488,6 +501,12 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->row[P_SLOTS] = s->track[u->track].cur_slot;
         u->slot_confirm = u->slot_more = u->naming = 0;
     }
+    else if (row == MENU_SONGS) {
+        u->page = P_SONGS;
+        if (u->cur_song >= 0) u->row[P_SONGS] = u->cur_song;
+        u->slot_confirm = u->slot_more = u->naming = 0;
+        u->song_scan_due = 1;
+    }
     else if (row == MENU_DRUMMAP) {
         u->page = P_DRUMMAP;
         u->naming = u->map_confirm = 0;
@@ -502,7 +521,7 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
 
 static int page_rows(const Ui *u, int page) {
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
-         : page == P_SLOTS ? SEQ_SLOTS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : GEN_ROWS;
+         : page == P_SLOTS ? SEQ_SLOTS : page == P_SONGS ? SEQ_SONGS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : GEN_ROWS;
 }
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
@@ -608,6 +627,10 @@ static void name_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     }
     else if (dx) u->name_pos = clampi(u->name_pos + dx, 0, SEQ_SLOT_NAME - 1);
     else if (b == B_X) *c = ' ';
+    else if (b == B_A && u->page == P_SONGS) {   /* naming a song: the file is rewritten after the press */
+        u->naming = 0;
+        u->song_op = SO_RENAME;
+    }
     else if (b == B_A && u->page == P_DRUMMAP) {   /* naming a drum lane */
         seq_lane_set_name(s, k, u->name_buf);
         u->naming = 0;
@@ -682,6 +705,161 @@ static void slots_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     }
     else if (b == B_Y) name_slot_start(s, u, k);
     else if (b == B_SEL) { u->slot_more = 1; u->more_row = MORE_COPY; u->copy_to = (k + 1) % SEQ_SLOTS; }
+}
+
+/* SONG SAVE page (M > SONG SAVE): 8 songs, each the whole session (all four
+ * tracks with their pattern slots and chains, BPM, scale, style, channels,
+ * track types, DRUM MAP) in its own file next to seq4h.pat. A loads (a second
+ * A confirms, since it replaces everything), X saves the session here, Y
+ * renames, Select opens copy / clear / undo load. See song.h. */
+static void songs_row_text(const Ui *u, int row, char *label, char *val) {
+    const SongInfo *in = &u->song[row];
+    char nm[SEQ_SONG_NAME + 1];
+    song_show_name(row, in->name, nm);
+    snprintf(label, 24, "%d %s", row + 1, nm);
+    if (in->used) snprintf(val, 24, "%d BPM%s", in->bpm, row == u->cur_song ? " <" : "");
+    else snprintf(val, 24, "EMPTY");
+}
+
+static void song_scan(Ui *u) {
+    char path[512];
+    for (int k = 0; k < SEQ_SONGS; k++) {
+        if (!u->song_dir) { memset(&u->song[k], 0, sizeof u->song[k]); continue; }
+        song_path(u->song_dir, k, path, sizeof path);
+        song_info(path, k, &u->song[k]);
+    }
+}
+
+static void song_say(Ui *u, const char *what, int k) {
+    char nm[SEQ_SONG_NAME + 1];
+    song_show_name(k, u->song[k].name, nm);
+    snprintf(u->msg_buf, sizeof u->msg_buf, "%s %s", what, nm);
+    say(u, u->msg_buf);
+}
+
+static void songs_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    (void)s;
+    int *row = &u->row[P_SONGS], k = *row;
+    int confirm = u->slot_confirm;
+    u->slot_confirm = CF_NONE;   /* any other press cancels a pending confirm */
+    if (u->naming) { name_press(s, u, b, dx, dy); return; }
+    if (!u->song_dir && b != B_B && !dy) { say(u, "SONGS ARE OFF IN THIS MODE"); return; }
+    if (u->slot_more) {
+        if (dy) u->more_row = wrap(u->more_row + dy, SMORE_ROWS);
+        else if (dx && u->more_row == SMORE_COPY) u->song_to = wrap(u->song_to + dx, SEQ_SONGS);
+        else if (b == B_B || b == B_SEL || (b == B_A && u->more_row == SMORE_BACK)) u->slot_more = 0;
+        else if (b == B_A && u->more_row == SMORE_COPY) {
+            if (!u->song[k].used) { say(u, "SONG IS EMPTY: NOTHING TO COPY"); return; }
+            if (u->song_to == k) { say(u, "PICK ANOTHER SONG TO COPY TO"); return; }
+            if (u->song[u->song_to].used && confirm != CF_COPY) {
+                u->slot_confirm = CF_COPY;
+                snprintf(u->msg_buf, sizeof u->msg_buf, "A AGAIN: REPLACE SONG %d", u->song_to + 1);
+                say(u, u->msg_buf);
+                return;
+            }
+            u->song_op = SO_COPY;
+        }
+        else if (b == B_A && u->more_row == SMORE_CLEAR) {
+            if (!u->song[k].used) { say(u, "SONG IS ALREADY EMPTY"); return; }
+            if (confirm != CF_CLEAR) { u->slot_confirm = CF_CLEAR; say(u, "A AGAIN: CLEAR THIS SONG"); return; }
+            u->song_op = SO_CLEAR;
+        }
+        else if (b == B_A && u->more_row == SMORE_UNDO) {
+            if (!u->song_undo_ok) { say(u, "NO SONG LOAD TO UNDO"); return; }
+            u->song_op = SO_UNDO;
+        }
+        return;
+    }
+    if (dy) *row = wrap(*row + dy, SEQ_SONGS);
+    else if (b == B_B) u->page = P_MENU;
+    else if (b == B_A) {
+        if (!u->song[k].used) { say(u, "SONG IS EMPTY"); return; }
+        if (confirm != CF_LOAD) { u->slot_confirm = CF_LOAD; say(u, "A AGAIN: LOAD (REPLACES ALL 4 TRACKS)"); return; }
+        u->song_op = SO_LOAD;
+    }
+    else if (b == B_X) {
+        if (u->song[k].used && confirm != CF_SAVE) { u->slot_confirm = CF_SAVE; say(u, "X AGAIN: REPLACE THIS SONG"); return; }
+        u->song_op = SO_SAVE;
+    }
+    else if (b == B_Y) {
+        char nm[SEQ_SONG_NAME + 1];
+        if (!u->song[k].used) { say(u, "SAVE A SONG HERE FIRST (X)"); return; }
+        song_show_name(k, u->song[k].name, nm);
+        snprintf(u->name_buf, sizeof u->name_buf, "%-*s", SEQ_SONG_NAME, nm);
+        u->name_pos = 0;
+        u->naming = 1;
+    }
+    else if (b == B_SEL) { u->slot_more = 1; u->more_row = SMORE_COPY; u->song_to = (k + 1) % SEQ_SONGS; }
+}
+
+/* Run the SONG SAVE file work picked by songs_press, with the player unlocked
+ * except for the moment the session is copied out or swapped in. */
+static void song_do(Ui *u) {
+    static Seq snap;
+    int op = u->song_op, k = u->row[P_SONGS], ok = -1;
+    char path[512], to[512], nm[SEQ_SONG_NAME + 1];
+    u->song_op = SO_NONE;
+    if (!u->song_dir || op == SO_NONE) return;
+    song_path(u->song_dir, k, path, sizeof path);
+    if (op == SO_SAVE) {
+        player_lock(u->p);
+        snap = u->p->seq;
+        player_unlock(u->p);
+        ok = song_save_file(&snap, u->song[k].used ? u->song[k].name : "", path);
+        if (ok == 0) u->cur_song = k;
+    }
+    else if (op == SO_LOAD || op == SO_UNDO) {
+        if (!u->song_undo) u->song_undo = malloc(sizeof *u->song_undo);
+        if (!u->song_undo) { say(u, "OUT OF MEMORY"); return; }
+        if (op == SO_LOAD && song_read_file(path, &snap, NULL) != 0) { say(u, "CANNOT READ THIS SONG"); song_scan(u); return; }
+        player_lock(u->p);
+        if (op == SO_LOAD) {
+            *u->song_undo = u->p->seq;
+            song_apply(&u->p->seq, &snap);
+        } else {
+            snap = u->p->seq;
+            song_apply(&u->p->seq, u->song_undo);
+            *u->song_undo = snap;   /* a second UNDO LOAD goes back to the song */
+        }
+        player_unlock(u->p);
+        u->song_undo_ok = 1;
+        u->undo_track = -1;   /* GENERATE's X must not undo into another song */
+        u->on_label = u->drum_label = 0;
+        if (op == SO_LOAD) { u->cur_song = k; song_say(u, "LOADED", k); }
+        else say(u, "BACK TO THE SESSION BEFORE THE LOAD");
+        u->slot_more = 0;
+        return;
+    }
+    else if (op == SO_RENAME) {
+        char clean[SEQ_SONG_NAME + 1];
+        song_clean_name(k, u->name_buf, clean);
+        if (song_read_file(path, &snap, NULL) == 0) ok = song_save_file(&snap, clean, path);
+    }
+    else if (op == SO_COPY) {
+        song_path(u->song_dir, u->song_to, to, sizeof to);
+        if (song_read_file(path, &snap, nm) == 0) {
+            char clean[SEQ_SONG_NAME + 1];
+            song_clean_name(k, nm, clean);
+            ok = song_save_file(&snap, clean, to);   /* the copy keeps the name; a default name stays default */
+        }
+    }
+    else if (op == SO_CLEAR) ok = remove(path);
+    song_scan(u);
+    if (ok != 0) { say(u, op == SO_CLEAR ? "CANNOT CLEAR THIS SONG" : "CANNOT WRITE THE SONG FILE"); return; }
+    if (op == SO_SAVE) song_say(u, "SAVED AS", k);
+    else if (op == SO_RENAME) song_say(u, "NAMED", k);
+    else if (op == SO_COPY) {
+        snprintf(u->msg_buf, sizeof u->msg_buf, "COPIED TO SONG %d", u->song_to + 1);
+        say(u, u->msg_buf);
+        u->row[P_SONGS] = u->song_to;
+        u->slot_more = 0;
+    }
+    else if (op == SO_CLEAR) {
+        snprintf(u->msg_buf, sizeof u->msg_buf, "SONG %d CLEARED", k + 1);
+        say(u, u->msg_buf);
+        if (u->cur_song == k) u->cur_song = -1;
+        u->slot_more = 0;
+    }
 }
 
 /* ---- piano roll (Select on the GRID, note tracks) ----
@@ -958,14 +1136,16 @@ static void select_tap(Ui *u) {
  *          (set anchor, apply transform, load/save slot, snap notes), X undoes
  *   SLOTS (M > SLOTS): up/down slot, A load, X save here, Y rename, Select copy/clear,
  *          B back to the menu; renaming: up/down letter, left/right move, X space,
- *          A keep, B cancel */
+ *          A keep, B cancel
+ *   SONG SAVE (M > SONG SAVE): up/down song, A load (A again to confirm), X save the
+ *          whole session here, Y rename, Select copy/clear/undo load, B back to the menu */
 static void press(Ui *u, Btn b) {
     Player *p = u->p;
     if (!u->save_due) u->save_due = SDL_GetTicks() + 2000;   /* autosave shortly after edits */
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
-    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_DRUMMAP || u->page == P_MIDI;
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI;
     int was_midi = u->page == P_MIDI;
     int sub = u->page == P_ROLL || u->page == P_DRUMS;   /* opened from the GRID */
     int from = in_menu ? u->menu_from : sub ? P_GRID : u->page;   /* where L1/R1 count from */
@@ -977,6 +1157,7 @@ static void press(Ui *u, Btn b) {
         else { u->menu_from = u->page; u->page = P_MENU; }
     }
     else if (u->page == P_SLOTS && u->naming) slots_press(s, u, b, dx, dy);   /* the editor takes every button */
+    else if (u->page == P_SONGS && (u->naming || (b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2))) songs_press(s, u, b, dx, dy);
     else if (u->page == P_DRUMMAP && u->naming) map_press(s, u, b, dx, dy);
     else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
     else if (u->page == P_MIDI && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) midi_press(u, b, dy);
@@ -1038,6 +1219,8 @@ static void press(Ui *u, Btn b) {
     }
     player_unlock(p);
     if (u->page == P_MIDI && !was_midi) scan_midi(u);   /* list the ports as the page opens */
+    if (u->song_op) song_do(u);
+    if (u->song_scan_due) { u->song_scan_due = 0; song_scan(u); }
 }
 
 static int repeats(Btn b) { return b <= B_RIGHT || b == B_PREV || b == B_NEXT; }  /* the d-pad and the stick auto-repeat */
@@ -1530,7 +1713,7 @@ static void draw_slots_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
     Col base = TRACK_COL[u->track];
     char buf[64], nm[SEQ_SLOT_NAME + 1];
     seq_slot_name(s, u->track, k, nm);
-    snprintf(buf, sizeof buf, "T%d SLOTS", u->track + 1);
+    snprintf(buf, sizeof buf, "T%d PATTERNS", u->track + 1);
     text(r, 392, 62, 2, base, buf);
     int px = 392, py = 100, len = sl->used ? sl->len : 16, pw = len > 16 ? 240 / len : 15, ph = 90;
     snprintf(buf, sizeof buf, "%d %s: %s", k + 1, nm, sl->used ? "STORED PATTERN" : "EMPTY");
@@ -1582,6 +1765,60 @@ static void draw_slots_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
     text(r, 20, H - 20, 1, DIM, "L2/R2 TRACK  B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
 }
 
+/* Right-hand side of the SONG SAVE page: what the selected song holds, then the
+ * name editor or the copy / clear / undo panel when open, and the button help. */
+static void draw_songs_side(SDL_Renderer *r, const Ui *u) {
+    int k = u->row[P_SONGS];
+    const SongInfo *in = &u->song[k];
+    static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    char buf[64], nm[SEQ_SONG_NAME + 1];
+    song_show_name(k, in->name, nm);
+    text(r, 392, 62, 2, YELLOW, "SONG SAVE");
+    snprintf(buf, sizeof buf, "%d %s: %s", k + 1, nm, in->used ? "SAVED SONG" : "EMPTY");
+    text(r, 392, 86, 1, DIM, buf);
+    if (!u->song_dir) text(r, 392, 102, 1, DIM, "SONGS ARE OFF IN THIS MODE");
+    else if (in->used) {
+        snprintf(buf, sizeof buf, "%d BPM  %s %s", in->bpm, R[in->root % 12], scale_name(in->scale));
+        text(r, 392, 102, 1, WHITE, buf);
+        snprintf(buf, sizeof buf, "STYLE %s  %d PATTERNS STORED", style_name(in->style), in->slots);
+        text(r, 392, 116, 1, WHITE, buf);
+        for (int t = 0; t < SEQ_TRACKS; t++) {
+            snprintf(buf, sizeof buf, "T%d %s %d STEPS%s", t + 1, in->type[t] == TRACK_DRUMS ? "DRUMS" : "NOTES",
+                     in->len[t], in->chain[t] > 1 ? "  CHAIN" : "");
+            text(r, 392, 132 + t * 12, 1, TRACK_COL[t], buf);
+        }
+    } else text(r, 392, 102, 1, DIM, "X SAVES THE WHOLE SESSION HERE");
+    int y = 204 + 18;
+    if (u->naming) {
+        draw_name_editor(r, u, y);
+    } else if (u->slot_more) {
+        static const char *L[SMORE_ROWS] = {"COPY TO", "CLEAR SONG", "UNDO LOAD", "BACK"};
+        for (int i = 0; i < SMORE_ROWS; i++) {
+            int yy = y + i * 24, sel = i == u->more_row;
+            if (sel) rect(r, 388, yy - 3, 244, 20, (Col){40, 44, 64});
+            text(r, 394, yy, 2, sel ? YELLOW : (i == SMORE_UNDO && !u->song_undo_ok) ? DIM : WHITE, L[i]);
+            if (i == SMORE_COPY) {
+                snprintf(buf, sizeof buf, "SONG %d", u->song_to + 1);
+                text(r, 494, yy, 2, sel ? YELLOW : WHITE, buf);
+            }
+        }
+        text(r, 392, y + 104, 1, DIM, "LEFT/RIGHT PICK THE SONG TO COPY TO");
+        text(r, 392, y + 116, 1, DIM, "A DO IT (A AGAIN TO CONFIRM)  B CLOSE");
+    } else {
+        text(r, 392, y, 1, DIM, "A     LOAD THE SONG (A AGAIN:");
+        text(r, 392, y + 12, 1, DIM, "      REPLACES ALL 4 TRACKS)");
+        text(r, 392, y + 26, 1, DIM, "X     SAVE THE SESSION HERE");
+        text(r, 392, y + 40, 1, DIM, "Y     RENAME");
+        text(r, 392, y + 54, 1, DIM, "SELECT COPY, CLEAR, UNDO LOAD");
+        text(r, 392, y + 76, 1, DIM, "< = SONG LAST LOADED OR SAVED");
+        text(r, 392, y + 88, 1, DIM, "PATTERN SAVE KEEPS ONE TRACK;");
+        text(r, 392, y + 100, 1, DIM, "A SONG KEEPS ALL FOUR AND BPM,");
+        text(r, 392, y + 112, 1, DIM, "SCALE, STYLE AND DRUM MAP.");
+    }
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN SONG  A LOAD  X SAVE HERE  Y RENAME  SELECT COPY/CLEAR/UNDO");
+    text(r, 20, H - 20, 1, DIM, "B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
+}
+
 static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *midi_desc) {
     const Seq s = *sp;
     char label[24], val[24];
@@ -1595,6 +1832,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
         else if (u->page == P_MENU) menu_row_text(&s, u, row, label, val);
         else if (u->page == P_SLOTS) { slots_row_text(&s, u, row, label, val); head = s.track[u->track].slot[row].used; }
+        else if (u->page == P_SONGS) { songs_row_text(u, row, label, val); head = u->song[row].used; }
         else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == TRACK_BPM_ROW; }
         else if (u->page == P_DRUMMAP) map_row_text(&s, u, row, label, val);
         else if (u->page == P_MIDI) { midi_row_text(u, row, midi_desc, label, val); head = row == 0; }
@@ -1605,6 +1843,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
     }
     if (u->page == P_SLOTS) { draw_slots_side(r, &s, u); return; }
+    if (u->page == P_SONGS) { draw_songs_side(r, u); return; }
     if (u->page == P_DRUMMAP) { draw_map_side(r, &s, u); return; }
     if (u->page == P_MIDI) { draw_midi_side(r, u, midi_desc); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
@@ -1873,7 +2112,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     if (!opt->input) input_defaults(&defaults);
     Dev devs[MAX_DEVS] = {0};   /* opened as SDL_JOYDEVICEADDED arrives, which includes devices present at start */
     Ui u = {.p = p, .roll_len = 100, .undo_track = -1, .xf_amt = 1, .snap = 1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
-           .midi_up = -1, .midi_file = opt->midi_file};
+           .midi_up = -1, .midi_file = opt->midi_file, .song_dir = opt->song_dir, .cur_song = -1};
     if (opt->keys) {
         static char tmp[4096];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);

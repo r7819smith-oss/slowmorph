@@ -128,8 +128,10 @@ screenshots)
         midi-*) usb="$OUT/usb/midi"; ports="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" ;;
         esac
         if [ -n "$ports" ]; then export SEQ4H_TEST_PORTS="$ports"; else unset SEQ4H_TEST_PORTS; fi
+        songs=
+        case $name in song-*) songs="$OUT/songs/$name"; rm -rf "$songs"; mkdir -p "$songs" ;; esac
         SEQ4H_USB_DIR="$usb" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" SEQ4H_BATTERY_PERCENT_FILE=/nonexistent ./seq4h --midi none --demo \
-            --screenshot "$OUT/shots/$name.bmp" ${keys:+--keys "$keys"} >/dev/null 2>&1
+            --screenshot "$OUT/shots/$name.bmp" ${keys:+--keys "$keys"} ${songs:+--songs "$songs"} >/dev/null 2>&1
         [ -f "$OUT/shots/$name.bmp" ] || note "- **FAIL** $name: no screenshot written"
     done <<'EOF'
 grid-demo|
@@ -177,17 +179,25 @@ drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
 drums-label|w,w,Down,Right,w,z,x,Tab,Left
 drums-lane-mute|w,w,Down,Right,w,z,x,Tab,Left,z
 drums-lane-solo|w,w,Down,Right,w,z,x,Tab,Left,Down,Down,x
-drum-map|m,Down,Down,Down,Down,z
-drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,c,Up
-drum-map-next-sound|m,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
-drum-map-preset|m,Down,Down,Down,Down,z,Up,Right
+drum-map|m,Down,Down,Down,Down,Down,z
+drum-map-rename|m,Down,Down,Down,Down,Down,z,Down,Right,Right,c,Up
+drum-map-next-sound|m,Down,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
+drum-map-preset|m,Down,Down,Down,Down,Down,z,Up,Right
 step-next-x|c,Down,Down,+c,Right,Right,-c
 step-next-stick|c,Down,Down,period,period,period
 roll-new-length|Tab,Right,+v,Right,Right,Right,-v,Up,Up,z
-midi-page|m,Down,Down,Down,Down,Down,z
-midi-cable-row|m,Down,Down,Down,Down,Down,z,Down
-midi-cable-chosen|m,Down,Down,Down,Down,Down,z,Down,z
-midinone-page|m,Down,Down,Down,Down,Down,z
+midi-page|m,Down,Down,Down,Down,Down,Down,z
+midi-cable-row|m,Down,Down,Down,Down,Down,Down,z,Down
+midi-cable-chosen|m,Down,Down,Down,Down,Down,Down,z,Down,z
+midinone-page|m,Down,Down,Down,Down,Down,Down,z
+menu-song-save|m,Down,Down,Down,Down
+song-page|m,Down,Down,Down,Down,z
+song-saved|m,Down,Down,Down,Down,z,c
+song-load-confirm|m,Down,Down,Down,Down,z,c,z
+song-loaded|m,Down,Down,Down,Down,z,c,z,z
+song-rename|m,Down,Down,Down,Down,z,c,v,Up,Right,Up
+song-named|m,Down,Down,Down,Down,z,c,v,Up,Right,Up,z
+song-panel|m,Down,Down,Down,Down,z,c,Tab
 EOF
     unset SEQ4H_TEST_PORTS
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -212,6 +222,9 @@ EOF
         --differ grid-drums drums-page --differ drums-page drums-edited --differ drums-page drums-label --differ drums-label drums-lane-mute --differ drums-label drums-lane-solo \
         --differ grid-demo drum-map --differ drum-map drum-map-rename \
         --differ drum-map drum-map-next-sound --differ drum-map drum-map-preset \
+        --differ slots-page song-page --differ song-page song-saved --differ song-saved song-load-confirm \
+        --differ song-load-confirm song-loaded --differ song-saved song-rename --differ song-rename song-named \
+        --differ song-saved song-panel \
         --differ step-page step-next-x --differ step-next-x step-next-stick --differ roll-page roll-new-length \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
@@ -258,13 +271,34 @@ persist)
     # the pattern, and the next start (no --midi name, as SEQ4H.sh runs it)
     # asks for that port.
     SEQ4H_TEST_PORTS="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
+        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
     [ "$(cat "$P/seq4h.midi" 2>/dev/null)" = "FM-1:FM-1 MIDI 1" ]
     result "a port picked on M > MIDI is kept in seq4h.midi" $?
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" --keys Escape 2> "$P/run4.log"
     cat "$P/run4.log"
     grep -q 'MIDI output from .*seq4h.midi: FM-1:FM-1 MIDI 1' "$P/run4.log"
     result "the next start uses the kept port" $?
+    # M > SONG SAVE: X saves the session as song 1, Y renames it (up turns the
+    # S of "SONG 1" into T, A keeps it), down + X saves song 2. Both files sit
+    # next to seq4h.pat, written safely (no .tmp left).
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" \
+        --keys "m,Down,Down,Down,Down,z,c,v,Up,z,Down,c,Escape" 2> "$P/run5.log"
+    [ -f "$P/seq4h-song1.pat" ] && [ -f "$P/seq4h-song2.pat" ] && [ ! -e "$P/seq4h-song1.pat.tmp" ] \
+        && grep -q '^name TONG_1$' "$P/seq4h-song1.pat" && ! grep -q '^name ' "$P/seq4h-song2.pat" \
+        && [ "$(grep -c '^sl ' "$P/seq4h-song1.pat")" = 9 ]
+    result "SONG SAVE writes seq4h-song1.pat (named, with all 9 pattern slots) and seq4h-song2.pat" $?
+    # A song file is a pattern file: it loads as seq4h.pat with --pattern.
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi none --pattern "$P/seq4h-song1.pat" --songs "$P/none" --keys Escape 2> "$P/run6.log"
+    grep -q 'loaded .*(9 stored slots)' "$P/run6.log"
+    result "a song file also loads as a pattern file" $?
+    # Load song 1 into a session started at 211 BPM: A, A again. The session
+    # saved at quit has the song's tempo and slots again.
+    cp "$P/seq4h-song1.pat" "$P/song1-before.pat"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi none --demo --bpm 211 --pattern "$P/seq4h.pat" \
+        --keys "m,Down,Down,Down,Down,z,z,z,Escape" 2> "$P/run7.log"
+    [ "$(grep '^bpm ' "$P/seq4h.pat")" = "$(grep '^bpm ' "$P/seq4h-song1.pat")" ] && ! grep -q '^bpm 211$' "$P/seq4h.pat" \
+        && [ "$(grep -c '^sl ' "$P/seq4h.pat")" = 9 ] && cmp -s "$P/song1-before.pat" "$P/seq4h-song1.pat"
+    result "loading song 1 brings back its tempo and slots, and leaves the song file as it was" $?
     note ""
     ;;
 alsa)
