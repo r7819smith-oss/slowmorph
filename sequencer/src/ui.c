@@ -82,7 +82,7 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
                P_MENU = P_TABS, P_SLOTS, P_DRUMMAP, P_MIDI,     /* SLOTS, DRUM MAP and MIDI open from the main menu */
                P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
-               P_ALL,                                           /* Select on the GRID's track box: ALL STEPS */
+               P_ALLSTEPS,                                           /* Select on the GRID's track box: ALL STEPS */
                P_COUNT } Page;
 static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS", "DRUM MAP", "MIDI", "ROLL", "DRUMS", "ALL STEPS"};
 #define MAX_PORTS 8   /* M > MIDI lists this many output ports */
@@ -506,7 +506,7 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
 }
 
 static int page_rows(const Ui *u, int page) {
-    if (page == P_ALL) return all_rows(&u->p->seq, u);
+    if (page == P_ALLSTEPS) return all_rows(&u->p->seq, u);
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
          : page == P_SLOTS ? SEQ_SLOTS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : GEN_ROWS;
 }
@@ -701,9 +701,9 @@ static void all_row_action(Seq *s, Ui *u, int row) {
 }
 
 static void open_all(Ui *u) {
-    u->page = P_ALL;
+    u->page = P_ALLSTEPS;
     u->on_label = 0;
-    u->row[P_ALL] = 0;
+    u->row[P_ALLSTEPS] = 0;
 }
 
 static void slots_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
@@ -1063,7 +1063,7 @@ static void select_tap(Ui *u) {
     player_lock(u->p);
     Seq *s = &u->p->seq;
     if (u->page == P_GRID && u->on_label) open_all(u);   /* the track box: ALL STEPS */
-    else if (u->page == P_ALL) { u->page = P_GRID; u->on_label = 1; }
+    else if (u->page == P_ALLSTEPS) { u->page = P_GRID; u->on_label = 1; }
     else if (u->page == P_GRID) {
         u->on_label = 0;
         if (is_drums(s, u->track)) open_drums(s, u);
@@ -1098,7 +1098,7 @@ static void press(Ui *u, Btn b) {
     Seq *s = &p->seq;
     int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_DRUMMAP || u->page == P_MIDI;
     int was_midi = u->page == P_MIDI;
-    int sub = u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALL;   /* opened from the GRID */
+    int sub = u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALLSTEPS;   /* opened from the GRID */
     int from = in_menu ? u->menu_from : sub ? P_GRID : u->page;   /* where L1/R1 count from */
     if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
@@ -1142,7 +1142,7 @@ static void press(Ui *u, Btn b) {
     else if (b == B_ROLL) roll(s, u);
     else if (b == B_UNDO) undo(s, u);
     else if (b == B_LOCK) seq_step_lock_toggle(s, u->track, u->step);
-    else if (b == B_B && u->page == P_ALL) { u->page = P_GRID; u->on_label = 1; }   /* back to the track box */
+    else if (b == B_B && u->page == P_ALLSTEPS) { u->page = P_GRID; u->on_label = 1; }   /* back to the track box */
     else if (b == B_B) {
         u->page = u->page == P_STEP && u->step_back ? u->step_back : P_GRID;
         u->step_back = 0;
@@ -1167,9 +1167,9 @@ static void press(Ui *u, Btn b) {
         else if (dx && u->page == P_STEP) step_row_adjust(s, u, *row, dx, big);
         else if (dx && u->page == P_TRACK) track_row_adjust(s, u, *row, dx, big);
         else if (dx && u->page == P_MENU) menu_row_adjust(s, u, *row, dx, big);
-        else if (dx && u->page == P_ALL) all_row_adjust(s, u, *row, dx, big);
-        else if (b == B_A && u->page == P_ALL) all_row_action(s, u, *row);
-        else if (u->page == P_ALL) { /* X does nothing here */ }
+        else if (dx && u->page == P_ALLSTEPS) all_row_adjust(s, u, *row, dx, big);
+        else if (b == B_A && u->page == P_ALLSTEPS) all_row_action(s, u, *row);
+        else if (u->page == P_ALLSTEPS) { /* X does nothing here */ }
         else if (dx) gen_row_adjust(s, u, *row, dx, big);
         else if (b == B_A && u->page == P_STEP && is_drums(s, u->track)) { if (*row > 0) seq_drum_toggle(s, u->track, *row - 1, u->step); }
         else if (b == B_A && u->page == P_STEP) seq_step_toggle(s, u->track, u->step);
@@ -1357,7 +1357,7 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
         }
     }
     for (int i = 0, x = 20; i < P_TABS; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
-        text(r, x, 46, 1, i == u->page || (i == P_GRID && (u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALL)) ? YELLOW : DIM, PAGE_NAMES[i]);
+        text(r, x, 46, 1, i == u->page || (i == P_GRID && (u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALLSTEPS)) ? YELLOW : DIM, PAGE_NAMES[i]);
     snprintf(buf, sizeof buf, "T%d", u->track + 1);
     text(r, 200, 46, 1, TRACK_COL[u->track], buf);
     static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -1745,7 +1745,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == TRACK_BPM_ROW; }
         else if (u->page == P_DRUMMAP) map_row_text(&s, u, row, label, val);
         else if (u->page == P_MIDI) { midi_row_text(u, row, midi_desc, label, val); head = row == 0; }
-        else if (u->page == P_ALL) all_row_text(&s, u, row, label, val);
+        else if (u->page == P_ALLSTEPS) all_row_text(&s, u, row, label, val);
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
@@ -1765,7 +1765,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 300, 1, DIM, "EVOLVE CHANGES THE PATTERN EVERY N");
         text(r, 392, 312, 1, DIM, "BARS: AMOUNT = CHANCE PER STEP.");
         text(r, 392, 324, 1, DIM, "REGEN RE-RUNS THE GENERATOR.");
-    } else if (u->page == P_ALL) {
+    } else if (u->page == P_ALLSTEPS) {
         char t[48];
         snprintf(t, sizeof t, "ALL STEPS OF T%d%s", u->track + 1, s.track[u->track].locked ? " (TRACK LOCKED)" : "");
         text(r, 392, 240, 1, YELLOW, t);
@@ -1804,7 +1804,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
     }
     text(r, 20, H - 34, 1, DIM, u->page == P_GEN ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG)  A ROLL OR DO ROW  X UNDO"
                               : u->page == P_STEP ? "UP/DOWN ROW  LEFT/RIGHT CHANGE (Y = BIG)  HOLD X+LEFT/RIGHT OR STICK: OTHER STEP"
-                              : u->page == P_ALL ? "UP/DOWN ROW  LEFT/RIGHT CHANGE ALL (HOLD Y = BIG)  A ALL TO THE AVERAGE"
+                              : u->page == P_ALLSTEPS ? "UP/DOWN ROW  LEFT/RIGHT CHANGE ALL (HOLD Y = BIG)  A ALL TO THE AVERAGE"
                               : "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG STEP)");
     text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  START PLAY/STOP");
 }

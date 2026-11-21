@@ -50,7 +50,7 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   versions return early for a locked track, and `style_apply` keeps a locked
   track (NEW FROM STYLE and BLANK). Slot loads, chains and hand edits still
   work on it (decision made without asking: those are your own patterns,
-  not generation). **Select** opens the ALL STEPS page (`P_ALL`): VELOCITY,
+  not generation). **Select** opens the ALL STEPS page (`P_ALLSTEPS`): VELOCITY,
   GATE, HOLD, OFFSET, PROBABILITY, STEP LOCKS (drums: VELOCITY, PROBABILITY,
   STEP LOCKS over every hit). Left/right is relative (`seq_all_adjust`,
   clamped), A sets every step to the average (`seq_all_set`), STEP LOCKS A
