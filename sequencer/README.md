@@ -179,6 +179,7 @@ L2/R2 changes track (a drum track opens its drum grid).
 | A [Z] | put the step's note on this pitch, or take it off if it is already there (heard once while stopped) |
 | hold Y [V] + left / right | shorter / longer: a quarter step at a time up to one step, then whole steps (that is HOLD). This also sets the length new notes get |
 | hold Y + up / down | move the step's note up / down a scale degree (the cursor follows) |
+| Y on its own (press and let go) | lock / unlock the step under the cursor, as Y on the grid: a locked note has a yellow corner and a locked step's column a dim yellow frame. Rolls and evolution leave it alone |
 | hold X [C] + left / right | offset: 1 tick (1/24 step) earlier / later |
 | hold X + up / down | velocity up / down by 8 |
 | R1 or the STEP tab | edit the step on the STEP page; B there comes back to the piano roll |
@@ -196,9 +197,14 @@ one-shot. Switching TYPE back keeps both patterns, so nothing is lost.
 Swing, live shuffle, NEVER ON GRID, swell, rests, mute/solo, slots, chains
 (with morph), undo and the anchor all work on drum tracks; drum steps have no
 OFFSET of their own. On the GENERATE page a drum track's generator is the
-**DRUM KIT**: A rolls a kit pattern in the current style (ambient: sparse
-and soft, much of it left to chance; techno: four on the floor, claps on 2
-and 4, offbeat hats with ghosts; melodic: a plain backbeat with 8th hats),
+**DRUM KIT**: A rolls a kit pattern in the track's style (the style it was
+last made from by NEW FROM STYLE; ambient, drone and blank: very sparse and
+soft, about two hits a bar, nearly all left to chance; techno: four on the
+floor, claps on 2 and 4, offbeat hats with ghosts; melodic: a plain backbeat
+with 8th hats; hip hop: boom bap, kick on the one and around the "and" of 2
+and 3, snare on 2 and 4; drum n bass: two-step, kick on 1 and the "and" of 3,
+snare on 2 and 4 with ghost snares; house: four on the floor, clap on 2 and
+4, open hat on every offbeat; trip hop: half-time, snare on 3, lazy kick),
 and **BUSY** (0-100%, 50 = as written) makes it sparser or busier.
 Evolution works per lane: RHYTHM moves a hit to a free step next to it,
 VELOCITY and PROB nudge hits, ROTATE turns a lane by a step, REGEN re-rolls,
@@ -238,14 +244,26 @@ left/right changes it, A selects; M or B closes it and returns to the page
 you were on. Rows:
 
 - *Back to editing*
-- *Music style*: AMBIENT (default), TECHNO, MELODIC, BLANK or DRONE. It sets the defaults a
-  generator starts with when you pick it on the GENERATE page (ambient: sparse,
-  stepwise, slow; techno: dense and repetitive; melodic and blank: the plain
-  defaults; drone: as ambient).
-- *New from style*: press A twice to fill the tracks with the style's
-  starting set (tempo, scale, generators, lengths, holds and evolution).
-  Tracks set to MANUAL that have notes are kept exactly as they are, and then
-  the scale and root are kept too so the new tracks fit them. The
+- *Music style*: AMBIENT (default), TECHNO, MELODIC, BLANK, DRONE, HIP HOP,
+  DRUM N BASS, HOUSE or TRIP HOP. Changing it sets all four T rows below to
+  that style.
+- *T1, T2, T3, T4*: what each track gets from *New from style*: KEEP AS IT IS,
+  a style's part (each style has four: AMBIENT LOW, ARP, MOTIF, HIGH; TECHNO
+  KICK, HATS, BASS, STAB; MELODIC BASS, ARP, CALL, ANSWER; DRONE BASS, PAD,
+  DRIFT, BELLS; HIP HOP BASS, KEYS, LEAD, DRUMS; DRUM N BASS SUB, PAD, STAB,
+  DRUMS; HOUSE BASS, CHORDS, LEAD, DRUMS; TRIP HOP BASS, PAD, BELLS, DRUMS),
+  or BLANK (an empty MANUAL track). Left/right steps through the parts, hold
+  Y + left/right jumps to the next style. A drum track shows "STYLE KIT": it
+  gets that style's drum kit whatever the part. So you can have techno drums
+  on one track, a drone on another and an ambient motif on a third. A track
+  remembers its style: it picks that style's generator defaults on the
+  GENERATE page, and a drum track rolls that style's kit.
+- *New from style*: press A twice to replace the tracks the T rows say
+  (KEEP rows are left exactly as they are). When every track is replaced,
+  the music style sets the tempo, swing, scale and root; when any track is
+  kept they all stay, so the new parts fit. A DRUMS part on a note track
+  plays the kit's main hits (kick first, then snare, clap, hats ...) as the
+  DRUM MAP's notes, for an FM1 track on the DRUM engine. The
   ambient set runs at 72 BPM in D major pentatonic, with track lengths 16, 13,
   11 and 23 so the tracks drift against each other, long held notes, and
   evolution that wanders and is pulled back to each track's anchor.
@@ -267,6 +285,14 @@ you were on. Rows:
   tone now and then, a slowly drifting line (20 steps) and sparse soft bells
   (27 steps) that rest now and then, with slow swells and evolution every 4
   to 32 bars.
+  The newer sets each have a drum part on T4: HIP HOP at 88 BPM in G minor
+  with swing (bass on the chord roots, seventh-chord keys held on each chord
+  change, a sparse motif lead, boom bap); DRUM N BASS at 172 BPM in A minor
+  (a sub that holds two notes, a swelling triad pad, a short looping stab,
+  two-step drums); HOUSE at 124 BPM in F dorian (an offbeat bass, syncopated
+  seventh-chord stabs, a light arpeggio, four on the floor); TRIP HOP at 80
+  BPM in D minor (a slow drifting bass, a dark swelling seventh pad, sparse
+  bells that rest, half-time drums).
 - *Slots*: A opens the **Slots page** (below).
 - *Drum map*: A opens the **Drum map page** (below).
 - *Button codes*: show each button's raw code (see *Button mapping*).

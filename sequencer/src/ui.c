@@ -113,6 +113,10 @@ typedef struct {
     int slot;                 /* slot chosen on the generate page */
     int snap;                 /* changing scale moves notes into it */
     int confirm_new;          /* NEW FROM STYLE was pressed once */
+    int plan_style[SEQ_TRACKS];   /* M menu T1-T4 rows: the style each track gets from NEW FROM STYLE, or STYLE_KEEP */
+    int plan_part[SEQ_TRACKS];    /* ...and which of that style's parts */
+    int plan_init;            /* the plan has been read from the tracks */
+    int y_used;               /* another button was pressed while Y was held (so its release doesn't lock) */
     int slot_confirm;         /* SLOTS page: CF_* waiting for a second press */
     int slot_more;            /* SLOTS page: the Select panel (copy / clear) is open */
     int more_row;             /* selected row of that panel (MORE_*) */
@@ -439,16 +443,67 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 8
-enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_SLOTS, MENU_DRUMMAP, MENU_MIDI, MENU_CODES, MENU_QUIT };
+#define MENU_ROWS 12
+enum { MENU_RESUME, MENU_STYLE, MENU_T1, MENU_T4 = MENU_T1 + SEQ_TRACKS - 1, MENU_NEW, MENU_SLOTS, MENU_DRUMMAP,
+       MENU_MIDI, MENU_CODES, MENU_QUIT };
+
+/* The T1-T4 rows start as each track's own style and part. */
+static void plan_from_tracks(const Seq *s, Ui *u) {
+    for (int t = 0; t < SEQ_TRACKS; t++) { u->plan_style[t] = s->track[t].style; u->plan_part[t] = s->track[t].part; }
+    u->plan_init = 1;
+}
+
+/* What a T row shows: "KEEP", "BLANK", "TECHNO KIT" on a drum track (any
+ * part plays the kit), else the style and part ("AMBIENT MOTIF"). */
+static void plan_text(const Seq *s, const Ui *u, int t, char *out) {
+    int st = u->plan_style[t];
+    if (st == STYLE_KEEP) snprintf(out, 24, "KEEP AS IT IS");
+    else if (st == STYLE_BLANK) snprintf(out, 24, "BLANK");
+    else if (is_drums(s, t)) snprintf(out, 24, "%s KIT", style_name(st));
+    else snprintf(out, 24, "%s %s", style_name(st), style_part_name(st, u->plan_part[t]));
+}
+
+/* Left/right on a T row: KEEP, then each style's parts in turn (a drum track
+ * has one entry per style: its kit), then BLANK. big (hold Y) jumps a whole
+ * style, to the part with the track's own number. */
+static void plan_adjust(const Seq *s, Ui *u, int t, int d, int big) {
+    /* The choices in order, as style * STYLE_PARTS + part; -1 = KEEP. */
+    int opt[1 + STYLE_COUNT * STYLE_PARTS], n = 0, cur = 0;
+    opt[n++] = -1;
+    for (int st = 0; st < style_count(); st++)
+        for (int k = 0; k < STYLE_PARTS; k++) {
+            if (k && (st == STYLE_BLANK || is_drums(s, t) || big)) break;   /* one entry: the style itself */
+            opt[n++] = st * STYLE_PARTS + k;
+        }
+    int want = u->plan_style[t] == STYLE_KEEP ? -1 : u->plan_style[t] * STYLE_PARTS + u->plan_part[t];
+    for (int i = 0; i < n; i++)   /* the current choice, or its style's entry */
+        if (opt[i] == want || (want >= 0 && opt[i] >= 0 && opt[i] / STYLE_PARTS == want / STYLE_PARTS && opt[i] <= want)) cur = i;
+    cur = wrap(cur + d, n);
+    if (opt[cur] < 0) { u->plan_style[t] = STYLE_KEEP; u->plan_part[t] = t; return; }
+    u->plan_style[t] = opt[cur] / STYLE_PARTS;
+    u->plan_part[t] = big || is_drums(s, t) || u->plan_style[t] == STYLE_BLANK ? t : opt[cur] % STYLE_PARTS;
+}
+
+static int plan_count(const Ui *u, int *kept) {
+    int n = 0;
+    *kept = 0;
+    for (int t = 0; t < SEQ_TRACKS; t++) { if (u->plan_style[t] == STYLE_KEEP) (*kept)++; else n++; }
+    return n;
+}
 
 static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     val[0] = 0;
     if (row == MENU_RESUME) snprintf(label, 24, "BACK TO EDITING");
     else if (row == MENU_STYLE) { snprintf(label, 24, "MUSIC STYLE"); snprintf(val, 24, "%s", style_name(s->style)); }
+    else if (row >= MENU_T1 && row <= MENU_T4) {
+        snprintf(label, 24, "T%d", row - MENU_T1 + 1);
+        plan_text(s, u, row - MENU_T1, val);
+    }
     else if (row == MENU_NEW) {
+        int kept, n = plan_count(u, &kept);
         snprintf(label, 24, "NEW FROM STYLE");
-        snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
+        if (!n) snprintf(val, 24, "ALL KEPT");
+        else snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : n == SEQ_TRACKS ? "A: ALL 4 TRACKS" : "A: THE T ROWS");
     }
     else if (row == MENU_SLOTS) { snprintf(label, 24, "SLOTS"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_DRUMMAP) { snprintf(label, 24, "DRUM MAP"); snprintf(val, 24, "A: OPEN"); }
@@ -466,22 +521,46 @@ static void toggle_codes(Ui *u) {
 }
 
 static void menu_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
-    (void)big;
-    if (row == MENU_STYLE) { s->style = wrap(s->style + d, style_count()); u->confirm_new = 0; }
+    if (row == MENU_STYLE) {   /* the MUSIC STYLE sets all four T rows */
+        s->style = wrap(s->style + d, style_count());
+        for (int t = 0; t < SEQ_TRACKS; t++) { u->plan_style[t] = s->style; u->plan_part[t] = t; }
+        u->confirm_new = 0;
+    }
+    else if (row >= MENU_T1 && row <= MENU_T4) { plan_adjust(s, u, row - MENU_T1, d, big); u->confirm_new = 0; }
     else if (row == MENU_CODES) toggle_codes(u);
 }
 
 static void menu_row_select(Seq *s, Ui *u, int row) {
     if (row == MENU_RESUME) u->page = u->menu_from;
     else if (row == MENU_NEW) {
-        /* Replaces all four tracks, so it takes a second press. */
-        if (!u->confirm_new) { u->confirm_new = 1; say(u, "PRESS A AGAIN TO REPLACE ALL TRACKS"); return; }
+        /* Replaces tracks, so it takes a second press. */
+        int kept, n = plan_count(u, &kept);
+        if (!n) { say(u, "EVERY T ROW IS KEEP: NOTHING TO DO"); return; }
+        if (!u->confirm_new) {
+            u->confirm_new = 1;
+            snprintf(u->msg_buf, sizeof u->msg_buf, n == SEQ_TRACKS ? "PRESS A AGAIN TO REPLACE ALL TRACKS"
+                                                                   : "PRESS A AGAIN TO REPLACE %d TRACK%s", n, n > 1 ? "S" : "");
+            say(u, u->msg_buf);
+            return;
+        }
         u->confirm_new = 0;
         u->undo_track = -1;
-        int kept = style_apply(s, s->style, 1);
+        style_apply_tracks(s, s->style, u->plan_style, u->plan_part);
         u->page = P_GRID;
-        say(u, s->style == STYLE_BLANK ? "BLANK: FOUR EMPTY MANUAL TRACKS"
-               : kept ? "NEW PATTERNS; YOUR MANUAL TRACKS KEPT" : "NEW PATTERNS FROM STYLE");
+        int all_blank = 1;
+        for (int t = 0; t < SEQ_TRACKS; t++) all_blank &= u->plan_style[t] == STYLE_BLANK;
+        if (all_blank) say(u, "BLANK: FOUR EMPTY MANUAL TRACKS");
+        else if (!kept) say(u, "NEW PATTERNS FROM STYLE");
+        else {
+            char *m = u->msg_buf;
+            int len = snprintf(m, sizeof u->msg_buf, "NEW:");
+            for (int t = 0; t < SEQ_TRACKS; t++)
+                if (u->plan_style[t] != STYLE_KEEP) len += snprintf(m + len, sizeof u->msg_buf - (size_t)len, " T%d", t + 1);
+            len += snprintf(m + len, sizeof u->msg_buf - (size_t)len, ". KEPT:");
+            for (int t = 0; t < SEQ_TRACKS; t++)
+                if (u->plan_style[t] == STYLE_KEEP) len += snprintf(m + len, sizeof u->msg_buf - (size_t)len, " T%d", t + 1);
+            say(u, m);
+        }
     }
     else if (row == MENU_SLOTS) {
         u->page = P_SLOTS;
@@ -935,6 +1014,20 @@ static void select_tap(Ui *u) {
     player_unlock(u->p);
 }
 
+/* Y pressed and released on its own in the piano roll: lock or unlock the
+ * step under the cursor (as Y on the GRID), note or no note. */
+static void y_tap(Ui *u) {
+    if (u->page != P_ROLL) return;
+    player_lock(u->p);
+    Seq *s = &u->p->seq;
+    SeqStep *st = &s->track[u->track].step[u->step];
+    st->lock ^= 1;
+    snprintf(u->msg_buf, sizeof u->msg_buf, "STEP %d %s", u->step + 1, st->lock ? "LOCKED" : "UNLOCKED");
+    say(u, u->msg_buf);
+    if (!u->save_due) u->save_due = SDL_GetTicks() + 2000;
+    player_unlock(u->p);
+}
+
 /* Controls (same on every page unless noted):
  *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
  *   M main menu (B or M again closes it)
@@ -962,7 +1055,7 @@ static void press(Ui *u, Btn b) {
     else if (b == B_MENU) {
         u->naming = u->slot_more = u->slot_confirm = u->map_confirm = 0;
         if (in_menu) u->page = u->menu_from;
-        else { u->menu_from = u->page; u->page = P_MENU; }
+        else { u->menu_from = u->page; u->page = P_MENU; if (!u->plan_init) plan_from_tracks(s, u); }
     }
     else if (u->page == P_SLOTS && u->naming) slots_press(s, u, b, dx, dy);   /* the editor takes every button */
     else if (u->page == P_DRUMMAP && u->naming) map_press(s, u, b, dx, dy);
@@ -1034,6 +1127,8 @@ static void set_button(Ui *u, Btn b, int down) {
     if (down && !u->held[b]) {
         if (b == B_SEL) u->sel_used = 0;
         else if (u->held[B_SEL]) u->sel_used = 1;   /* Select+Start quits, so Select's release must not also open a page */
+        if (b == B_Y) u->y_used = 0;
+        else if (u->held[B_Y]) u->y_used = 1;       /* Y + a direction sets a length or moves a note: no lock */
         u->held[b] = 1;
         u->next_rep[b] = SDL_GetTicks() + 350;
         press(u, b);
@@ -1041,6 +1136,7 @@ static void set_button(Ui *u, Btn b, int down) {
         int was = u->held[b];
         u->held[b] = 0;
         if (b == B_SEL && was && !u->sel_used && !u->quit) select_tap(u);
+        if (b == B_Y && was && !u->y_used && !u->quit) y_tap(u);
     }
 }
 
@@ -1590,18 +1686,32 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
         text(r, 22, y, 2, sel ? YELLOW : head ? WHITE : DIM, label);
-        text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
+        int vx = u->page == P_MENU && row >= MENU_T1 && row <= MENU_T4 ? 70 : 215;   /* long style + part names */
+        text(r, vx, y, 2, sel ? YELLOW : WHITE, val);
     }
     if (u->page == P_SLOTS) { draw_slots_side(r, &s, u); return; }
     if (u->page == P_DRUMMAP) { draw_map_side(r, &s, u); return; }
     if (u->page == P_MIDI) { draw_midi_side(r, u, midi_desc); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
-    else text(r, 392, 62, 2, YELLOW, "MAIN MENU");
+    else {
+        text(r, 392, 62, 2, YELLOW, "MAIN MENU");
+        if (u->row[P_MENU] >= MENU_STYLE && u->row[P_MENU] <= MENU_NEW) {
+            static const char *HELP[] = {
+                "MUSIC STYLE SETS ALL FOUR T ROWS.", "",
+                "T1-T4: WHAT EACH TRACK GETS FROM", "NEW FROM STYLE. LEFT/RIGHT GOES",
+                "THROUGH EACH STYLE'S PARTS (BASS,", "PAD, DRUMS ...), HOLD Y FOR THE",
+                "NEXT STYLE. KEEP LEAVES THE TRACK", "AS IT IS. A DRUM TRACK GETS THE",
+                "STYLE'S DRUM KIT.", "",
+                "WHEN EVERY TRACK IS REPLACED, MUSIC", "STYLE SETS TEMPO, SWING AND SCALE;",
+                "WITH ANY TRACK KEPT THEY STAY."};
+            for (unsigned k = 0; k < sizeof HELP / sizeof HELP[0]; k++) text(r, 392, 96 + 12 * (int)k, 1, DIM, HELP[k]);
+        }
+    }
     if (u->page == P_GEN) {
         text(r, 392, 240, 1, DIM, "GENERATORS WRITE INTO THE GRID, SO");
         text(r, 392, 252, 1, DIM, "YOU CAN EDIT THE RESULT. LOCKED STEPS");
-        text(r, 392, 264, 1, DIM, "(Y ON THE GRID) ARE NEVER CHANGED");
-        text(r, 392, 276, 1, DIM, "BY ROLL OR EVOLVE.");
+        text(r, 392, 264, 1, DIM, "(Y ON THE GRID OR ROLL) NEVER CHANGE");
+        text(r, 392, 276, 1, DIM, "ON A ROLL OR EVOLVE.");
         text(r, 392, 300, 1, DIM, "EVOLVE CHANGES THE PATTERN EVERY N");
         text(r, 392, 312, 1, DIM, "BARS: AMOUNT = CHANCE PER STEP.");
         text(r, 392, 324, 1, DIM, "REGEN RE-RUNS THE GENERATOR.");
@@ -1626,7 +1736,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 372, 1, YELLOW, "PREVIOUS / NEXT STEP, SAME ROW.");
     }
     if (u->page == P_MENU) {
-        text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE  A SELECT");
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE (T ROWS: HOLD Y = NEXT STYLE)  A SELECT");
         text(r, 20, H - 20, 1, DIM, "M OR B CLOSE THE MENU  START PLAY/STOP");
         return;
     }
@@ -1685,6 +1795,8 @@ static void draw_roll(SDL_Renderer *r, const Seq *s, const Ui *u) {
         if (st->prob < 100) rect(r, cx0, y + 3, (cx1 - cx0) * st->prob / 100, 2, WHITE);
         if (st->lock && x0 >= X0) rect(r, x0 + 2, y + 5, 5, 5, YELLOW);
     }
+    for (int i = view; i < view + GRID_COLS && i < tr->len; i++)   /* a locked step: its column framed in dim yellow */
+        if (tr->step[i].lock) frame(r, X0 + (i - view) * CELL, ROLL_Y0, CELL - 1, ROLL_ROWS * ROLL_RH - 1, 1, scale(YELLOW, 55));
     int head = seq_playhead(s, u->track);
     if (head >= view && head < view + GRID_COLS) {
         int x = X0 + (head - view) * CELL;
@@ -1710,7 +1822,7 @@ static void draw_roll(SDL_Renderer *r, const Seq *s, const Ui *u) {
     snprintf(buf, sizeof buf, "T%d %s  CURSOR %s  PROB %d%%%s  %d STEPS", u->track + 1, gen_name(tr->gen.type), nn, st->prob,
              st->lock ? "  LOCKED" : "", tr->len);
     text(r, 20, y + 20, 1, DIM, buf);
-    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A NOTE ON/OFF  HOLD Y: LEFT/RIGHT LENGTH (NEW NOTES TOO), UP/DOWN MOVE THE NOTE");
+    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A NOTE ON/OFF  Y LOCK  HOLD Y: LEFT/RIGHT LENGTH (NEW NOTES TOO), UP/DOWN MOVE");
     text(r, 20, H - 20, 1, DIM, "HOLD X: LEFT/RIGHT OFFSET, UP/DOWN VELOCITY  L2/R2 TRACK  B OR SELECT BACK TO GRID");
 }
 

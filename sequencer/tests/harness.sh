@@ -68,6 +68,12 @@ render)
     check render-ambient-256-bars "$OUT/midi/render-ambient.cap" --bpm 72 --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     ./seq4h-render --style DRONE --bars 256 --out "$OUT/midi/render-drone.cap"
     check render-drone-256-bars "$OUT/midi/render-drone.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
+    # The newer styles, each with a drum part on track 4 (notes from the DRUM MAP).
+    for sb in "HIP HOP:88:6" "DRUM N BASS:172:0" "HOUSE:124:2" "TRIP HOP:80:3"; do   # name:bpm:swing
+        st=${sb%%:*}; rest=${sb#*:}; bpm=${rest%%:*}; sw=${rest##*:}; f=$(echo "$st" | tr 'A-Z ' 'a-z-')
+        ./seq4h-render --style "$st" --bars 64 --out "$OUT/midi/render-$f.cap"
+        check "render-$f-64-bars" "$OUT/midi/render-$f.cap" --bpm "$bpm" --swing "$sw" --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
+    done
     # Live shuffle (up to 11 ticks, NEVER ON GRID) on hats, and spread offsets
     # drifting with EVO OFFSET: every note on an engine tick, 2-11 ticks off
     # the grid, one note per channel at a time, nothing hung.
@@ -156,16 +162,16 @@ grid-label-back|Left,Right
 track-page-solo|Left,x,Down,x,w,w,Down,Down,Down,Down
 bat17-grid|
 menu-style-blank|m,Down,Right,Right,Right
-grid-blank|m,Down,Right,Right,Right,Down,z,z
+grid-blank|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z
 menu-style-drone|m,Down,Right,Right,Right,Right
-grid-drone|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z
-generate-drone|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w
-generate-drone-chord|m,Down,Right,Right,Right,Down,z,z,m,Up,Right,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
-slots-page|m,Down,Down,Down,z
-slots-saved|m,Down,Down,Down,z,c,Down,c,c,c
-slots-rename|m,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
-slots-named|m,Down,Down,Down,z,c,v,Down,Down,Down,Down,Right,Down,z
-slots-copy-panel|m,Down,Down,Down,z,c,Tab,Right
+grid-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,z,z
+generate-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,z,z,w,w,w
+generate-drone-chord|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+slots-page|m,Down,Down,Down,Down,Down,Down,Down,z
+slots-saved|m,Down,Down,Down,Down,Down,Down,Down,z,c,Down,c,c,c
+slots-rename|m,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
+slots-named|m,Down,Down,Down,Down,Down,Down,Down,z,c,v,Down,Down,Down,Down,Right,Down,z
+slots-copy-panel|m,Down,Down,Down,Down,Down,Down,Down,z,c,Tab,Right
 roll-page|Tab
 roll-edited|Tab,Up,Up,z,+v,Right,Right,Right,-v,+c,Up,Up,Up,Right,Right,-c
 roll-track2|Tab,2
@@ -175,22 +181,29 @@ step-drums|w,w,Down,Right,w,z,x,w
 drums-page|w,w,Down,Right,w,z,x,Tab
 drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
 drums-label|w,w,Down,Right,w,z,x,Tab,Left
-drum-map|m,Down,Down,Down,Down,z
-drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,c,Up
-drum-map-next-sound|m,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
-drum-map-preset|m,Down,Down,Down,Down,z,Up,Right
+drum-map|m,Down,Down,Down,Down,Down,Down,Down,Down,z
+drum-map-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Right,Right,c,Up
+drum-map-next-sound|m,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
+drum-map-preset|m,Down,Down,Down,Down,Down,Down,Down,Down,z,Up,Right
 step-next-x|c,Down,Down,+c,Right,Right,-c
 step-next-stick|c,Down,Down,period,period,period
 roll-new-length|Tab,Right,+v,Right,Right,Right,-v,Up,Up,z
-midi-page|m,Down,Down,Down,Down,Down,z
-midi-cable-row|m,Down,Down,Down,Down,Down,z,Down
-midi-cable-chosen|m,Down,Down,Down,Down,Down,z,Down,z
-midinone-page|m,Down,Down,Down,Down,Down,z
+midi-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+midi-cable-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down
+midi-cable-chosen|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
+menu-mixed|m,Down,Right,Right,Right,Right,Right,Down,+v,Left,Left,Left,Left,Left,Left,-v,Down,+v,Left,-v,Down,+v,Left,Left,Left,Left,Left,-v,Down,Down
+grid-mixed|m,Down,Right,Right,Right,Right,Right,Down,+v,Left,Left,Left,Left,Left,Left,-v,Down,+v,Left,-v,Down,+v,Left,Left,Left,Left,Left,-v,Down,Down,z,z
+menu-hiphop|m,Down,Right,Right,Right,Right,Right
+grid-hiphop|m,Down,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z
+drums-hiphop|w,w,Down,Right,x,m,Down,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z,Tab
+grid-dnb|m,Down,Right,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z
+roll-locked|Tab,Right,v,Right,Right,v,Up,Up,z,v
+midinone-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 EOF
     unset SEQ4H_TEST_PORTS
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
-        --differ grid-demo grid-step-locked --differ grid-demo step-page \
+        --differ grid-demo grid-step-locked --differ grid-demo grid-mixed --differ menu-hiphop menu-mixed --differ grid-demo grid-hiphop --differ grid-hiphop grid-dnb --differ roll-page roll-locked --differ grid-demo step-page \
         --differ step-page step-note-up --differ step-page step-offset \
         --differ grid-demo grid-hold-offset --differ grid-demo track-page \
         --differ track-page track-shuffle --differ generate-page generate-spread --differ grid-demo grid-after-spread \
@@ -230,7 +243,7 @@ persist)
     keys="$keys,2,z"
     # Then M > SLOTS on track 2 (opens on slot 8), Y rename, up turns the S
     # of "SLOT 8" into T, A keeps it: saved as "sn 1 7 TLOT_8".
-    keys="$keys,m,Down,Down,Down,z,v,Up,z"
+    keys="$keys,m,Down,Down,Down,Down,Down,Down,Down,z,v,Up,z"   # M > SLOTS
     # Killed with SIGKILL (as a system exit hotkey or a flat battery would):
     # nothing runs at exit, so only the autosave two seconds after the edits
     # can have written the file.
@@ -256,7 +269,7 @@ persist)
     # the pattern, and the next start (no --midi name, as SEQ4H.sh runs it)
     # asks for that port.
     SEQ4H_TEST_PORTS="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
+        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
     [ "$(cat "$P/seq4h.midi" 2>/dev/null)" = "FM-1:FM-1 MIDI 1" ]
     result "a port picked on M > MIDI is kept in seq4h.midi" $?
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" --keys Escape 2> "$P/run4.log"

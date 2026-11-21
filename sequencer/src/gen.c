@@ -199,7 +199,7 @@ void gen_set_type(Seq *s, int t, int type) {
     GenSettings *g = &s->track[t].gen;
     g->type = (uint8_t)tidx(type);
     for (int k = 0; k < 4; k++) g->p[k] = k < GENS[g->type].n ? GENS[g->type].p[k].def : 0;
-    style_defaults(s->style, g->type, g->p);
+    style_defaults(s->track[t].style, g->type, g->p);
     /* FOLLOW defaults to the track above (track 1 follows track 2). */
     if (g->type == GEN_FOLLOW) g->p[0] = (uint8_t)(t == 0 ? 2 : t);
     if (g->type == GEN_TURING && g->state == 0) g->state = seq_rand(s) | 1;
@@ -222,7 +222,8 @@ void gen_load_settings(GenSettings *g, int type, int p0, int p1, int p2, int p3,
 
 /* ---- styles ---- */
 
-static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC", "BLANK", "DRONE"};
+static const char *STYLE_NAMES[STYLE_COUNT] = {"AMBIENT", "TECHNO", "MELODIC", "BLANK", "DRONE",
+                                               "HIP HOP", "DRUM N BASS", "HOUSE", "TRIP HOP"};
 int style_count(void) { return STYLE_COUNT; }
 const char *style_name(int st) { return STYLE_NAMES[st < 0 || st >= STYLE_COUNT ? 0 : st]; }
 
@@ -263,7 +264,10 @@ static const int8_t STYLE_DEF[STYLE_COUNT][GEN_COUNT][4] = {
 
 static void style_defaults(int st, int type, uint8_t p[4]) {
     if (st < 0 || st >= STYLE_COUNT || st == STYLE_BLANK || type < 0 || type > GEN_MOTIF) return;   /* later generators: table defaults */
-    if (st == STYLE_DRONE) st = STYLE_AMBIENT;   /* DRONE is an ambient variant */
+    /* The newer styles borrow the generator defaults of the nearest older one. */
+    if (st == STYLE_DRONE || st == STYLE_TRIPHOP) st = STYLE_AMBIENT;
+    else if (st == STYLE_DNB || st == STYLE_HOUSE) st = STYLE_TECHNO;
+    else if (st == STYLE_HIPHOP) st = STYLE_MELODIC;
     for (int k = 0; k < GENS[type].n; k++) {
         int v = STYLE_DEF[st][type][k];
         if (v >= 0) p[k] = (uint8_t)(v < GENS[type].p[k].min ? GENS[type].p[k].min : v > GENS[type].p[k].max ? GENS[type].p[k].max : v);
@@ -275,7 +279,9 @@ static void style_defaults(int st, int type, uint8_t p[4]) {
  * response). Written into every step's note/velocity/gate, so rolls and
  * evolution keep the feel; locked steps keep the core fixed. */
 enum { SH_NONE, SH_TECHNO_HATS, SH_TECHNO_BASS, SH_TECHNO_STAB,
-       SH_MEL_BASS, SH_MEL_ARP, SH_MEL_CALL, SH_MEL_ANSWER };
+       SH_MEL_BASS, SH_MEL_ARP, SH_MEL_CALL, SH_MEL_ANSWER,
+       SH_CHORD_ROOTS,   /* every note on the root of the progression's chord (CHORD stacks the rest) */
+       SH_DRUM_NOTES };  /* a drum part on a note track: the style's kit as DRUM MAP notes */
 
 typedef struct {
     uint8_t gen, len, base, span, gate, vel, prob, hold;   /* prob: chance each step plays; hold: tied steps */
@@ -337,7 +343,66 @@ static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } 
         {GEN_DRIFT, 20, 62, 2, 100, 60, 90, 0, 16, 10, EVO_REGEN | EVO_PROB, 0, 1, 4, SH_NONE, 0, {0, 0, 0, 0}},
         {GEN_BELL, 27, 74, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3, SH_NONE, 0, {0, 0, 0, 0}},
     }},
+    /* The drum parts (track 4) of the four newer styles: on a drum track the
+     * style's kit; on a note track the kit's main hits as DRUM MAP notes
+     * (SH_DRUM_NOTES), so an FM1 track on the DRUM engine plays them too. */
+#define DRUM_PART(every, amount) \
+        {GEN_EUCLID, 16, 36, 1, 20, 100, 100, 0, every, amount, EVO_RHYTHM | EVO_VEL | EVO_PROB, 40, 3, 14, SH_DRUM_NOTES, 7, {4, 0, 0, 0}}
+    /* Hip hop: 88 BPM, G minor, swung. T1 bass on the chord roots (as MELODIC),
+     * T2 keys: a seventh chord held on each chord change, T3 a sparse motif
+     * lead, T4 boom bap drums. */
+    [STYLE_HIPHOP] = {88, 2, 7, 6, {
+        {GEN_EUCLID, 32, 31, 1, 80, 100, 100, 0, 4, 8, EVO_RHYTHM | EVO_VEL, 30, 6, 14, SH_MEL_BASS, 7, {6, 0, 0, 0}},
+        {GEN_EUCLID, 32, 50, 1, 100, 70, 100, 5, 8, 10, EVO_VEL | EVO_PROB, 40, 3, 6, SH_CHORD_ROOTS, 7, {4, 0, 0, 0}},
+        {GEN_MOTIF, 32, 62, 1, 60, 80, 80, 0, 4, 10, EVO_PITCH | EVO_RHYTHM, 30, 3, 8, SH_NONE, 15, {4, 4, 4, 2}},
+        DRUM_PART(4, 10),
+    }},
+    /* Drum n bass: 172 BPM, A minor. T1 a sub bass that holds two notes a
+     * pattern, T2 a slow triad pad that swells, T3 a short looping stab,
+     * T4 two-step drums. */
+    [STYLE_DNB] = {172, 2, 9, 0, {
+        {GEN_DRONE, 32, 33, 1, 100, 100, 100, 0, 8, 10, EVO_REGEN, 0, 0, 0, SH_NONE, 3, {2, 4, 0, 0}},
+        {GEN_DRONE, 32, 57, 1, 100, 55, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0, SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_TURING, 16, 57, 1, 25, 85, 80, 0, 4, 10, EVO_REGEN | EVO_PROB, 0, 2, 5, SH_TECHNO_STAB, 15, {1, 3, 3, 16}},
+        DRUM_PART(4, 10),
+    }},
+    /* House: 124 BPM, F dorian. T1 an offbeat bass, T2 syncopated seventh
+     * chord stabs on the progression, T3 a light arpeggio, T4 four on the floor. */
+    [STYLE_HOUSE] = {124, 3, 5, 2, {
+        {GEN_EUCLID, 16, 29, 1, 35, 100, 100, 0, 4, 10, EVO_PITCH | EVO_VEL, 40, 0, 0, SH_TECHNO_STAB, 7, {4, 2, 1, 0}},
+        {GEN_EUCLID, 32, 53, 1, 30, 85, 100, 0, 4, 8, EVO_RHYTHM | EVO_VEL, 40, 6, 12, SH_CHORD_ROOTS, 7, {8, 3, 0, 0}},
+        {GEN_ARP, 16, 65, 2, 40, 70, 75, 0, 4, 10, EVO_PITCH | EVO_PROB, 30, 0, 0, SH_NONE, 15, {1, 2, 2, 2}},
+        DRUM_PART(4, 8),
+    }},
+    /* Trip hop: 80 BPM, D minor, a little swing. T1 a slow drifting bass, T2
+     * a dark seventh pad that swells, T3 sparse bells that rest now and then,
+     * T4 half-time drums. */
+    [STYLE_TRIPHOP] = {80, 2, 2, 3, {
+        {GEN_DRIFT, 32, 26, 1, 100, 95, 100, 0, 8, 10, EVO_REGEN | EVO_PROB, 0, 1, 4, SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_DRONE, 32, 50, 2, 100, 55, 100, 0, 16, 5, EVO_REGEN, 0, 0, 0, SH_NONE, 0, {0, 0, 0, 0}},
+        {GEN_BELL, 20, 69, 2, 40, 55, 100, 2, 4, 10, EVO_PITCH | EVO_VEL, 25, 1, 3, SH_NONE, 0, {0, 0, 0, 0}},
+        DRUM_PART(8, 8),
+    }},
+#undef DRUM_PART
 };
+
+/* Part names, for M > NEW FROM STYLE's track rows. */
+static const char *PART_NAMES[STYLE_COUNT][STYLE_PARTS] = {
+    [STYLE_AMBIENT] = {"LOW", "ARP", "MOTIF", "HIGH"},
+    [STYLE_TECHNO] = {"KICK", "HATS", "BASS", "STAB"},
+    [STYLE_MELODIC] = {"BASS", "ARP", "CALL", "ANSWER"},
+    [STYLE_BLANK] = {"", "", "", ""},
+    [STYLE_DRONE] = {"BASS", "PAD", "DRIFT", "BELLS"},
+    [STYLE_HIPHOP] = {"BASS", "KEYS", "LEAD", "DRUMS"},
+    [STYLE_DNB] = {"SUB", "PAD", "STAB", "DRUMS"},
+    [STYLE_HOUSE] = {"BASS", "CHORDS", "LEAD", "DRUMS"},
+    [STYLE_TRIPHOP] = {"BASS", "PAD", "BELLS", "DRUMS"},
+};
+
+static int style_idx(int st) { return st < 0 || st >= STYLE_COUNT ? 0 : st; }
+static int part_idx(int k) { return k < 0 || k >= STYLE_PARTS ? 0 : k; }
+const char *style_part_name(int st, int k) { return PART_NAMES[style_idx(st)][part_idx(k)]; }
+int style_part_is_drums(int st, int k) { return STYLE_SET[style_idx(st)].t[part_idx(k)].shape == SH_DRUM_NOTES; }
 
 /* ---- style shapes ---- */
 
@@ -379,7 +444,7 @@ static const int8_t PROGS[][4] = {{0, 0, 3, 3}, {0, 0, 6, 6}, {0, 0, 4, 4}, {0, 
 
 static void style_shape(Seq *s, int t, int shape, const int8_t *prog) {
     SeqTrack *tr = &s->track[t];
-    const TrackPreset *pr = &STYLE_SET[s->style].t[t];
+    const TrackPreset *pr = &STYLE_SET[style_idx(tr->style)].t[part_idx(tr->part)];
     int len = tr->len, lo = pr->base, hi = pr->base + 12 * pr->span, sz = scale_size(s);
     int td = tonic_degree(s, lo);
     switch (shape) {
@@ -421,6 +486,17 @@ static void style_shape(Seq *s, int t, int shape, const int8_t *prog) {
             st->vel = (uint8_t)(i % 4 == 2 ? 110 : 84);
             st->gate = (uint8_t)(chance(s, 30) ? 35 : 18);
         }
+        break;
+    case SH_CHORD_ROOTS:
+        for (int i = 0; i < len; i++) {
+            SeqStep *st = &tr->step[i];
+            if (st->lock) continue;
+            st->note = (uint8_t)fold_octave(chord_tone(s, td, prog[(i / 8) % 4], 0), lo, hi);
+            if (i % 8 == 0 && st->vel < 117) st->vel = (uint8_t)(st->vel + 10);   /* lean on each chord change */
+        }
+        break;
+    case SH_DRUM_NOTES:
+        gen_drum_notes(s, t);
         break;
     case SH_MEL_BASS:
         for (int i = 0; i < len; i++) {
@@ -506,51 +582,61 @@ static void style_shape(Seq *s, int t, int shape, const int8_t *prog) {
 }
 
 /* Blank: an empty page. Bases match seq_init (C2, C3, C4, C5 an octave down). */
-static void style_blank(Seq *s) {
+static void blank_track(Seq *s, int t) {
     static const uint8_t base[SEQ_TRACKS] = {24, 36, 48, 60};
-    s->style = STYLE_BLANK;
-    for (int t = 0; t < SEQ_TRACKS; t++) {
-        SeqTrack *tr = &s->track[t];
-        tr->len = SEQ_DEFAULT_LEN;
-        tr->gen.base = base[t];
-        tr->gen.span = 2;
-        gen_set_type(s, t, GEN_NONE);
-        int note = gen_snap_note(s, base[t] + 12);
-        for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0};
-        tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
-        tr->has_anchor = 0;
-        memset(tr->drum.vel, 0, sizeof tr->drum.vel);   /* a drum track stays one, with empty lanes */
-        tr->drum_lock = 0;
-        tr->chain_len = 0;
-        tr->chain_pos = 0;
-        tr->mute = 0;
-        tr->solo = 0;
-    }
+    SeqTrack *tr = &s->track[t];
+    tr->style = STYLE_BLANK;
+    tr->part = (uint8_t)t;
+    tr->len = SEQ_DEFAULT_LEN;
+    tr->gen.base = base[t];
+    tr->gen.span = 2;
+    gen_set_type(s, t, GEN_NONE);
+    int note = gen_snap_note(s, base[t] + 12);
+    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0};
+    tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
+    tr->has_anchor = 0;
+    memset(tr->drum.vel, 0, sizeof tr->drum.vel);   /* a drum track stays one, with empty lanes */
+    tr->drum_lock = 0;
+    tr->chain_len = 0;
+    tr->chain_pos = 0;
+    tr->mute = 0;
+    tr->solo = 0;
 }
 
-/* Playback colour per style and track (chord, swell bars, swell depth, rest
+/* Playback colour per style and part (chord, swell bars, swell depth, rest
  * chance); styles left out here play plain. */
 typedef struct { uint8_t chord, swell, swell_depth, rest; } TrackColour;
 static const TrackColour STYLE_COLOUR[STYLE_COUNT][SEQ_TRACKS] = {
     [STYLE_DRONE] = {{CHORD_FIFTH, 16, 25, 0}, {CHORD_TRIAD, 8, 35, 0}, {CHORD_OFF, 4, 30, 10}, {CHORD_OFF, 0, 0, 15}},
+    [STYLE_HIPHOP] = {{0, 0, 0, 0}, {CHORD_SEVENTH, 0, 0, 0}, {CHORD_OFF, 0, 0, 10}, {0, 0, 0, 0}},
+    [STYLE_DNB] = {{0, 0, 0, 0}, {CHORD_TRIAD, 8, 40, 0}, {CHORD_FIFTH, 0, 0, 10}, {0, 0, 0, 0}},
+    [STYLE_HOUSE] = {{0, 0, 0, 0}, {CHORD_SEVENTH, 0, 0, 0}, {CHORD_OFF, 0, 0, 10}, {0, 0, 0, 0}},
+    [STYLE_TRIPHOP] = {{0, 0, 0, 0}, {CHORD_SEVENTH, 8, 35, 0}, {CHORD_OFF, 4, 30, 15}, {0, 0, 0, 0}},
 };
 
-int style_apply(Seq *s, int st, int keep_manual) {
-    st = st < 0 || st >= STYLE_COUNT ? 0 : st;
-    if (st == STYLE_BLANK) { style_blank(s); return 0; }
-    int keep[SEQ_TRACKS] = {0}, kept = 0;
+int style_apply_tracks(Seq *s, int lead, const int style[SEQ_TRACKS], const int part[SEQ_TRACKS]) {
+    lead = style_idx(lead);
+    int st[SEQ_TRACKS], pt[SEQ_TRACKS], kept = 0, changed = 0, chords = 0;
     for (int t = 0; t < SEQ_TRACKS; t++) {
-        keep[t] = keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0;
-        kept += keep[t];
+        st[t] = style[t] == STYLE_KEEP ? STYLE_KEEP : style_idx(style[t]);
+        pt[t] = part_idx(part[t]);
+        kept += st[t] == STYLE_KEEP;
+        chords |= st[t] == STYLE_MELODIC || st[t] == STYLE_HIPHOP || st[t] == STYLE_HOUSE;
     }
-    s->style = st;
-    s->bpm = STYLE_SET[st].bpm;
-    s->swing = STYLE_SET[st].swing;
-    if (!kept) seq_set_scale(s, STYLE_SET[st].scale, STYLE_SET[st].root, 0);
+    s->style = lead;
+    if (!kept && lead != STYLE_BLANK) {   /* a fresh start: the MUSIC STYLE's tempo and key */
+        s->bpm = STYLE_SET[lead].bpm;
+        s->swing = STYLE_SET[lead].swing;
+        seq_set_scale(s, STYLE_SET[lead].scale, STYLE_SET[lead].root, 0);
+    }
     for (int t = 0; t < SEQ_TRACKS; t++) {
-        const TrackPreset *pr = &STYLE_SET[st].t[t];
         SeqTrack *tr = &s->track[t];
-        if (keep[t]) continue;
+        if (st[t] == STYLE_KEEP) continue;
+        changed++;
+        if (st[t] == STYLE_BLANK) { blank_track(s, t); continue; }
+        const TrackPreset *pr = &STYLE_SET[st[t]].t[pt[t]];
+        tr->style = (uint8_t)st[t];
+        tr->part = (uint8_t)pt[t];
         tr->len = pr->len;
         tr->gen.base = pr->base;
         tr->gen.span = pr->span;
@@ -564,7 +650,7 @@ int style_apply(Seq *s, int st, int keep_manual) {
         tr->evo = (EvolveSettings){pr->every, pr->amount, pr->kinds, pr->pull, pr->min_hits, pr->max_hits};
         tr->chain_len = 0;
         tr->has_anchor = 0;
-        const TrackColour *co = &STYLE_COLOUR[st][t];
+        const TrackColour *co = &STYLE_COLOUR[st[t]][pt[t]];
         tr->chord = co->chord;
         tr->swell = co->swell;
         tr->swell_depth = co->swell_depth;
@@ -573,19 +659,31 @@ int style_apply(Seq *s, int st, int keep_manual) {
     }
     /* Generate in order, so FOLLOW (techno bass) reads a finished kick and the
      * melodic answer reads a finished call. */
-    const int8_t *prog = st == STYLE_MELODIC ? PROGS[pick(s, NPROGS)] : PROGS[0];   /* ambient's rolls stay as they were */
+    const int8_t *prog = chords ? PROGS[pick(s, NPROGS)] : PROGS[0];   /* ambient's rolls stay as they were */
     for (int t = 0; t < SEQ_TRACKS; t++) {
-        if (keep[t]) continue;
+        if (st[t] == STYLE_KEEP || st[t] == STYLE_BLANK) continue;
         gen_apply(s, t);
-        style_shape(s, t, STYLE_SET[st].t[t].shape, prog);
+        style_shape(s, t, STYLE_SET[st[t]].t[pt[t]].shape, prog);
         if (s->track[t].type == TRACK_DRUMS) {   /* a drum track gets a kit pattern in the style */
             s->track[t].drum_busy = 50;
             s->track[t].drum_lock = 0;
             gen_drum_roll(s, t);
-            if (s->track[t].evo.pull) gen_set_anchor(s, t);
         }
         if (s->track[t].evo.pull) gen_set_anchor(s, t);
     }
+    return changed;
+}
+
+int style_apply(Seq *s, int st, int keep_manual) {
+    st = style_idx(st);
+    int style[SEQ_TRACKS], part[SEQ_TRACKS], kept = 0;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        int keep = st != STYLE_BLANK && keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0;
+        style[t] = keep ? STYLE_KEEP : st;
+        part[t] = t;
+        kept += keep;
+    }
+    style_apply_tracks(s, st, style, part);
     return kept;
 }
 
@@ -957,6 +1055,10 @@ void gen_roll(Seq *s, int t) {
         g->state = top | reg;
     }
     gen_apply(s, t);
+    /* A style's drum part on a note track rolls a new kit pattern. */
+    const SeqTrack *tr = &s->track[t];
+    const TrackPreset *pr = &STYLE_SET[style_idx(tr->style)].t[part_idx(tr->part)];
+    if (pr->shape == SH_DRUM_NOTES && g->type == pr->gen) gen_drum_notes(s, t);
 }
 
 /* ---- evolution ---- */

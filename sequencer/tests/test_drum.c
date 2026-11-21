@@ -228,7 +228,7 @@ static int lane_hits(const SeqTrack *tr, int l) {
 static int test_generate(void) {
     static Seq s;
     fresh(&s);
-    s.style = STYLE_TECHNO;
+    s.track[0].style = STYLE_TECHNO;   /* a drum track rolls its own style's kit */
     seq_track_type(&s, 0, TRACK_DRUMS);
     gen_roll(&s, 0);
     SeqTrack *tr = &s.track[0];
@@ -243,7 +243,7 @@ static int test_generate(void) {
     gen_transform(&s, 0, XF_CLEAR, 0);
     CHECK(tr->drum.vel[0][3] == 99 && seq_drum_hits(tr) == 1);
     /* ambient is sparse; BUSY makes it busier */
-    s.style = STYLE_AMBIENT;
+    tr->style = STYLE_AMBIENT;
     tr->drum_lock = 0;
     tr->drum_busy = 0;
     gen_roll(&s, 0);

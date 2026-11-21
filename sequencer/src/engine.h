@@ -115,6 +115,8 @@ typedef struct {
     /* Drum track. The note steps above are kept while a track is a drum track
      * (and the lanes while it is a note track), so switching TYPE loses nothing. */
     uint8_t type;               /* TRACK_NOTES or TRACK_DRUMS */
+    uint8_t style;              /* Style (gen.h) this track was made from: its generator defaults and drum kit */
+    uint8_t part;               /* which of that style's parts (0..3; starts as the track's own number) */
     uint8_t drum_lock;          /* bit per lane: generators and evolution leave the lane alone */
     uint8_t drum_busy;          /* 0..100: how busy the drum generator is (50 = the style's own) */
     SeqDrums drum;
