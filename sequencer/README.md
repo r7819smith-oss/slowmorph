@@ -14,7 +14,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - Per step: on/off, note, velocity, gate length, probability, and a **lock**
 - A global **scale and root** (12 scales). Editing a note steps by scale degree.
 - **Pattern generators** and **evolution** (below)
-- Swing, mute and solo per track (from the grid), BPM 30-300
+- Swing, mute and solo per track (from the grid) and per drum lane (from the drum grid), BPM 30-300
 - Clock master: MIDI clock (also while stopped), start and stop output (turn off with `--no-clock`)
 - Everything (all 8 slots per track, chains, generators, evolution, mutes,
   scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
@@ -226,8 +226,16 @@ lane's name and note on the left, 16 steps at a time. A lane can be
 | hold X [C] + up / down | velocity up / down by 10 |
 | hold X + left / right | chance down / up by 10% |
 | Y [V] | lock / unlock the lane |
-| Left from step 1 | onto the lane name: A plays the lane's note, Y locks, right goes back |
-| B or Select | back to the grid |
+| Left from step 1 | onto the lane name: A mutes the lane, B solos it, X plays its note, Y locks, up/down picks another lane, right goes back |
+| B or Select | back to the grid (on the lane name, B is solo, so use Select or move right first) |
+
+Lane mute and solo work like the track mute and solo on the grid, but
+inside one drum track: a muted lane (grey **M**) is silent, and while any
+lane is soloed (yellow **S**) only soloed lanes play. Silent lanes are drawn
+dim, on the drum grid and in the drum track's row on the main grid. Several
+lanes can be soloed. A soloed lane that is also muted stays silent. The
+track's own mute and solo still apply on top. Lane mutes are saved with the
+pattern, lane solos are not (as on the grid).
 
 **STEP, TRACK and GENERATE pages**: a list of values for the current track.
 Up/down picks a row, left/right changes it, and holding **Y** makes the

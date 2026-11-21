@@ -119,6 +119,8 @@ typedef struct {
     uint8_t part;               /* which of that style's parts (0..3; starts as the track's own number) */
     uint8_t drum_lock;          /* bit per lane: generators and evolution leave the lane alone */
     uint8_t drum_busy;          /* 0..100: how busy the drum generator is (50 = the style's own) */
+    uint8_t drum_mute;          /* bit per lane: the lane is muted (saved) */
+    uint8_t drum_solo;          /* bit per lane: while any lane of the track is soloed, only those play (not saved) */
     SeqDrums drum;
     SeqDrums drum_anchor;       /* anchor of the lanes (with has_anchor) */
     uint8_t drum_down;          /* bit per lane: its note is sounding (not saved) */
@@ -179,6 +181,11 @@ void seq_track_mute_toggle(Seq *s, int t);
 void seq_track_solo_toggle(Seq *s, int t);
 int  seq_any_solo(const Seq *s);
 int  seq_track_audible(const Seq *s, int t);   /* not muted, and soloed if any track is */
+/* Drum lanes have their own mute and solo, inside the track (the track's own
+ * mute and solo still apply on top). Notes of lanes that go silent stop. */
+void seq_lane_mute_toggle(Seq *s, int t, int lane);
+void seq_lane_solo_toggle(Seq *s, int t, int lane);
+int  seq_lane_audible(const SeqTrack *tr, int lane);   /* not muted, and soloed if any lane is */
 void seq_track_len(Seq *s, int t, int delta);
 void seq_track_channel(Seq *s, int t, int delta);
 void seq_adjust_bpm(Seq *s, int delta);

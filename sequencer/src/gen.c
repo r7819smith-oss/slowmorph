@@ -601,6 +601,7 @@ static void blank_track(Seq *s, int t) {
     tr->chain_pos = 0;
     tr->mute = 0;
     tr->solo = 0;
+    tr->drum_mute = tr->drum_solo = 0;
 }
 
 /* Playback colour per style and part (chord, swell bars, swell depth, rest

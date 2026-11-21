@@ -299,8 +299,63 @@ static int test_audition(void) {
     return 0;
 }
 
+/* Lane mute and solo: muted lanes are silent, while any lane is soloed only
+ * soloed lanes play, the track's own mute is on top; mutes are saved, solos not. */
+static int test_lane_mute_solo(void) {
+    static Seq s, t;
+    fresh(&s);
+    seq_track_type(&s, 3, TRACK_DRUMS);
+    SeqTrack *tr = &s.track[3];
+    seq_drum_toggle(&s, 3, 0, 0);    /* kick, snare, closed hat on step 1 */
+    seq_drum_toggle(&s, 3, 1, 0);
+    seq_drum_toggle(&s, 3, 2, 0);
+    int k = s.lane_note[0], sn = s.lane_note[1], h = s.lane_note[2];
+    seq_lane_mute_toggle(&s, 3, 1);
+    CHECK(!seq_lane_audible(tr, 1) && seq_lane_audible(tr, 0));
+    seq_start(&s);
+    run(&s, 384);
+    CHECK(count(1, 3, k) == 1 && count(1, 3, sn) == 0 && count(1, 3, h) == 1);
+    seq_lane_solo_toggle(&s, 3, 2);  /* solo the hat: kick goes quiet too */
+    run(&s, 384);
+    CHECK(count(1, 3, k) == 1 && count(1, 3, sn) == 0 && count(1, 3, h) == 2);
+    seq_lane_solo_toggle(&s, 3, 1);  /* soloing a muted lane: still muted */
+    run(&s, 384);
+    CHECK(count(1, 3, sn) == 0 && count(1, 3, h) == 3 && count(1, 3, k) == 1);
+    seq_lane_solo_toggle(&s, 3, 1);
+    seq_lane_solo_toggle(&s, 3, 2);  /* no solo: back to all but the muted snare */
+    run(&s, 384);
+    CHECK(count(1, 3, k) == 2 && count(1, 3, h) == 4 && count(1, 3, sn) == 0);
+    /* a sounding hit stops when its lane is muted */
+    seq_stop(&s);
+    seq_start(&s);
+    run(&s, 2);
+    CHECK(tr->drum_down & 1);
+    seq_lane_mute_toggle(&s, 3, 0);
+    CHECK(!(tr->drum_down & 1) && count(0, 3, k) == count(1, 3, k));
+    seq_stop(&s);
+    /* saved: the mutes, not the solos */
+    seq_lane_solo_toggle(&s, 3, 4);
+    FILE *f = tmpfile();
+    seq_save(&s, f);
+    rewind(f);
+    seq_init(&t, NULL, NULL);
+    CHECK(seq_load(&t, f) == 0);
+    fclose(f);
+    CHECK(t.track[3].drum_mute == 3 && t.track[3].drum_solo == 0);
+    /* an older "ty" line without mutes */
+    static const char old[] = "seq4h 1\nty 3 1 0 50\n";
+    f = tmpfile();
+    fputs(old, f);
+    rewind(f);
+    seq_init(&t, NULL, NULL);
+    CHECK(seq_load(&t, f) == 0);
+    fclose(f);
+    CHECK(t.track[3].type == TRACK_DRUMS && t.track[3].drum_mute == 0);
+    return 0;
+}
+
 int main(void) {
-    if (test_play() || test_shuffle_and_mute() || test_save_load() || test_map() || test_map_next() || test_map_migrate() || test_generate() || test_audition()) return 1;
+    if (test_play() || test_shuffle_and_mute() || test_save_load() || test_map() || test_map_next() || test_map_migrate() || test_generate() || test_audition() || test_lane_mute_solo()) return 1;
     printf("drum tests passed\n");
     return 0;
 }

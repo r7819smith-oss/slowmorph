@@ -861,10 +861,20 @@ static void roll_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
 static void drums_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     SeqTrack *tr = &s->track[u->track];
     int l = u->lane, i = u->step;
-    if (u->drum_label) {   /* on the lane name: A hear it, Y lock it */
+    if (u->drum_label) {   /* on the lane name: A mute, B solo, X hear it, Y lock it */
         if (dy) u->lane = wrap(u->lane + dy, SEQ_LANES);
         else if (dx > 0) { u->drum_label = 0; u->step = 0; }
-        else if (b == B_A) seq_audition(s, tr->channel, s->lane_note[l], 100);
+        else if (b == B_A) {
+            seq_lane_mute_toggle(s, u->track, l);
+            snprintf(u->msg_buf, sizeof u->msg_buf, "%s %s", s->lane_name[l], tr->drum_mute & (1 << l) ? "MUTED" : "UNMUTED");
+            say(u, u->msg_buf);
+        }
+        else if (b == B_B) {
+            seq_lane_solo_toggle(s, u->track, l);
+            snprintf(u->msg_buf, sizeof u->msg_buf, "%s %s", s->lane_name[l], tr->drum_solo & (1 << l) ? "SOLO ON" : "SOLO OFF");
+            say(u, u->msg_buf);
+        }
+        else if (b == B_X) seq_audition(s, tr->channel, s->lane_note[l], 100);
         else if (b == B_Y || b == B_LOCK) seq_drum_lock(s, u->track, l);
         return;
     }
@@ -1034,6 +1044,8 @@ static void y_tap(Ui *u) {
  *   GRID: d-pad moves the cursor, A step on/off, X edit the step, Y lock the step
  *         left from step 1 puts the cursor on the track label: A mute, B solo,
  *         up/down track, right back to step 1
+ *   DRUM GRID: the same left of step 1 on a lane name: A mute the lane, B solo it,
+ *         X hear its note, Y lock it (B or Select elsewhere: back to the GRID)
  *   lists: up/down row, left/right value (hold Y for big steps)
  *          STEP A step on/off; GENERATE A rolls, or does the selected row's action
  *          (set anchor, apply transform, load/save slot, snap notes), X undoes
@@ -1080,7 +1092,7 @@ static void press(Ui *u, Btn b) {
     }
     else if (b == B_L2 || b == B_R2) { u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS); sub_page_for_track(s, u); }
     else if (u->page == P_ROLL && (b == B_A || b == B_X || b == B_Y || dx || dy)) roll_press(s, u, b, dx, dy);
-    else if (u->page == P_DRUMS && (b == B_A || b == B_X || b == B_Y || b == B_LOCK || dx || dy)) drums_press(s, u, b, dx, dy);
+    else if (u->page == P_DRUMS && (b == B_A || b == B_X || b == B_Y || b == B_LOCK || dx || dy || (b == B_B && u->drum_label))) drums_press(s, u, b, dx, dy);
     else if (u->page == P_GRID && u->on_label && (b == B_A || b == B_B || b == B_X || b == B_Y || dx || dy)) {
         if (b == B_A) label_mute(s, u);
         else if (b == B_B) label_solo(s, u);
@@ -1365,7 +1377,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
             if (tr->type == TRACK_DRUMS) {   /* a drum step: one thin bar per lane that hits, kick at the top */
                 for (int l = 0; l < SEQ_LANES; l++) {
                     int v = tr->drum.vel[l][i];
-                    if (v) rect(r, x + 3, y + 3 + l * 6, w - 6, 5, scale(base, 35 + 65 * v / 127));
+                    if (v) rect(r, x + 3, y + 3 + l * 6, w - 6, 5, scale(seq_lane_audible(tr, l) ? base : scale(base, 30), 35 + 65 * v / 127));
                 }
                 if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 2, WHITE);
                 if (t == u->track && i == u->step && !u->on_label) frame(r, x - 2, y - 2, w + 4, h + 4, 2, YELLOW);
@@ -1836,7 +1848,11 @@ static void draw_drums(SDL_Renderer *r, const Seq *s, const Ui *u) {
     for (int l = 0; l < SEQ_LANES; l++) {
         int y = DRUM_Y0 + l * DRUM_RH, locked = tr->drum_lock & (1 << l), cur = l == u->lane;
         if (u->drum_label && cur) { rect(r, 2, y - 2, 52, DRUM_RH - 2, (Col){40, 44, 64}); frame(r, 2, y - 2, 52, DRUM_RH - 2, 2, YELLOW); }
-        text(r, 5, y + 6, 1, cur ? YELLOW : WHITE, s->lane_name[l]);
+        int lmute = tr->drum_mute & (1 << l), lsolo = tr->drum_solo & (1 << l), heard = seq_lane_audible(tr, l);
+        Col lane_col = heard ? base : scale(base, 30);   /* muted, or silent because another lane is soloed */
+        text(r, 5, y + 6, 1, cur ? YELLOW : heard ? WHITE : DIM, s->lane_name[l]);
+        if (lmute) { rect(r, 30, y + 26, 7, 9, (Col){200, 200, 205}); text(r, 31, y + 27, 1, (Col){16, 17, 24}, "M"); }
+        if (lsolo) { rect(r, 38, y + 26, 7, 9, YELLOW); text(r, 39, y + 27, 1, (Col){16, 17, 24}, "S"); }
         seq_note_name(s->lane_note[l], nn);
         snprintf(buf, sizeof buf, "%d %s", s->lane_note[l], nn);
         text(r, 5, y + 18, 1, DIM, buf);
@@ -1847,7 +1863,7 @@ static void draw_drums(SDL_Renderer *r, const Seq *s, const Ui *u) {
             rect(r, x, y, w, h, (i / 4) % 2 ? (Col){38, 40, 52} : (Col){30, 32, 42});
             int v = tr->drum.vel[l][i];
             if (v) {
-                rect(r, x + 3, y + 3, w - 6, h - 6, scale(base, 35 + 65 * v / 127));
+                rect(r, x + 3, y + 3, w - 6, h - 6, scale(lane_col, 35 + 65 * v / 127));
                 if (tr->drum.prob[l][i] < 100) rect(r, x + 3, y + 3, (w - 6) * tr->drum.prob[l][i] / 100, 3, WHITE);
             }
             if (locked) rect(r, x + w - 6, y + 2, 4, 4, YELLOW);
@@ -1857,19 +1873,21 @@ static void draw_drums(SDL_Renderer *r, const Seq *s, const Ui *u) {
     }
     int y = DRUM_Y0 + SEQ_LANES * DRUM_RH + 6, l = u->lane, v = tr->drum.vel[l][u->step];
     seq_note_name(s->lane_note[l], nn);
-    if (u->drum_label) snprintf(buf, sizeof buf, "T%d %s  NOTE %d %s%s", u->track + 1, s->lane_name[l], s->lane_note[l], nn, tr->drum_lock & (1 << l) ? "  LOCKED" : "");
+    if (u->drum_label) snprintf(buf, sizeof buf, "T%d %s  NOTE %d %s%s%s%s", u->track + 1, s->lane_name[l], s->lane_note[l], nn,
+                                tr->drum_mute & (1 << l) ? "  MUTED" : "", tr->drum_solo & (1 << l) ? "  SOLO" : "",
+                                tr->drum_lock & (1 << l) ? "  LOCKED" : "");
     else if (v) snprintf(buf, sizeof buf, "STEP %02d %s  VEL %d  CHANCE %d%%", u->step + 1, s->lane_name[l], v, tr->drum.prob[l][u->step]);
     else snprintf(buf, sizeof buf, "STEP %02d %s  NO HIT", u->step + 1, s->lane_name[l]);
     text(r, 20, y, 2, WHITE, buf);
     snprintf(buf, sizeof buf, "T%d DRUMS  CH %d  LEN %d  %d HITS  BUSY %d%%", u->track + 1, tr->channel + 1, tr->len, seq_drum_hits(tr), tr->drum_busy);
     text(r, 20, y + 20, 1, DIM, buf);
     if (u->drum_label) {
-        text(r, 20, H - 34, 1, DIM, "UP/DOWN LANE  A HEAR THE LANE'S NOTE  Y LOCK THE LANE  RIGHT BACK TO STEP 1");
-        text(r, 20, H - 20, 1, DIM, "NOTES ARE SET ON M > DRUM MAP  L2/R2 TRACK  B OR SELECT BACK TO GRID");
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN LANE  A MUTE  B SOLO  X HEAR THE NOTE  Y LOCK  RIGHT BACK TO STEP 1");
+        text(r, 20, H - 20, 1, DIM, "NOTES ARE SET ON M > DRUM MAP  L2/R2 TRACK  SELECT BACK TO GRID");
         return;
     }
     text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A HIT ON/OFF  HOLD X: UP/DOWN VELOCITY, LEFT/RIGHT CHANCE  Y LOCK LANE");
-    text(r, 20, H - 20, 1, DIM, "LEFT OF STEP 1: LANE NAME  L2/R2 TRACK  M MENU  B OR SELECT BACK TO GRID");
+    text(r, 20, H - 20, 1, DIM, "LEFT OF STEP 1: LANE NAME (MUTE/SOLO)  L2/R2 TRACK  M MENU  B OR SELECT BACK TO GRID");
 }
 
 static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
