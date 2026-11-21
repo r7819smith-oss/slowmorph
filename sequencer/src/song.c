@@ -125,7 +125,9 @@ void song_apply(Seq *s, const Seq *song) {
     void *ctx = s->ctx;
     int playing = s->playing, clock_out = s->clock_out, transport_out = s->transport_out, resync = s->resync;
     uint32_t tick = s->tick, idle = s->idle_tick, rng = s->rng;
+    Live live = s->live;   /* M > LIVE belongs to the session (and a count-in may be running) */
     *s = *song;
+    s->live = live;
     s->send = send;
     s->ctx = ctx;
     s->playing = playing;

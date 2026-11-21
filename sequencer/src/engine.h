@@ -149,6 +149,35 @@ typedef struct {
     uint8_t locked;
 } SeqTrack;
 
+/* Live playing and recording (M > LIVE; live.h has the functions). The
+ * settings belong to the session, not to a song: they are saved in the
+ * pattern file as "lv" lines, and loading a song keeps them. */
+#define LIVE_MAX_LENGTH 999   /* longest SONG LENGTH, in bars */
+enum { STOP_NOW, STOP_AT_BAR };   /* what Start does while playing */
+typedef struct {                  /* one track as it was when the start mark was set */
+    SeqStep step[SEQ_STEPS];
+    SeqDrums drum;
+    uint8_t len, cur_slot, chain_pos;
+    uint32_t gen_state;
+} LiveTake;
+typedef struct {
+    /* Settings (saved). */
+    uint8_t count_in;     /* bars of count-in before Start: 0, 1, 2 or 4 */
+    uint8_t click;        /* count-in click: a short note each beat */
+    uint16_t length;      /* SONG LENGTH: stop at this bar line; 0 = off */
+    uint8_t stop_mode;    /* STOP_NOW or STOP_AT_BAR */
+    uint8_t spp;          /* send Song Position Pointer 0 just before Start */
+    uint8_t from_mark;    /* every Start puts the start mark back first */
+    /* Running state (not saved). */
+    uint32_t count_left;  /* ticks of count-in still to go; 0 = not counting in */
+    int16_t click_note;   /* click note sounding, or -1 */
+    uint8_t click_ch, click_left;
+    uint8_t stop_pending; /* Start was pressed: stop at the next bar line */
+    uint8_t has_mark;
+    uint32_t mark_rng;
+    LiveTake mark[SEQ_TRACKS];
+} Live;
+
 typedef void (*SeqSend)(void *ctx, const uint8_t *msg, int len);
 
 typedef struct {
@@ -169,6 +198,7 @@ typedef struct {
     char lane_name[SEQ_LANES][SEQ_LANE_NAME + 1];
     int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
     Mod mod;                                      /* M > MODULATION: LFOs sending CCs (mod.h) */
+    Live live;                                    /* M > LIVE: count-in, song length, start mark (live.h) */
     SeqSend send;
     void *ctx;
 } Seq;

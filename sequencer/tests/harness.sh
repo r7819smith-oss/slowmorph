@@ -257,6 +257,9 @@ mod-dest-on|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,
 mod-dest-range|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down,Down,Right,Right,Right
 mod-in-monitor|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
 mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
+grid-count-in|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,m,m,space
 EOF
     unset SEQ4H_TEST_PORTS SEQ4H_TEST_IN
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -296,6 +299,7 @@ EOF
         --differ drums-page drums-step-locked --differ all-steps all-steps-drums \
         --differ grid-demo grid-stick-vel --differ grid-demo grid-select-tempo --differ grid-demo grid-select-lock \
         --differ grid-demo grid-stick-roll \
+        --differ record-page record-set --differ grid-demo grid-count-in \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"

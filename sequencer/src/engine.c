@@ -6,6 +6,7 @@
 
 #include "drum.h"
 #include "gen.h"
+#include "live.h"
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -64,6 +65,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
     s->ctx = ctx;
     seq_drum_map_gm(s);
     mod_init(&s->mod);
+    live_init(&s->live);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         tr->len = SEQ_DEFAULT_LEN;
@@ -117,13 +119,15 @@ void seq_start(Seq *s) {
         memset(s->track[t].played, 0, sizeof s->track[t].played);
         if (live_offset(&s->track[t])) seq_reshuffle(s, t);
     }
-    if (s->transport_out) emit1(s, 0xFA);
+    if (live_start(s)) return;   /* count-in: Start goes out when it ends */
+    live_send_start(s);
 }
 
 void seq_stop(Seq *s) {
     if (!s->playing) return;
     s->playing = 0;
     s->resync = 0;
+    live_stop(s);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         release(s, &s->track[t]);
         emit3(s, 0xB0 | s->track[t].channel, 123, 0);   /* all notes off */
@@ -279,6 +283,7 @@ void seq_tick(Seq *s) {
         if (s->clock_out && s->idle_tick++ % (SEQ_PPQN / 24) == 0) emit1(s, 0xF8);
         return;
     }
+    if (s->live.count_left) { live_count_tick(s); return; }   /* counting in: clock and click only */
     uint32_t now = s->tick;
     if (s->resync && now % (SEQ_PPQN * 4) == 0) {   /* bar line: the receiver's beat 1 */
         s->resync = 0;
@@ -288,6 +293,7 @@ void seq_tick(Seq *s) {
 
     if (now && now % (SEQ_PPQN * 4) == 0) {          /* a bar boundary */
         uint32_t bar = now / (SEQ_PPQN * 4);
+        if (live_bar(s, bar)) return;   /* SONG LENGTH reached, or a stop waiting for the bar line */
         for (int t = 0; t < SEQ_TRACKS; t++) seq_chain_bar(s, t, bar);
         /* Rests: after a rest ends the track plays at least one bar. */
         for (int t = 0; t < SEQ_TRACKS; t++) {
@@ -339,7 +345,7 @@ void seq_tick(Seq *s) {
 }
 
 int seq_playhead(const Seq *s, int t) {
-    if (!s->playing) return -1;
+    if (!s->playing || s->live.count_left) return -1;
     uint32_t last = s->tick ? s->tick - 1 : 0;
     return (int)((last / SEQ_TICKS_PER_STEP) % s->track[t].len);
 }
@@ -807,6 +813,7 @@ void seq_save(const Seq *s, FILE *f) {
     char pre[32];
     fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\ntransport %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->transport_out, s->scale, s->root, s->style);
     mod_save(&s->mod, f);   /* M > MODULATION; older versions skip these lines */
+    live_save(s, f);         /* M > LIVE settings; older versions skip it */
     fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
         char nm[SEQ_LANE_NAME + 1];
@@ -921,6 +928,7 @@ int seq_load(Seq *s, FILE *f) {
     if (!fgets(line, sizeof line, f) || strncmp(line, "seq4h ", 6) != 0) return -1;
     while (fgets(line, sizeof line, f)) {
         if (mod_load_line(&s->mod, line)) continue;
+        if (live_load_line(s, line)) continue;
         if (line[0] == 'd') {   /* drum lines */
             if (sscanf(line, "dmv %d", &a) == 1) map_version = a;
             else if (sscanf(line, "dl %d %u", &a, &u) == 2) {
