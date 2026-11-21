@@ -20,3 +20,5 @@ tests/test_lock
 tests/test_song
 tests/test_song_asan
 seq4h-song*.pat
+tests/test_mod
+tests/test_mod_asan

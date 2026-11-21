@@ -17,6 +17,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - Swing, mute and solo per track (from the grid) and per drum lane (from the drum grid), BPM 30-300
 - Clock master: MIDI clock (also while stopped), start and stop output; each can be turned off per output on M > DEVICE + CLOCK (or both with `--no-clock`)
 - Device presets (M > DEVICE + CLOCK): FELUCCA, JANGADA, DIGITONE and BLACKBOX 2 set the channels, drum map, clock and start/stop in one go
+- Modulation (M > MODULATION): 4 LFOs (sine, triangle, ramp up/down, square, sample and hold, smooth random; synced to the BPM or free running from 0.1 s to 10 minutes) driving up to 16 MIDI CC destinations, each with its own channel or track, CC number and LOW-HIGH range. A MIDI IN monitor shows what the device sends back, and LEARN takes an incoming CC
 - Everything (all 8 slots per track, chains, generators, evolution, mutes,
   scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
   each edit, once a minute while playing, and at quit, so it survives the
@@ -24,8 +25,8 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - 96 ticks per quarter note from a dedicated timing thread; measured 0.1 ms
   deviation on desktop Linux
 
-The sequencer sends notes, clock and start/stop only. Effects, CCs and sounds
-are left to the FM1.
+The sequencer sends notes, clock, start/stop and, if you switch them on,
+modulation CCs. Effects and sounds are the FM1's.
 
 ## Making and evolving patterns
 
@@ -392,6 +393,52 @@ FM1 track n). If the sounds are wrong, that is the first thing to check.
 | A [Z] | play the lane's note; on PRESET left/right picks FELUCCA, GM or BLACKBOX and A twice applies it to all 8 lanes |
 | X [C] | rename the lane (as slot names; an empty name gives the Felucca name back) |
 | B [X] | back to the main menu |
+
+**Modulation** (M > MODULATION, A): three pages, **LFO**, **CC DEST** and
+**MIDI IN**; L1/R1 moves between them, L2/R2 picks the previous / next LFO
+or destination, hold Y for big steps, B back to the menu. Each destination
+moves one CC **between LOW and HIGH** and never outside them: HIGH - LOW is
+how far it moves (the depth), MOVE RANGE shifts both and keeps the width,
+LOW = HIGH holds one value, INVERT turns it upside down. A CC is only sent
+when its value changes, at most every 20 ms, and at most 4 CCs go out on one
+engine tick; with ALL MOD or a destination off nothing more is sent, so the
+parameter stays where it was.
+
+| LFO row | What it does |
+|---|---|
+| LFO | which of the 4 |
+| STATE | RUNNING or PAUSED (stops where it is; its CCs stay put) |
+| WAVE | SINE, TRIANGLE, RAMP UP, RAMP DOWN, SQUARE, S+H RANDOM (a new random value each cycle), SMOOTH RAND (glides to a new random value each cycle). Every wave starts at LOW |
+| TIMING | SYNC TO BPM (1/16 to 64 bars; restarts on Start, so it lines up with bar 1) or FREE (0.1 s to 10 min; ignores the BPM and Start) |
+| CYCLE | how long one cycle takes |
+| START PHASE | where in its cycle a synced LFO starts, 0-95% |
+| WHEN STOPPED | KEEPS MOVING (default, like the clock) or PAUSES while the sequencer is stopped |
+| ALL MOD | ON, or OFF: no modulation CC is sent at all |
+
+| CC DEST row | What it does |
+|---|---|
+| DEST / STATE | which of the 16, and ON / OFF (A toggles) |
+| LFO | which LFO drives it (several destinations can share one) |
+| SEND TO | T1-T4 (that track's channel, and it follows the track), T1-T4 ALL (every track's channel once), or a fixed CH 1-16 |
+| CC | 0-119; the name shown is Felucca's map with the FELUCCA device, else General MIDI. 120-127 are never sent; bank select, data entry and RPN/NRPN say AVOID |
+| LOW / HIGH / MOVE RANGE | the range, see above |
+| INVERT | HIGH when the LFO is low |
+| LEARN CC | A, then move a control on the device: the first incoming CC 0-119 sets CC and channel (B cancels). Notes are not learned, nor a CC this page sends itself (an echo) |
+| SEND ONCE | A sends the CC now, even when off: for an instrument's own MIDI learn |
+
+**MIDI IN** lists what arrives from the output's device (notes, CCs,
+pressure, program, pitch bend, start/stop; clock is only counted). Input is
+only open while this page listens or a LEARN waits, and nothing received is
+ever sent out again. Learning an incoming CC is not the same as finding the
+CC of a parameter you turned on the FM1: Felucca does not send its knobs
+(see NOTES.md, *Modulation and MIDI input*). For Felucca, set a free CC here
+and teach it with SEND ONCE while Felucca's own LEARN (GLO + D4) waits.
+
+Velocity is a note value, not a CC, so it is not a destination; SWELL on
+the GENERATE page already changes velocity slowly.
+
+Pattern file lines (older builds skip them): `mo ON`, `lf L WAVE SYNC RATE
+PHASE PAUSED STOPPAUSE`, `md D ON LFO TO CC LOW HIGH INVERT`. Songs carry them.
 
 **Device page** (M > DEVICE + CLOCK, A): one preset per instrument, and
 MIDI clock and Start/Stop for the output in use.
