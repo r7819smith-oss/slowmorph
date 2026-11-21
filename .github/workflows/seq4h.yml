@@ -1,6 +1,6 @@
-name: seq4h aarch64 build
+name: Genvolve aarch64 build
 
-# Builds seq4h for Knulli on the RG40XX-V (64-bit ARM) with
+# Builds Genvolve (source name seq4h) for Knulli on the RG40XX-V (64-bit ARM) with
 # sequencer/knulli/build.sh, the same script you can run locally. It
 # cross-compiles in an Ubuntu 20.04 container (glibc 2.31, so the binary runs
 # on any Knulli release), links SDL2 and ALSA dynamically so the device's own
@@ -28,7 +28,7 @@ jobs:
       # execute bit; the zip keeps it.
       - uses: actions/upload-artifact@v4
         with:
-          name: seq4h-knulli-aarch64
+          name: genvolve-knulli-aarch64
           path: |
-            sequencer/dist/seq4h-knulli-aarch64.zip
-            sequencer/dist/seq4h
+            sequencer/dist/genvolve-knulli-aarch64.zip
+            sequencer/dist/genvolve

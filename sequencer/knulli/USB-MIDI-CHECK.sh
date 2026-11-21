@@ -1,8 +1,8 @@
 #!/bin/sh
 # Ports-menu diagnostic for USB MIDI on the RG40XX-V under Knulli.
-# Copy to /userdata/roms/ports/ next to SEQ4H.sh and run it from the Ports menu
+# Copy to /userdata/roms/ports/ next to GENVOLVE.sh and run it from the Ports menu
 # (or over SSH). It changes nothing except loading sound modules that are
-# already on the device, and writes /userdata/roms/ports/seq4h/usb-midi-check.log.
+# already on the device, and writes /userdata/roms/ports/genvolve/usb-midi-check.log.
 # Run it once with the FM1 unplugged and once plugged in, then compare.
 #
 # Robustness rules (the first version stopped after the USB role section):
@@ -16,7 +16,7 @@
 # - the log is synced to the SD card after every section, so a power-off or
 #   a killed launcher still leaves everything written so far.
 
-DIR="$(dirname "$0")/seq4h"
+DIR="$(dirname "$0")/genvolve"
 mkdir -p "$DIR" 2>/dev/null
 LOG="$DIR/usb-midi-check.log"
 
@@ -155,9 +155,9 @@ echo "sequencer clients:"
 rd /proc/asound/seq/clients || echo "(none: no sequencer)"
 if have aconnect; then t 5 aconnect -l 2>&1; else echo "(aconnect not installed)"; fi
 if have amidi; then t 5 amidi -l 2>&1; else echo "(amidi not installed)"; fi
-if [ -x "$DIR/seq4h" ]; then
-    echo "seq4h --midi list:"
-    t 10 "$DIR/seq4h" --midi list 2>&1
+if [ -x "$DIR/genvolve" ]; then
+    echo "genvolve --midi list:"
+    t 10 "$DIR/genvolve" --midi list 2>&1
 fi
 
 section "kernel log (USB and sound)"

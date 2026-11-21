@@ -44,7 +44,8 @@ static int midi_test(Midi *m) {
 }
 
 static void usage(void) {
-    puts("usage: seq4h [options]\n"
+    puts("Genvolve, a generative four-track MIDI sequencer.\n"
+         "usage: genvolve [options]\n"
          "  --midi NAME      MIDI output port: case-insensitive part of \"client:port\"\n"
          "                   (default: first available; 'none' = no output; 'list' = show ports;\n"
          "                   'capture:FILE' = write timestamped MIDI to FILE, see tools/midicheck.py)\n"
