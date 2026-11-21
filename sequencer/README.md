@@ -18,6 +18,8 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 
 - 4 tracks x 16 steps (1/16 notes), each with its own MIDI channel and length (1-16, so tracks can be polymetric)
 - Per step: on/off, note, velocity, gate length, probability, and a **lock**
+- **MONO or POLY** per track: a POLY track plays up to 4 notes on a step (a
+  chord) and lets notes ring on over the next ones
 - A global **scale and root** (12 scales). Editing a note steps by scale degree.
 - **Pattern generators** and **evolution** (below)
 - Swing, mute and solo per track (from the grid) and per drum lane (from the drum grid), BPM 30-300
@@ -56,6 +58,7 @@ square) are never touched by a roll or by evolution.
 | DRONE | One to four long notes that fill the pattern (more than one alternates with the fifth above). Each roll the drone may move (`MOVE`) to another stable tone within a fifth (root, fourth, fifth, sixth, third), or go back to the root (`HOME`). Pair it with `CHORD` for a pad, and Evolve regen every 16-32 bars so it shifts now and then. | notes, move chance, home chance |
 | DRIFT | A few long notes spread over the pattern, each at most `STEP` scale degrees from the last, starting from the track's current first note, so the line keeps wandering slowly from roll to roll. `HOLD` is how much of the gap to the next note each one is held for. | notes, hold, step (largest move) |
 | BELL | Sparse, soft notes, never two in a row, on weighted stable tones (root, fifth, third) `HEIGHT` octaves above the lowest note. Each plays only `CHANCE` of the time and is up to `SOFTEN` quieter. | notes, chance, height, soften |
+| CHORDS | A chord progression written as real chords (up to 4 notes per step, editable in the piano roll). One chord every `CHANGE` steps (4, 8, 16 or 32); each chord's root moves round the scale (by a fourth, fifth, third or step) with chance `MOVE`, and each chord takes the inversion nearest the last one, so the voices move little. `RHYTHM`: HOLD (held to the next chord), PULSE (every beat), STABS (short, off the beat) or SWAY (twice per chord). Choosing it sets the track to POLY. Other generators write single notes. | change, chord (triad, seventh, sus2, sus4, add9, power), move chance, rhythm |
 
 **Evolve** changes a track every 1, 2, 4, 8, 16, 32 or 64 bars while it plays.
 `AMOUNT` is the chance each step changes; below 10% it moves in 1% steps, for
@@ -84,14 +87,18 @@ More on the GENERATE page (press **A** on a row to do its action):
 - **Transforms** for hand editing: reverse, invert (around the first note),
   transpose by scale degrees, shift, thin (offbeats and quiet notes go first),
   fill (new notes borrowed from neighbours), humanize velocity, clear, spread
-  (every note a different offset, none on the grid) and on grid (offsets back
-  to 0). All of them
+  (every note a different offset, none on the grid), on grid (offsets back
+  to 0) and write chord (the `CHORD` row's chord becomes each note's own
+  chord notes, which you can then edit; with CHORD OFF it makes every step a
+  single note again). All of them
   leave locked steps in place; rotate also now works around locked steps.
 - **Chord, swell and rests** (at the bottom of the list) colour how a track
   plays without changing its steps. `CHORD` stacks notes from the scale on
   every note the track plays: FIFTH, TRIAD, SUS2, SUS4, SEVENTH or OPEN (fifth
   plus the third an octave up), a little softer than the step's own note, all
-  on the track's channel. `SWELL` slowly raises and lowers velocity over 2 to
+  on the track's channel. On a MONO track the next note cuts the chord off,
+  as before; on a POLY track it rings for the note's length, and only steps
+  without chord notes of their own get it. `SWELL` slowly raises and lowers velocity over 2 to
   32 bars, dipping by `SWELL DEPTH`; each track's swell is a quarter turn
   behind the one before. `RESTS` is the chance each bar that the track sits
   out for 1 to 4 bars (held notes ring on), and it always plays at least a bar
@@ -116,6 +123,19 @@ More on the GENERATE page (press **A** on a row to do its action):
   `NEVER ON GRID` keeps every note on the track at least 2/24 of a step off
   the grid. For a fixed loose groove instead, use the `SPREAD` transform, and
   turn on `EVO OFFSET` to let those offsets drift a little every few bars.
+- **MONO and POLY tracks:** `VOICES` on the TRACK page (the last row).
+  MONO (the default, as before) plays one note at a time: the next note cuts
+  the last one off, and a step's chord notes are kept but not sent. POLY
+  plays every note of a step at once (up to 4, all at the step's velocity)
+  and lets each note ring for its own length (gate plus hold) over the notes
+  after it, up to 8 at once per track (the one due to end first makes room).
+  Give a step a chord with `CHORD` on the STEP page (FIFTH, TRIAD, SUS2,
+  SUS4, SEVENTH, OPEN), by hand in the piano roll, with the CHORDS generator
+  or the write chord transform. Chord notes are kept as scale degrees from
+  the step's note, so they move with it (NOTE, transpose, evolution) and stay
+  in the scale. Felucca plays chords only when its own track is on POLY too:
+  on the FM1, EDIT > VOICE, first knob `VCE` = POLY (mono presets load as
+  LEG). All four FM1 tracks share 8 voices.
 - **Patterns up to 32 steps:** set `LENGTH` on the TRACK page. The grid shows
   16 steps at a time; move the cursor past step 16 to see steps 17-32.
 
@@ -196,18 +216,22 @@ setting.
 **Piano roll** (Select on the GRID, note tracks): one track full screen,
 steps across (16 at a time, as on the grid) and the scale's notes down the
 left, 14 rows at a time with the root's rows lighter. Each note is a bar as
-long as it sounds (gate plus hold, cut off by the next note), moved by its
-offset, brighter when louder; a note outside the scale has a white outline
-and chord notes (from CHORD) are drawn faintly. A track still plays one note
-per step, so each column holds one note. B or Select goes back to the grid;
+long as it sounds (gate plus hold, cut off by the next note on a MONO track),
+moved by its offset, brighter when louder; a note outside the scale has a
+white outline and chord notes from the CHORD row are drawn faintly. On a
+MONO track each column holds one note. On a POLY track a column can hold a
+chord of up to 4 notes: A adds the cursor's note to the step or takes it out
+(taking out the step's own note hands that role to its lowest chord note),
+and hold Y + up/down moves the whole chord. The grid marks a POLY step's
+chord notes with small white dots. B or Select goes back to the grid;
 L2/R2 changes track (a drum track opens its drum grid).
 
 | Input | Action |
 |---|---|
 | D-pad | move the cursor: left/right step, up/down pitch (scrolls at the edge) |
-| A [Z] | put the step's note on this pitch, or take it off if it is already there (heard once while stopped) |
+| A [Z] | MONO: put the step's note on this pitch, or take it off if it is already there. POLY: add this pitch to the step's chord, or take it out (4 notes at most). Heard once while stopped |
 | hold Y [V] + left / right | shorter / longer: a quarter step at a time up to one step, then whole steps (that is HOLD). This also sets the length new notes get |
-| hold Y + up / down | move the step's note up / down a scale degree (the cursor follows) |
+| hold Y + up / down | move the step's note (and its chord) up / down a scale degree (the cursor follows) |
 | Y on its own (press and let go) | lock / unlock the step under the cursor, as Y on the grid: a locked note has a yellow corner and a locked step's column a dim yellow frame. Rolls and evolution leave it alone |
 | hold X [C] + left / right | offset: 1 tick (1/24 step) earlier / later |
 | hold X + up / down | velocity up / down by 8 |
@@ -565,6 +589,13 @@ as quoted to me; I could not open the wiki myself):
   10 pan, 71 resonance, 72/73/75 release/attack/decay, 74 brightness,
   91/93/94 reverb/chorus/delay sends) and Program Change (loads a track's
   sound by its preset number). Genvolve does not send CCs or Program Change yet.
+- Each Felucca track has a voice mode (EDIT > VOICE, `VCE`: POLY, MONO, LEG,
+  UNI). For Genvolve's POLY tracks set it to **POLY**, or the FM1 plays only one
+  note of each chord. In POLY most engines play up to 8 notes per track (FM6
+  6, VOICE 4, GRAIN and PHYS 3), but all four tracks share 8 voices; when
+  they run out the oldest released note goes first, and a track's lowest
+  held note (its bass) is kept. DRUM always plays its lanes together. (From
+  the Felucca firmware source, `core.h` and `voice.c`.)
 
 Setup:
 

@@ -23,7 +23,13 @@ typedef struct {
     uint8_t hold;    /* 0..SEQ_MAX_HOLD extra whole steps the note sustains for (ties), unless
                         the track's next note cuts it off */
     int8_t nudge;    /* -SEQ_MAX_NUDGE..SEQ_MAX_NUDGE ticks: plays this much early (-) or late (+) */
+    int8_t more[3];  /* the step's other notes (a chord), in scale degrees above (+) or below (-) `note`;
+                        0 = unused, the used ones come first. They follow `note` when it moves (see seq_step_notes).
+                        Only a POLY track plays them. */
 } SeqStep;
+#define SEQ_POLY 4         /* notes one step can hold: its own note and up to 3 more */
+#define SEQ_POLY_VOICES 8  /* notes a POLY track keeps sounding at once (Felucca has 8 voices in all) */
+#define SEQ_MORE_MAX 35    /* furthest a chord note sits from the step's note, in scale degrees (5 octaves) */
 #define SEQ_MAX_HOLD 31
 #define SEQ_MAX_NUDGE 11   /* just under half a step either way */
 #define SEQ_OFFGRID_MIN 2  /* NEVER ON GRID keeps a note at least this many ticks away from the grid */
@@ -109,7 +115,15 @@ typedef struct {
     uint8_t voice[SEQ_CHORD_MAX];
     uint8_t last_nvoice;        /* chord notes of the last note sent (for seq_panic) */
     uint8_t last_voice[SEQ_CHORD_MAX];
-    int16_t sounding;   /* note currently held, or -1 */
+    /* VOICES: MONO (0) plays one note at a time, the next note cutting the
+     * last, as before. POLY (1) plays each step's chord (its `more` notes)
+     * and lets every note ring for its own length, over the next steps;
+     * the oldest goes first if SEQ_POLY_VOICES are sounding. */
+    uint8_t poly;
+    uint8_t npv;                          /* POLY notes sounding (not saved) */
+    uint8_t pv_note[SEQ_POLY_VOICES];
+    uint32_t pv_off[SEQ_POLY_VOICES];     /* tick each one's note-off is due */
+    int16_t sounding;   /* note currently held (MONO), or -1 */
     int16_t last_note;  /* last note sent on this track, or -1 (seq_panic re-sends its note-off) */
     uint32_t off_tick;
     /* Drum track. The note steps above are kept while a track is a drum track
@@ -180,6 +194,29 @@ int  seq_playhead(const Seq *s, int t);/* step being played on track t, or -1 */
 int  seq_swell_vel(const Seq *s, int t, uint32_t now, int vel);
 
 void seq_step_toggle(Seq *s, int t, int i);
+/* Every note of a step: its own note first, then its chord notes, no
+ * repeats. Returns the count (1..SEQ_POLY). */
+int  seq_step_notes(const Seq *s, const SeqStep *st, uint8_t out[SEQ_POLY]);
+int  seq_step_more_count(const SeqStep *st);          /* chord notes the step holds besides its own, 0..3 */
+int  seq_step_has_note(const Seq *s, const SeqStep *st, int note);
+/* Add a note to step i: an empty step gets it as its note (and no chord);
+ * a sounding step gets it as a chord note. 0 = added, 1 = already there,
+ * -1 = the step is full (SEQ_POLY notes). */
+int  seq_step_add_note(Seq *s, int t, int i, int note);
+/* Take a note out of step i. Taking out the step's own note promotes its
+ * lowest chord note; taking out the last note switches the step off.
+ * Returns 0, or -1 if the note isn't on the step. */
+int  seq_step_remove_note(Seq *s, int t, int i, int note);
+/* Replace step i's chord notes with a CHORD_* shape (gen.h) on its note;
+ * CHORD_OFF clears them. */
+void seq_step_set_chord(Seq *s, int t, int i, int chord);
+/* The CHORD_* shape the step's chord notes make, CHORD_OFF for none, or -1
+ * for a hand-made chord that is no shape. */
+int  seq_step_chord_shape(const Seq *s, const SeqStep *st);
+/* VOICES: 0 MONO, 1 POLY. Releases what the track has sounding. */
+void seq_track_poly(Seq *s, int t, int poly);
+/* Note-off for everything track t has sounding (notes, chords, drum hits). */
+void seq_track_release(Seq *s, int t);
 /* Adjust step parameters; a note change also switches the step on. */
 void seq_step_adjust(Seq *s, int t, int i, int dnote, int dvel, int dgate, int dprob);
 void seq_step_hold(Seq *s, int t, int i, int delta);   /* change a step's hold, 0..SEQ_MAX_HOLD */

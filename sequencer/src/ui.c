@@ -257,6 +257,7 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     else if (row == GR_XAMOUNT) {
         snprintf(label, 24, "  BY");
         if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT || u->xf_op == XF_CLEAR || u->xf_op == XF_GRID) snprintf(val, 24, "-");
+        else if (u->xf_op == XF_CHORD) snprintf(val, 24, "%s", gen_chord_name(tr->chord));   /* the CHORD row's chord */
         else if (u->xf_op == XF_SPREAD) {   /* range in ticks, shown as a share of a step; below 2 = the most */
             int a = abs(u->xf_amt) < SEQ_OFFGRID_MIN ? SEQ_MAX_NUDGE : abs(u->xf_amt) > SEQ_MAX_NUDGE ? SEQ_MAX_NUDGE : abs(u->xf_amt);
             snprintf(val, 24, "UP TO %d%%", (a * 100 + 12) / SEQ_TICKS_PER_STEP);
@@ -362,9 +363,10 @@ static int audition_track(const Seq *s, const Ui *u) {
     return u->track;
 }
 
-#define STEP_ROWS 9
-#define TRACK_ROWS 10
+#define STEP_ROWS 10
+#define TRACK_ROWS 11
 #define TRACK_BPM_ROW 7
+#define TRACK_VOICES_ROW 10
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
@@ -376,7 +378,7 @@ static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         else snprintf(val, 24, "-");
         return;
     }
-    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "OFFSET", "PROBABILITY", "LOCK"};
+    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "OFFSET", "PROBABILITY", "LOCK", "CHORD"};
     snprintf(label, 24, "%s", L[row]);
     switch (row) {
     case 0: snprintf(val, 24, "%d", u->step + 1); break;
@@ -390,8 +392,22 @@ static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         else snprintf(val, 24, "ON GRID");
         break;
     case 7: snprintf(val, 24, "%d%%", st->prob); break;
-    default: snprintf(val, 24, "%s", st->lock ? "LOCKED" : "OFF"); break;
+    case 8: snprintf(val, 24, "%s", st->lock ? "LOCKED" : "OFF"); break;
+    default: {   /* the step's own chord notes */
+        int sh = seq_step_chord_shape(s, st), m = seq_step_more_count(st);
+        if (!m) snprintf(val, 24, "OFF");
+        else if (sh > 0) snprintf(val, 24, "%s", gen_chord_name(sh));
+        else snprintf(val, 24, "%d NOTES", m + 1);
+        break;
     }
+    }
+}
+
+/* After a chord edit on a MONO track: switch it to POLY, which plays chords. */
+static void chord_needs_poly(Seq *s, Ui *u) {
+    if (s->track[u->track].poly || !seq_step_more_count(&s->track[u->track].step[u->step])) return;
+    seq_track_poly(s, u->track, 1);
+    say(u, "SET TO POLY (FM1 VCE POLY)");
 }
 
 static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
@@ -415,14 +431,25 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     case 5: seq_step_hold(s, u->track, u->step, d * (big ? 4 : 1)); break;
     case 6: seq_step_nudge(s, u->track, u->step, d * (big ? 4 : 1)); break;
     case 7: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
-    default: st->lock ^= 1; break;
+    case 8: st->lock ^= 1; break;
+    default: {   /* chord shapes on this step's note; a hand-made chord counts as OFF */
+        int sh = seq_step_chord_shape(s, st);
+        seq_step_set_chord(s, u->track, u->step, wrap((sh < 0 ? 0 : sh) + d, CHORD_COUNT));
+        chord_needs_poly(s, u);
+        break;
+    }
     }
 }
 
 static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char *val, const char *midi_desc) {
     const SeqTrack *tr = &s->track[u->track];
-    static const char *L[TRACK_ROWS] = {"TRACK", "TYPE", "MIDI CHANNEL", "LENGTH", "MUTE", "SHUFFLE", "NEVER ON GRID", "BPM", "SWING", "MIDI OUT"};
+    static const char *L[TRACK_ROWS] = {"TRACK", "TYPE", "MIDI CHANNEL", "LENGTH", "MUTE", "SHUFFLE", "NEVER ON GRID", "BPM", "SWING", "MIDI OUT",
+                                        "VOICES"};
     snprintf(label, 24, "%s", L[row]);
+    if (row == TRACK_VOICES_ROW) {
+        snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "- (DRUMS)" : tr->poly ? "POLY" : "MONO");
+        return;
+    }
     if (row >= 2) row--;   /* the rows below TYPE keep their old numbers */
     else if (row == 1) { snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "DRUMS (8 LANES)" : "NOTES"); return; }
     switch (row) {
@@ -442,6 +469,12 @@ static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char
 }
 
 static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    if (row == TRACK_VOICES_ROW) {
+        if (is_drums(s, u->track)) { say(u, "DRUM TRACKS ARE ALWAYS POLY"); return; }
+        seq_track_poly(s, u->track, !s->track[u->track].poly);
+        say(u, s->track[u->track].poly ? "POLY ON: SET FM1 VCE POLY" : "MONO: ONE NOTE AT A TIME");
+        return;
+    }
     if (row == 1) {
         seq_track_type(s, u->track, is_drums(s, u->track) ? TRACK_NOTES : TRACK_DRUMS);
         say(u, is_drums(s, u->track) ? "DRUMS: SELECT ON THE GRID OPENS THE LANES" : "NOTES: SELECT ON THE GRID OPENS THE ROLL");
@@ -669,13 +702,15 @@ static void gen_action(Seq *s, Ui *u, int row) {
     if (row == GR_ANCHOR) { gen_set_anchor(s, u->track); say(u, "ANCHOR SET"); }
     else if (row == GR_XFORM || row == GR_XAMOUNT) {
         if (tr->locked) { say_locked(u); return; }
-        if (is_drums(s, u->track) && (u->xf_op == XF_INVERT || u->xf_op == XF_TRANSPOSE || u->xf_op == XF_SPREAD || u->xf_op == XF_GRID)) {
+        if (is_drums(s, u->track) && (u->xf_op == XF_INVERT || u->xf_op == XF_TRANSPOSE || u->xf_op == XF_SPREAD || u->xf_op == XF_GRID ||
+                                      u->xf_op == XF_CHORD)) {
             say(u, "NOT FOR DRUM TRACKS");
             return;
         }
         remember(s, u);
         gen_transform(s, u->track, u->xf_op, u->xf_amt);
-        say(u, gen_xform_name(u->xf_op));
+        if (u->xf_op == XF_CHORD) say(u, tr->chord ? "CHORDS WRITTEN, TRACK IS POLY" : "CHORD ROW OFF: SINGLE NOTES AGAIN");
+        else say(u, gen_xform_name(u->xf_op));
     }
     else if (row == GR_SLOT) {
         if (!tr->slot[u->slot].used) { say(u, "SLOT IS EMPTY"); return; }
@@ -1085,8 +1120,9 @@ static void song_do(Ui *u) {
 
 /* ---- piano roll (Select on the GRID, note tracks) ----
  * One track full screen: steps across, the scale's notes down the side, 14
- * rows at a time. A track still plays one note per step, so each column holds
- * at most one note (chord notes are drawn faintly; CHORD sets them). */
+ * rows at a time. A MONO track plays one note per step, so A moves the
+ * step's note; on a POLY track A adds notes to the step's chord (up to
+ * SEQ_POLY) and takes them out. The CHORD row's notes are drawn faintly. */
 #define ROLL_ROWS 14
 #define ROLL_RH 24
 #define ROLL_Y0 62
@@ -1162,6 +1198,14 @@ static void roll_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     else if (u->held[B_X] && dy) { if (st->on) seq_step_adjust(s, u->track, u->step, 0, -dy * 8, 0, 0); else say(u, "NO NOTE ON THIS STEP"); }
     else if (dx) u->step = wrap(u->step + dx, tr->len);
     else if (dy) u->roll_note = gen_step_note(s, u->roll_note, -dy);
+    else if (b == B_A && tr->poly) {   /* POLY: A adds the cursor's note to the step's chord, or takes it out */
+        if (seq_step_has_note(s, st, u->roll_note)) seq_step_remove_note(s, u->track, u->step, u->roll_note);
+        else {
+            if (!st->on) set_length(st, u->roll_len);
+            if (seq_step_add_note(s, u->track, u->step, u->roll_note) < 0) { say(u, "4 NOTES A STEP AT MOST"); return; }
+            if (!s->playing) seq_audition(s, tr->channel, u->roll_note, st->vel);
+        }
+    }
     else if (b == B_A) {
         if (st->on && st->note == u->roll_note) st->on = 0;
         else {
@@ -1841,7 +1885,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
             if (!st->on || !st->hold) continue;
             for (int k = 1; k <= st->hold && k < tr->len; k++) {
                 int j = (i + k) % tr->len;
-                if (tr->step[j].on) break;
+                if (tr->step[j].on && !tr->poly) break;   /* POLY notes ring on under the next ones */
                 int pct = k < st->hold ? 100 : st->gate;
                 if (pct > tail[j]) tail[j] = (uint8_t)pct;
             }
@@ -1880,6 +1924,8 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
                     snprintf(buf, sizeof buf, "+%d", st->hold);
                     text(r, bx + 1, y + h - 16, 1, WHITE, buf);
                 }
+                int nm = tr->poly ? seq_step_more_count(st) : 0;
+                for (int c = 0; c < nm; c++) rect(r, bx + 2, y + 6 + c * 5, 3, 3, WHITE);   /* a dot per chord note */
             }
             if (st->lock) rect(r, x + w - 9, y + 2, 6, 6, YELLOW);
             if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 2, WHITE);
@@ -1934,11 +1980,13 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     {   /* hold rides on the gate ("GATE 50 +2"); the offset goes on the line above */
         char hb[8] = "";
         if (st->hold) snprintf(hb, sizeof hb, " +%d", st->hold);
-        snprintf(buf, sizeof buf, "NOTE %s  VEL %d  GATE %d%s  PROB %d", nn, st->vel, st->gate, hb, st->prob);
+        char cb[8] = "";
+        if (tr->poly && seq_step_more_count(st)) snprintf(cb, sizeof cb, "+%d", seq_step_more_count(st));   /* chord notes */
+        snprintf(buf, sizeof buf, "NOTE %s%s  VEL %d  GATE %d%s  PROB %d", nn, cb, st->vel, st->gate, hb, st->prob);
     }
     text(r, 20, y + 22, 2, WHITE, buf);
-    if (tr->evo.every) snprintf(buf, sizeof buf, "GEN %s  EVOLVE EVERY %d BAR%s %d%%", gen_name(tr->gen.type), tr->evo.every, tr->evo.every > 1 ? "S" : "", tr->evo.amount);
-    else snprintf(buf, sizeof buf, "GEN %s  EVOLVE OFF", gen_name(tr->gen.type));
+    if (tr->evo.every) snprintf(buf, sizeof buf, "GEN %s%s  EVOLVE EVERY %d BAR%s %d%%", gen_name(tr->gen.type), tr->poly ? "  POLY" : "", tr->evo.every, tr->evo.every > 1 ? "S" : "", tr->evo.amount);
+    else snprintf(buf, sizeof buf, "GEN %s%s  EVOLVE OFF", gen_name(tr->gen.type), tr->poly ? "  POLY" : "");
     text(r, 20, y + 44, 2, DIM, buf);
 
     text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A ON/OFF  X EDIT  Y LOCK  SELECT PIANO ROLL  START PLAY/STOP  LEFT OF 1: TRACK BOX");
@@ -2342,6 +2390,15 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 336, 1, DIM, "A ROLL PUTS NOTES BACK ON THE GRID.");
         text(r, 392, 360, 1, YELLOW, "HOLD X + LEFT/RIGHT, OR THE STICK:");
         text(r, 392, 372, 1, YELLOW, "PREVIOUS / NEXT STEP, SAME ROW.");
+        const SeqTrack *ct = &s.track[u->track];
+        const SeqStep *cs = &ct->step[u->step];
+        uint8_t pn[SEQ_POLY];
+        char cb[48];
+        int np = seq_step_notes(&s, cs, pn), cl = snprintf(cb, sizeof cb, "CHORD:");
+        for (int k = 0; k < np; k++) { char cn[8]; seq_note_name(pn[k], cn); cl += snprintf(cb + cl, sizeof cb - cl, " %s", cn); }
+        if (np > 1) text(r, 392, 396, 1, WHITE, cb);
+        text(r, 392, 408, 1, DIM, ct->poly ? "CHORD SETS THIS STEP'S OWN CHORD."
+                                           : np > 1 ? "MONO TRACK: ONLY THE NOTE PLAYS." : "CHORD SETS POLY AND A CHORD.");
     }
     if (u->page == P_MENU) {
         text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE (T ROWS: HOLD Y = NEXT STYLE)  A SELECT");
@@ -2386,15 +2443,24 @@ static void draw_roll(SDL_Renderer *r, const Seq *s, const Ui *u) {
         if (!st->on) continue;
         int L = st->hold * 100 + st->gate, next = tr->len;
         for (int j = i + 1; j < tr->len; j++) if (tr->step[j].on) { next = j; break; }
-        if (L > (next - i) * 100) L = (next - i) * 100;
+        if (L > (next - i) * 100 && !tr->poly) L = (next - i) * 100;   /* POLY notes ring on over the next ones */
+        if (L > (tr->len - i) * 100) L = (tr->len - i) * 100;
         int x0 = X0 + (i - view) * CELL + st->nudge * CELL / SEQ_TICKS_PER_STEP, x1 = x0 + CELL * L / 100 - 2;
         int cx0 = x0 < X0 ? X0 : x0, cx1 = x1 > xend ? xend : x1;
         if (cx1 <= cx0) continue;
-        uint8_t cn[SEQ_CHORD_MAX];
-        int nc = tr->chord ? gen_chord_notes(s, st->note, tr->chord, cn) : 0;
+        uint8_t cn[SEQ_CHORD_MAX], pn[SEQ_POLY];
+        int more = tr->poly && seq_step_more_count(st);
+        int nc = tr->chord && !more ? gen_chord_notes(s, st->note, tr->chord, cn) : 0;
         for (int c = 0; c < nc; c++) {   /* chord notes, faint (set by CHORD, not edited here) */
             int row = dtop - gen_note_degree(s, cn[c]);
             if (row >= 0 && row < ROLL_ROWS) rect(r, cx0, ROLL_Y0 + row * ROLL_RH + 8, cx1 - cx0, ROLL_RH - 17, scale(base, 30));
+        }
+        int np = more ? seq_step_notes(s, st, pn) : 0;
+        for (int c = 1; c < np; c++) {   /* the step's own chord notes (POLY), as solid as its note */
+            int row = dtop - gen_note_degree(s, pn[c]);
+            if (row < 0 || row >= ROLL_ROWS) continue;
+            rect(r, cx0, ROLL_Y0 + row * ROLL_RH + 3, cx1 - cx0, ROLL_RH - 7, scale(base, 35 + 65 * st->vel / 127));
+            if (st->prob < 100) rect(r, cx0, ROLL_Y0 + row * ROLL_RH + 3, (cx1 - cx0) * st->prob / 100, 2, WHITE);
         }
         int row = dtop - gen_note_degree(s, st->note);
         if (row < 0 || row >= ROLL_ROWS) continue;
@@ -2422,16 +2488,19 @@ static void draw_roll(SDL_Renderer *r, const Seq *s, const Ui *u) {
         char ob[16] = "";
         if (st->nudge) snprintf(ob, sizeof ob, "  %s %d%%", st->nudge < 0 ? "EARLY" : "LATE", (abs(st->nudge) * 100 + 12) / SEQ_TICKS_PER_STEP);
         seq_note_name(st->note, nn);
-        snprintf(buf, sizeof buf, "STEP %02d %s  VEL %d  LEN %d.%02d%s", u->step + 1, nn, st->vel, L / 100, L % 100, ob);
+        char cb[8] = "";
+        if (tr->poly && seq_step_more_count(st)) snprintf(cb, sizeof cb, "+%d", seq_step_more_count(st));   /* chord notes */
+        snprintf(buf, sizeof buf, "STEP %02d %s%s  VEL %d  LEN %d.%02d%s", u->step + 1, nn, cb, st->vel, L / 100, L % 100, ob);
     } else snprintf(buf, sizeof buf, "STEP %02d  NO NOTE", u->step + 1);
     text(r, 20, y, 2, WHITE, buf);
     seq_note_name(cur, nn);
     snprintf(buf, sizeof buf, "NEW NOTES: LEN %d.%02d", u->roll_len / 100, u->roll_len % 100);
     text(r, 400, y + 20, 1, YELLOW, buf);
-    snprintf(buf, sizeof buf, "T%d %s  CURSOR %s  PROB %d%%%s  %d STEPS", u->track + 1, gen_name(tr->gen.type), nn, st->prob,
-             st->lock ? "  LOCKED" : "", tr->len);
+    snprintf(buf, sizeof buf, "T%d %s %s  CURSOR %s  PROB %d%%%s  %d STEPS", u->track + 1, tr->poly ? "POLY" : "MONO",
+             gen_name(tr->gen.type), nn, st->prob, st->lock ? "  LOCKED" : "", tr->len);
     text(r, 20, y + 20, 1, DIM, buf);
-    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A NOTE ON/OFF  Y LOCK  HOLD Y: LEFT/RIGHT LENGTH (NEW NOTES TOO), UP/DOWN MOVE");
+    text(r, 20, H - 34, 1, DIM, tr->poly ? "D-PAD MOVE  A ADD/REMOVE A CHORD NOTE  Y LOCK  HOLD Y: LEFT/RIGHT LENGTH, UP/DOWN MOVE CHORD"
+                                         : "D-PAD MOVE  A NOTE ON/OFF  Y LOCK  HOLD Y: LEFT/RIGHT LENGTH (NEW NOTES TOO), UP/DOWN MOVE");
     text(r, 20, H - 20, 1, DIM, "HOLD X: LEFT/RIGHT OFFSET, UP/DOWN VELOCITY  L2/R2 TRACK  B OR SELECT BACK TO GRID");
 }
 
