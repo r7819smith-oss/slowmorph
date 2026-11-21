@@ -61,6 +61,20 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   REVERSE/SHIFT/ROTATE move hits only round the unlocked steps. Rotate and
   transpose on the track box were offered but not built (Roy can ask).
   Tests: `tests/test_lock.c`.
+- **Stick up/down, stick press and Select shortcuts** (Roy, 2026-11-21:
+  "Up down for velocity, click for quick roll", Select shortcuts, "Select up
+  and down on joystick could nudge tempo"). New buttons `vup` / `vdown`
+  (`B_VUP`, `B_VDOWN`, default `axis 1-` / `axis 1+`, axis number unverified
+  on the RG40XX-V) and `joy 12 roll`. `stick_vertical` in `src/ui.c`: ±4
+  velocity on the GRID step, piano roll note or drum hit; on the track box
+  every step; on a drum step or lane name every hit on it; on list pages
+  the selected row as right/left. Stick press = `B_ROLL` on every page
+  except while naming. `select_combo`: Select held + A roll, X undo, Y track
+  lock, stick up/down BPM ±1. Select still opens the roll/drum grid only
+  when released on its own (`sel_used`), Select+Start still quits. Menu
+  pages (SLOTS, DRUM MAP, MIDI) keep their own Select. Hold-a-button + stick
+  combos: not built, Roy worried they would get messy, and every face button
+  already has a job on the GRID.
 - **M opens a main menu** for session-wide settings (Roy, 2026-11-19; a
   music-style choice will go there, added by the pattern engine work). Under
   Knulli M is joy 11. Knulli also uses M for its hotkeys (M + another
@@ -866,6 +880,16 @@ the results into the table below.
    yellow square appears on it and in the drum grid a yellow bar shows above
    that step. Roll the drum track (X on its label): that step's hits stay.
 8. [ ] Quit and restart: the track lock and the drum step lock are still there.
+9. [ ] Copy the new `seq4h/seq4h.input` too (it adds the stick lines). On
+   the GRID push the **stick up/down** on a note: the header shows STEP n
+   VELOCITY going up/down. If nothing happens, open M > BUTTON CODES, push
+   the stick up and tell me the AXIS number.
+10. [ ] **Press the stick in**: the current track rolls (T1 MANUAL says NO
+   GENERATOR; pick a track with a generator).
+11. [ ] Hold **Select** and press **A** (roll), **X** (undo), **Y** (lock: L
+   badge). Hold Select and push the stick up/down: BPM changes by 1. Let go
+   of Select: the piano roll must NOT open. Select alone still opens it, and
+   Select + Start still quits.
 
 **E. Long run and power**
 

@@ -1057,6 +1057,64 @@ static void scan_midi(Ui *u) {
     }
 }
 
+/* The stick, up (d = 1) or down (-1): velocity of what is under the cursor
+ * on the GRID, piano roll and drum grid; on list pages the selected row's
+ * value, as right / left. */
+#define STICK_VEL 4
+static void stick_vertical(Seq *s, Ui *u, int d) {
+    SeqTrack *tr = &s->track[u->track];
+    int big = u->held[B_Y], i = u->step;
+    if (u->page == P_GRID && u->on_label) {   /* the track box: every step's velocity */
+        int lo, hi, avg;
+        seq_all_adjust(s, u->track, ALL_VEL, d * STICK_VEL);
+        if (seq_all_range(s, u->track, ALL_VEL, &lo, &hi, &avg)) {
+            snprintf(u->msg_buf, sizeof u->msg_buf, "T%d VELOCITY %d TO %d", u->track + 1, lo, hi);
+            say(u, u->msg_buf);
+        }
+    } else if ((u->page == P_GRID && is_drums(s, u->track)) || (u->page == P_DRUMS && u->drum_label)) {
+        /* every hit on this step (drum grid lane name: every hit of the lane) */
+        int n = 0, v = 0;
+        for (int l = 0; l < SEQ_LANES; l++) {
+            if (u->page == P_DRUMS && l != u->lane) continue;
+            for (int k = 0; k < tr->len; k++) {
+                if ((u->page == P_GRID && k != i) || !tr->drum.vel[l][k]) continue;
+                seq_drum_adjust(s, u->track, l, k, d * STICK_VEL, 0);
+                v = tr->drum.vel[l][k];
+                n++;
+            }
+        }
+        if (!n) { say(u, "NO HITS HERE"); return; }
+        if (n == 1) snprintf(u->msg_buf, sizeof u->msg_buf, "VELOCITY %d", v);
+        else snprintf(u->msg_buf, sizeof u->msg_buf, "%d HITS %s", n, d > 0 ? "LOUDER" : "SOFTER");
+        say(u, u->msg_buf);
+    } else if (u->page == P_DRUMS) {
+        if (!tr->drum.vel[u->lane][i]) { say(u, "NO HIT HERE"); return; }
+        seq_drum_adjust(s, u->track, u->lane, i, d * STICK_VEL, 0);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "VELOCITY %d", tr->drum.vel[u->lane][i]);
+        say(u, u->msg_buf);
+    } else if (u->page == P_GRID || u->page == P_ROLL) {
+        seq_step_adjust(s, u->track, i, 0, d * STICK_VEL, 0, 0);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "STEP %d VELOCITY %d%s", i + 1, tr->step[i].vel, tr->step[i].on ? "" : " (OFF)");
+        say(u, u->msg_buf);
+    }
+    else if (u->page == P_STEP) step_row_adjust(s, u, u->row[P_STEP], d, big);
+    else if (u->page == P_TRACK) track_row_adjust(s, u, u->row[P_TRACK], d, big);
+    else if (u->page == P_GEN) gen_row_adjust(s, u, u->row[P_GEN], d, big);
+    else if (u->page == P_ALLSTEPS) all_row_adjust(s, u, u->row[P_ALLSTEPS], d, big);
+}
+
+/* Hold Select and press: A roll, X undo, Y lock the track, stick up/down tempo. */
+static void select_combo(Seq *s, Ui *u, Btn b) {
+    if (b == B_A) roll(s, u);
+    else if (b == B_X) undo(s, u);
+    else if (b == B_Y) label_lock(s, u);
+    else {
+        seq_adjust_bpm(s, b == B_VUP ? 1 : -1);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "BPM %d", s->bpm);
+        say(u, u->msg_buf);
+    }
+}
+
 /* Select pressed and released on its own: the GRID opens the piano roll (note
  * track) or drum grid (drum track); from either, back to the GRID. */
 static void select_tap(Ui *u) {
@@ -1084,6 +1142,10 @@ static void select_tap(Ui *u) {
  *         step to the average (STEP LOCKS row: lock all / clear), B back
  *   DRUM GRID: the same left of step 1 on a lane name: A mute the lane, B solo it,
  *         X hear its note, Y lock it (B or Select elsewhere: back to the GRID)
+ *   stick up/down: velocity (GRID step, piano roll note, drum hit; on the track
+ *         box every step), on list pages the selected row's value; stick press: roll
+ *   hold Select + A roll, + X undo, + Y lock the track, + stick up/down tempo
+ *         (Select on its own still opens the roll / drum grid; Select+Start quits)
  *   lists: up/down row, left/right value (hold Y for big steps)
  *          STEP A step on/off; GENERATE A rolls, or does the selected row's action
  *          (set anchor, apply transform, load/save slot, snap notes), X undoes
@@ -1107,6 +1169,9 @@ static void press(Ui *u, Btn b) {
         if (in_menu) u->page = u->menu_from;
         else { u->menu_from = u->page; u->page = P_MENU; }
     }
+    else if (u->held[B_SEL] && !in_menu && (b == B_A || b == B_X || b == B_Y || b == B_VUP || b == B_VDOWN)) select_combo(s, u, b);
+    else if (b == B_ROLL && !u->naming) roll(s, u);   /* the stick press: quick roll, on every page */
+    else if ((b == B_VUP || b == B_VDOWN) && !in_menu) stick_vertical(s, u, b == B_VUP ? 1 : -1);
     else if (u->page == P_SLOTS && u->naming) slots_press(s, u, b, dx, dy);   /* the editor takes every button */
     else if (u->page == P_DRUMMAP && u->naming) map_press(s, u, b, dx, dy);
     else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
@@ -1180,7 +1245,7 @@ static void press(Ui *u, Btn b) {
     if (u->page == P_MIDI && !was_midi) scan_midi(u);   /* list the ports as the page opens */
 }
 
-static int repeats(Btn b) { return b <= B_RIGHT || b == B_PREV || b == B_NEXT; }  /* the d-pad and the stick auto-repeat */
+static int repeats(Btn b) { return b <= B_RIGHT || b == B_PREV || b == B_NEXT || b == B_VUP || b == B_VDOWN; }  /* the d-pad and the stick auto-repeat */
 
 static void set_button(Ui *u, Btn b, int down) {
     if (down && !u->held[b]) {
@@ -1955,6 +2020,9 @@ static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     else if (u->page == P_ROLL) draw_roll(r, &s, u);
     else if (u->page == P_DRUMS) draw_drums(r, &s, u);
     else draw_list(r, &s, u, midi_desc);
+    if (u->page == P_GRID || u->page == P_DRUMS)   /* stick and Select shortcuts (the other pages have no room; README lists them) */
+        text(r, 20, u->page == P_GRID && u->on_label ? H - 62 : H - 48, 1, (Col){150, 155, 175},
+             "STICK UP/DOWN VELOCITY (LISTS: VALUE)  STICK PRESS ROLL  SELECT+ A ROLL X UNDO Y LOCK STICK TEMPO");
 }
 
 /* Battery line in seq4h.log, e.g. "seq4h: 2026-11-19 21:00:05 battery 78% Discharging, 1h00m since start". */

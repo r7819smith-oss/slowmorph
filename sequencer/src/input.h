@@ -14,6 +14,7 @@ typedef enum {
     /* actions a button can be mapped to directly (shortcuts, e.g. for a keyboard) */
     B_PAGE, B_ROLL, B_UNDO, B_LOCK, B_QUIT,
     B_PREV, B_NEXT,   /* previous / next step (the stick, left / right), on every page */
+    B_VUP, B_VDOWN,   /* the stick, up / down: velocity (grid, piano roll, drum grid) or the selected row's value */
     B_COUNT,
     B_NONE = -1
 } Btn;
