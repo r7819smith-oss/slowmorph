@@ -164,47 +164,112 @@ void seq_audition(Seq *s, int ch, int note, int vel) {
 
 /* A lane's part in a style's kit: `k` hits per 16 steps, evenly spread from
  * step `first` (-1 = anywhere, -2 = on an offbeat 8th), with velocity and
- * chance in the given ranges; `ghost` extra quiet hits anywhere free. */
-typedef struct { uint8_t k; int8_t first; uint8_t vlo, vhi, plo, phi, ghost; } LanePart;
+ * chance in the given ranges; `ghost` extra quiet hits anywhere free. A lane
+ * with a written pattern (pat[0] != 0: bit n = step n+1 of each 16) uses one
+ * of its patterns, picked at random, instead of k and first. */
+typedef struct { uint8_t k; int8_t first; uint8_t vlo, vhi, plo, phi, ghost; uint16_t pat[3]; } LanePart;
 
-enum { KIT_AMBIENT, KIT_TECHNO, KIT_MELODIC, KIT_COUNT };
+#define S(n) (1u << (n))
+enum { KIT_AMBIENT, KIT_TECHNO, KIT_MELODIC, KIT_HIPHOP, KIT_DNB, KIT_HOUSE, KIT_TRIPHOP, KIT_COUNT };
+/* Lanes: KICK, SNARE, HAT CL, HAT OP, CLAP, RIM, TOM, BELL. */
 static const LanePart KIT[KIT_COUNT][SEQ_LANES] = {
-    /* Ambient (also DRONE and BLANK): sparse and soft, lots left to chance. */
+    /* Ambient (also DRONE and BLANK): very sparse and soft, nearly all left to
+     * chance, spread over the track's own length so it drifts against the
+     * other tracks. About two hits a bar, like build #68's ambient track 4. */
     [KIT_AMBIENT] = {
-        {1, 0, 70, 90, 100, 100, 0},     /* kick on the one */
-        {0, 0, 0, 0, 0, 0, 0},           /* snare */
-        {4, -1, 35, 60, 50, 85, 0},      /* closed hat */
-        {1, -1, 40, 55, 30, 50, 0},      /* open hat */
-        {0, 0, 0, 0, 0, 0, 0},           /* clap */
-        {2, -1, 40, 60, 40, 70, 0},      /* rim */
-        {1, -1, 45, 60, 25, 40, 0},      /* tom */
-        {1, 0, 40, 55, 15, 25, 0},       /* crash, now and then on the one */
+        {1, 0, 60, 80, 60, 85, 0, {0}},      /* kick, most bars on the one */
+        {0, 0, 0, 0, 0, 0, 0, {0}},          /* snare */
+        {2, -1, 30, 50, 20, 45, 0, {0}},     /* closed hat */
+        {1, -1, 35, 50, 15, 25, 0, {0}},     /* open hat */
+        {0, 0, 0, 0, 0, 0, 0, {0}},          /* clap */
+        {1, -1, 35, 55, 25, 40, 0, {0}},     /* rim */
+        {1, -1, 40, 55, 10, 25, 0, {0}},     /* tom */
+        {1, -1, 40, 55, 10, 20, 0, {0}},     /* bell, now and then */
     },
     /* Techno: four on the floor, clap on 2 and 4, offbeat hats with ghosts. */
     [KIT_TECHNO] = {
-        {4, 0, 115, 125, 100, 100, 0},
-        {0, 0, 0, 0, 0, 0, 0},
-        {4, 2, 85, 100, 100, 100, 4},
-        {1, -2, 70, 85, 50, 70, 0},
-        {2, 4, 100, 110, 100, 100, 0},
-        {2, -1, 50, 65, 40, 60, 0},
-        {0, 0, 0, 0, 0, 0, 0},
-        {1, 0, 70, 80, 20, 20, 0},
+        {4, 0, 115, 125, 100, 100, 0, {0}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {4, 2, 85, 100, 100, 100, 4, {0}},
+        {1, -2, 70, 85, 50, 70, 0, {0}},
+        {2, 4, 100, 110, 100, 100, 0, {0}},
+        {2, -1, 50, 65, 40, 60, 0, {0}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {1, 0, 70, 80, 20, 20, 0, {0}},
     },
     /* Melodic: a plain backbeat with 8th-note hats. */
     [KIT_MELODIC] = {
-        {2, 0, 100, 115, 100, 100, 1},
-        {2, 4, 90, 105, 100, 100, 0},
-        {8, 0, 60, 80, 90, 100, 0},
-        {1, -2, 60, 70, 50, 50, 0},
-        {0, 0, 0, 0, 0, 0, 0},
-        {1, -1, 50, 60, 50, 50, 0},
-        {1, -1, 60, 70, 30, 30, 0},
-        {1, 0, 70, 70, 25, 25, 0},
+        {2, 0, 100, 115, 100, 100, 1, {0}},
+        {2, 4, 90, 105, 100, 100, 0, {0}},
+        {8, 0, 60, 80, 90, 100, 0, {0}},
+        {1, -2, 60, 70, 50, 50, 0, {0}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {1, -1, 50, 60, 50, 50, 0, {0}},
+        {1, -1, 60, 70, 30, 30, 0, {0}},
+        {1, 0, 70, 70, 25, 25, 0, {0}},
+    },
+    /* Hip hop: boom bap. Kick on the one and around the "and" of 2 and 3,
+     * snare on 2 and 4, 8th hats (the style's swing makes them lope), an open
+     * hat at the end of the bar, a clap layered on the second snare now and then. */
+    [KIT_HIPHOP] = {
+        {0, 0, 105, 120, 100, 100, 1, {S(0) | S(7) | S(10), S(0) | S(10) | S(11), S(0) | S(3) | S(8) | S(10)}},
+        {0, 0, 100, 115, 100, 100, 0, {S(4) | S(12)}},
+        {0, 0, 55, 80, 85, 100, 2, {S(0) | S(2) | S(4) | S(6) | S(8) | S(10) | S(12) | S(14)}},
+        {0, 0, 60, 75, 40, 60, 0, {S(14), S(6)}},
+        {0, 0, 60, 75, 30, 50, 0, {S(12)}},
+        {0, 0, 40, 55, 30, 50, 0, {S(3) | S(11), S(9)}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {0, 0, 50, 60, 10, 20, 0, {S(15)}},
+    },
+    /* Drum n bass: two-step at 172. Kick on the one and the "and" of 3, snare
+     * on 2 and 4 with ghost snares, busy 8th hats, a ride-like open hat. */
+    [KIT_DNB] = {
+        {0, 0, 110, 125, 100, 100, 0, {S(0) | S(10), S(0) | S(9) | S(10), S(0) | S(6) | S(10)}},
+        {0, 0, 110, 125, 100, 100, 2, {S(4) | S(12)}},
+        {0, 0, 50, 75, 80, 100, 3, {S(0) | S(2) | S(4) | S(6) | S(8) | S(10) | S(12) | S(14)}},
+        {0, 0, 60, 75, 40, 60, 0, {S(6), S(14)}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {0, 0, 35, 50, 30, 50, 0, {S(7) | S(15), S(13)}},
+        {0, 0, 55, 70, 15, 25, 0, {S(15)}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+    },
+    /* House: four on the floor, clap on 2 and 4, open hat on every offbeat,
+     * soft 16th closed hats in between. */
+    [KIT_HOUSE] = {
+        {0, 0, 110, 125, 100, 100, 0, {S(0) | S(4) | S(8) | S(12)}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {0, 0, 45, 65, 60, 90, 0, {S(1) | S(3) | S(5) | S(7) | S(9) | S(11) | S(13) | S(15)}},
+        {0, 0, 80, 95, 100, 100, 0, {S(2) | S(6) | S(10) | S(14)}},
+        {0, 0, 95, 110, 100, 100, 0, {S(4) | S(12)}},
+        {0, 0, 45, 60, 30, 50, 0, {S(3) | S(11), S(7)}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {0, 0, 55, 65, 10, 20, 0, {S(14)}},
+    },
+    /* Trip hop: slow and heavy, half-time snare on 3, a lazy kick, sparse hats. */
+    [KIT_TRIPHOP] = {
+        {0, 0, 100, 120, 100, 100, 0, {S(0) | S(7), S(0) | S(10), S(0) | S(6) | S(9)}},
+        {0, 0, 95, 115, 100, 100, 0, {S(8)}},
+        {0, 0, 40, 60, 50, 85, 1, {S(2) | S(6) | S(10) | S(14), S(0) | S(4) | S(8) | S(12)}},
+        {0, 0, 45, 60, 25, 40, 0, {S(14)}},
+        {0, 0, 50, 65, 20, 35, 0, {S(8)}},
+        {0, 0, 35, 50, 20, 35, 0, {S(11), S(3)}},
+        {0, 0, 0, 0, 0, 0, 0, {0}},
+        {0, 0, 40, 55, 10, 15, 0, {S(13)}},
     },
 };
+#undef S
 
-static int kit_for(int style) { return style == STYLE_TECHNO ? KIT_TECHNO : style == STYLE_MELODIC ? KIT_MELODIC : KIT_AMBIENT; }
+static int kit_for(int style) {
+    switch (style) {
+    case STYLE_TECHNO: return KIT_TECHNO;
+    case STYLE_MELODIC: return KIT_MELODIC;
+    case STYLE_HIPHOP: return KIT_HIPHOP;
+    case STYLE_DNB: return KIT_DNB;
+    case STYLE_HOUSE: return KIT_HOUSE;
+    case STYLE_TRIPHOP: return KIT_TRIPHOP;
+    default: return KIT_AMBIENT;   /* AMBIENT, DRONE, BLANK */
+    }
+}
 
 /* Hits scaled from 16 steps to len and by busy (0 = half, 50 = as written, 100 = 1.5x). */
 static int scaled_hits(int k, int len, int busy) {
@@ -213,27 +278,69 @@ static int scaled_hits(int k, int len, int busy) {
     return clampi(v, 1, len);
 }
 
-void gen_drum_roll(Seq *s, int t) {
-    SeqTrack *tr = &s->track[t];
-    int len = tr->len, kit = kit_for(s->style), busy = tr->drum_busy;
+/* A kit pattern in `style` into d, for the lanes not in `locked`. */
+static void kit_roll(Seq *s, int style, int len, int busy, uint8_t locked, SeqDrums *d) {
+    int kit = kit_for(style);
     for (int l = 0; l < SEQ_LANES; l++) {
-        if (tr->drum_lock & (1 << l)) continue;
+        if (locked & (1 << l)) continue;
         const LanePart *p = &KIT[kit][l];
-        for (int i = 0; i < SEQ_STEPS; i++) { tr->drum.vel[l][i] = 0; tr->drum.prob[l][i] = 100; }
-        int k = scaled_hits(p->k, len, busy);
-        int first = p->first >= 0 ? p->first % len : p->first == -2 ? (2 + 4 * pick(s, 4)) % len : pick(s, len);
-        for (int i = 0; i < len && k; i++) {
-            int j = (i - first + len) % len;
-            if ((j * k) % len < k) {
-                tr->drum.vel[l][i] = (uint8_t)range(s, p->vlo, p->vhi);
-                tr->drum.prob[l][i] = (uint8_t)range(s, p->plo, p->phi);
+        for (int i = 0; i < SEQ_STEPS; i++) { d->vel[l][i] = 0; d->prob[l][i] = 100; }
+        if (p->pat[0]) {
+            int nv = 1;
+            while (nv < 3 && p->pat[nv]) nv++;
+            uint16_t pat = p->pat[pick(s, nv)];
+            for (int i = 0; i < len; i++) {
+                if (!((pat >> (i % 16)) & 1)) continue;
+                if (busy < 50 && i % 4 && chance(s, (50 - busy) * 2)) continue;   /* less busy: drop off-beat hits */
+                d->vel[l][i] = (uint8_t)range(s, p->vlo, p->vhi);
+                d->prob[l][i] = (uint8_t)range(s, p->plo, p->phi);
+            }
+        } else {
+            int k = scaled_hits(p->k, len, busy);
+            int first = p->first >= 0 ? p->first % len : p->first == -2 ? (2 + 4 * pick(s, 4)) % len : pick(s, len);
+            for (int i = 0; i < len && k; i++) {
+                int j = (i - first + len) % len;
+                if ((j * k) % len < k) {
+                    d->vel[l][i] = (uint8_t)range(s, p->vlo, p->vhi);
+                    d->prob[l][i] = (uint8_t)range(s, p->plo, p->phi);
+                }
             }
         }
-        for (int g = scaled_hits(p->ghost, len, busy); g > 0; g--) {
+        int ghosts = p->pat[0] ? (p->ghost * (busy + 50) * len + 800) / 1600 : scaled_hits(p->ghost, len, busy);
+        for (int g = ghosts; g > 0; g--) {
             int i = pick(s, len);
-            if (tr->drum.vel[l][i]) continue;   /* a ghost never replaces a main hit */
-            tr->drum.vel[l][i] = (uint8_t)range(s, 35, 55);
-            tr->drum.prob[l][i] = (uint8_t)range(s, 30, 50);
+            if (d->vel[l][i]) continue;   /* a ghost never replaces a main hit */
+            d->vel[l][i] = (uint8_t)range(s, 35, 55);
+            d->prob[l][i] = (uint8_t)range(s, 30, 50);
+        }
+    }
+}
+
+void gen_drum_roll(Seq *s, int t) {
+    SeqTrack *tr = &s->track[t];
+    kit_roll(s, tr->style, tr->len, tr->drum_busy, tr->drum_lock, &tr->drum);
+}
+
+void gen_drum_notes(Seq *s, int t) {
+    /* Lanes in the order a step keeps them when two fall together. */
+    static const uint8_t PRIO[SEQ_LANES] = {0, 1, 4, 2, 3, 5, 6, 7};
+    SeqTrack *tr = &s->track[t];
+    static SeqDrums d;
+    kit_roll(s, tr->style, tr->len, tr->drum_busy, 0, &d);
+    for (int i = 0; i < tr->len; i++) {
+        SeqStep *st = &tr->step[i];
+        if (st->lock) continue;
+        st->on = 0;
+        st->nudge = 0;
+        for (int k = 0; k < SEQ_LANES; k++) {
+            int l = PRIO[k];
+            if (!d.vel[l][i]) continue;
+            st->on = 1;
+            st->note = s->lane_note[l];
+            st->vel = d.vel[l][i];
+            st->prob = d.prob[l][i];
+            st->hold = 0;
+            break;
         }
     }
 }

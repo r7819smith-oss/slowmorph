@@ -71,6 +71,8 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t] - 12), 2, 0x9E37u + (uint32_t)t * 0x2F1Bu};
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->chain_bars = 4;
+        tr->style = STYLE_AMBIENT;
+        tr->part = (uint8_t)t;
         tr->drum_busy = 50;
         for (int l = 0; l < SEQ_LANES; l++)
             for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
@@ -677,6 +679,7 @@ void seq_save(const Seq *s, FILE *f) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const SeqTrack *tr = &s->track[t];
         fprintf(f, "t %d %d %d %d\n", t, tr->channel, tr->len, tr->mute);
+        fprintf(f, "ts %d %d %d\n", t, tr->style, tr->part);   /* the track's style and part; older versions skip it */
         if (tr->type || tr->drum_lock || tr->drum_busy != 50 || tr->drum_mute)   /* drum track: "ty T TYPE LOCKS BUSY MUTES" */
             fprintf(f, "ty %d %d %d %d %d\n", t, tr->type, tr->drum_lock, tr->drum_busy, tr->drum_mute);
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
@@ -804,7 +807,15 @@ int seq_load(Seq *s, FILE *f) {
         else if (sscanf(line, "bpm %d", &a) == 1) s->bpm = clampi(a, 30, 300);
         else if (sscanf(line, "swing %d", &a) == 1) s->swing = clampi(a, 0, SEQ_MAX_SWING);
         else if (sscanf(line, "clock %d", &a) == 1) s->clock_out = a != 0;
-        else if (sscanf(line, "style %d", &a) == 1) s->style = clampi(a, 0, style_count() - 1);
+        else if (sscanf(line, "style %d", &a) == 1) {
+            s->style = clampi(a, 0, style_count() - 1);
+            for (int t = 0; t < SEQ_TRACKS; t++) s->track[t].style = (uint8_t)s->style;   /* files without "ts" lines */
+        }
+        else if (sscanf(line, "ts %d %d %d", &a, &b, &c) == 3) {
+            if (a < 0 || a >= SEQ_TRACKS) continue;
+            s->track[a].style = (uint8_t)clampi(b, 0, style_count() - 1);
+            s->track[a].part = (uint8_t)clampi(c, 0, STYLE_PARTS - 1);
+        }
         /* hold lines follow the step they belong to, so the step line has already reset hold */
         else if (sscanf(line, "h %d %d %d", &a, &b, &c) == 3) {
             if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) s->track[a].step[b].hold = (uint8_t)clampi(c, 0, SEQ_MAX_HOLD);

@@ -352,6 +352,53 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Tests: `test_drum` (`test_map`, `test_map_next`, `test_map_migrate`);
     screenshots `drum-map-next-sound`, `drum-map-preset`, `step-next-x`,
     `step-next-stick`, `roll-new-length`.
+- **NEW FROM STYLE track by track, more styles, sparse ambient drums, roll
+  locks** (Roy's feedback on build #133, 2026-11-21, PR 29):
+  - The old NEW FROM STYLE silently kept MANUAL tracks with notes (that is
+    the "one track stays, three are new" Roy saw). Now M has four rows T1-T4
+    under MUSIC STYLE, each KEEP AS IT IS, BLANK, or a style's part; MUSIC
+    STYLE sets all four. Parts are the style's own track presets
+    (`STYLE_SET[style].t[part]`), so part 2 of TECHNO can go on track 3.
+    `style_apply_tracks` (`src/gen.c`) does it; `style_apply(keep_manual)`
+    still exists for the first run and the renderer.
+  - Tempo rule (decision made without asking): when every track is replaced,
+    MUSIC STYLE sets tempo, swing, scale and root; if any track is KEPT all
+    four stay, so new parts fit what is kept and a BPM you set isn't lost.
+  - Each track remembers its style and part (`SeqTrack.style`, `.part`,
+    saved as `ts T STYLE PART`; files without it take the `style` line for
+    every track). The track's style picks its generator defaults on GENERATE
+    and its drum kit. Older builds skip the `ts` line.
+  - New styles HIP HOP (88, G minor, swing 6), DRUM N BASS (172, A minor),
+    HOUSE (124, F dorian, swing 2), TRIP HOP (80, D minor, swing 3), each
+    with a drum part on T4 and its own kit. Kits now take written 16-step
+    patterns with up to 3 variants per lane (`LanePart.pat` in `src/drum.c`),
+    so boom bap and two-step are possible; BUSY below 50% drops off-beat
+    hits. A DRUMS part on a note track (`SH_DRUM_NOTES`, `gen_drum_notes`)
+    plays the kit's main hit per step as DRUM MAP notes; a roll there rolls
+    a new kit pattern. New shape `SH_CHORD_ROOTS` puts notes on the chord
+    roots of the progression (hip hop keys, house chords, with CHORD 7TH).
+    Generator defaults: TRIP HOP as AMBIENT, DNB and HOUSE as TECHNO,
+    HIP HOP as MELODIC.
+  - Ambient "busier than at first": checked against build #68's code
+    (commit 743e820). The four ambient note tracks are unchanged: same
+    presets and generators, the first-run hash `AMBIENT_HASH` still matches,
+    and over 50 seeds x 64 bars the note counts per bar are identical
+    (2.2, 3.9, 5.3, 1.7). The difference is the drum track: with T4 a DRUM
+    track, NEW FROM STYLE rolled the ambient kit, 5.3 hits a bar against
+    1.7 notes for the old T4. The ambient kit is now about 1.8 a bar
+    (kick most bars on the one, two soft closed hats, open hat, rim, tom
+    and bell all at 10-45% chance, spread over the track's 23 steps so it
+    drifts against the others); `test_ambient_kit_sparse` keeps it under 3.
+    The other part of "busier" was the kept MANUAL track. FM1 sounds may
+    still play a part.
+  - Piano roll: Y pressed and let go on its own locks / unlocks the step
+    under the cursor (Y with a direction is still length / move note).
+    A locked note keeps its yellow corner; a locked step's column gets a
+    dim yellow frame.
+  - Tests: `test_style_tracks`, `test_new_styles`, `test_ambient_kit_sparse`
+    (`tests/test_gen.c`); renders `render-hip-hop` etc.; screenshots
+    `menu-mixed`, `grid-mixed`, `menu-hiphop`, `grid-hiphop`,
+    `drums-hiphop`, `grid-dnb`, `roll-locked`.
 - **Mute and solo on the drum grid** (2026-11-21, Roy: "a missed
   opportunity to be able to mute and solo on the drum grid as well as the
   grid"). Per drum lane, the same as the grid's track mute/solo (PR 10):
@@ -485,9 +532,11 @@ Works and tested on desktop Linux:
 
 ## Next steps (suggested order)
 
-1. Run the 20-test sheet for build #133 (`tests/hardware-sheet-133.md`)
-   on the RG40XX-V and add to the results table. Still open: a hub, the FM1 audio fluttering,
-   checklist D3 (piano roll, drum grid, Felucca's drum notes) and D5 (polyphonic tracks).
+1. Run the short sheet for PR 29 (`tests/hardware-sheet-pr29.md`: per-track
+   NEW FROM STYLE, the new styles, the sparser ambient kit, roll locks), then
+   add to the results table.
+   Still open: a hub, the FM1 audio fluttering, checklist D3 (piano roll,
+   drum grid, Felucca's drum notes) and D5 (polyphonic tracks).
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
    fullscreen on the device; adjust `seq4h.input`.
@@ -962,8 +1011,10 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | 30-minute run | good on build #124 (2026-11-21) |
 | Piano roll (build #127) | works; needed moving between steps while editing and a length for new notes (fixed in PR 25) |
 | Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
+| Build #133 (20-test sheet `tests/hardware-sheet-133.md`, 2026-11-21) | 20 of 20 PASS. Test 10 (buttons vs help, short M) was run afterwards and passed. Test 3 was ticked both ways; Roy confirmed PASS. D3 is done: DRUM MAP, Felucca lane sounds, presets, drum grid, roll length, stick and X+L/R stepping all good |
+| Roy's feedback on #133 | NEW FROM STYLE kept one track and redid the other three (it kept MANUAL tracks with notes); he wants to choose all / one / several tracks and mix styles. Wants hip hop and drum n bass (more drum styles). AMBIENT felt busier than the first version. Wants step locks in the piano roll. All four done in PR 29 (sheet `tests/hardware-sheet-pr29.md`) |
+| PR 29 build | not tested yet: `tests/hardware-sheet-pr29.md` |
 | Drum lane mute/solo (D4) | not tested yet |
-| PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D5 |
 

@@ -3,6 +3,7 @@
  * density limits. Pure engine code: no SDL, no MIDI, no hardware. */
 #include "../src/engine.h"
 #include "../src/gen.h"
+#include "../src/drum.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1075,10 +1076,10 @@ static void test_styles(void) {
     CHECK(s.style == STYLE_AMBIENT);
     gen_set_type(&s, 0, GEN_WALK);
     int amb = s.track[0].gen.p[2];
-    s.style = STYLE_TECHNO;
+    s.track[0].style = STYLE_TECHNO;   /* each track's own style */
     gen_set_type(&s, 0, GEN_WALK);
     CHECK(amb < s.track[0].gen.p[2]);
-    s.style = STYLE_MELODIC;
+    s.track[0].style = STYLE_MELODIC;
     gen_set_type(&s, 0, GEN_WALK);
     CHECK(s.track[0].gen.p[2] == 7);                  /* the table default */
 }
@@ -1213,6 +1214,108 @@ static void test_save_all_slots(void) {
     CHECK(seq_slots_used(&b) == 0 && b.track[0].chain_len == 0);
 }
 
+/* NEW FROM STYLE track by track: KEEP, one style per track, parts, kits. */
+static void test_style_tracks(void) {
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    style_apply(&s, STYLE_AMBIENT, 0);
+    s.bpm = 97;
+    SeqTrack t0 = s.track[0];
+    seq_track_type(&s, 3, TRACK_DRUMS);
+    /* T1 kept, T2 a drone pad, T3 ambient's motif, T4 (a drum track) the hip hop kit */
+    int st[SEQ_TRACKS] = {STYLE_KEEP, STYLE_DRONE, STYLE_AMBIENT, STYLE_HIPHOP};
+    int pt[SEQ_TRACKS] = {0, 1, 2, 3};
+    CHECK(style_apply_tracks(&s, STYLE_HIPHOP, st, pt) == 3);
+    CHECK(same_steps(t0.step, s.track[0].step, SEQ_STEPS) && s.track[0].gen.type == t0.gen.type);
+    CHECK(s.bpm == 97 && s.scale == 8 && s.root == 2);      /* a track kept: tempo and key stay */
+    CHECK(s.track[1].gen.type == GEN_DRONE && s.track[1].chord == CHORD_TRIAD && s.track[1].style == STYLE_DRONE);
+    CHECK(s.track[2].gen.type == GEN_MOTIF && s.track[2].len == 11 && s.track[2].part == 2);
+    CHECK(s.track[3].type == TRACK_DRUMS && s.track[3].style == STYLE_HIPHOP);
+    CHECK(s.track[3].drum.vel[1][4] && s.track[3].drum.vel[1][12]);   /* boom bap: snare on 2 and 4 */
+    CHECK(s.track[3].drum.vel[0][0]);                                 /* kick on the one */
+    /* a roll on the drum track keeps its own style's kit */
+    gen_roll(&s, 3);
+    CHECK(s.track[3].drum.vel[1][4] && s.track[3].drum.vel[1][12]);
+    /* a part from another track's slot: TECHNO's kick (part 0) on track 3 */
+    int st2[SEQ_TRACKS] = {STYLE_KEEP, STYLE_KEEP, STYLE_TECHNO, STYLE_KEEP};
+    int pt2[SEQ_TRACKS] = {0, 0, 0, 0};
+    CHECK(style_apply_tracks(&s, STYLE_TECHNO, st2, pt2) == 1);
+    for (int i = 0; i < 16; i++) CHECK(s.track[2].step[i].on == (i % 4 == 0));
+    /* nothing kept: the MUSIC STYLE sets tempo, swing and key */
+    int st3[SEQ_TRACKS] = {STYLE_DNB, STYLE_DNB, STYLE_DNB, STYLE_DNB};
+    int pt3[SEQ_TRACKS] = {0, 1, 2, 3};
+    CHECK(style_apply_tracks(&s, STYLE_DNB, st3, pt3) == 4 && s.bpm == 172 && s.swing == 0);
+    /* BLANK on one track empties only that one */
+    int st4[SEQ_TRACKS] = {STYLE_KEEP, STYLE_BLANK, STYLE_KEEP, STYLE_KEEP};
+    int h0 = hits(&s, 0);
+    style_apply_tracks(&s, STYLE_DNB, st4, pt3);
+    CHECK(hits(&s, 1) == 0 && s.track[1].gen.type == GEN_NONE && hits(&s, 0) == h0 && s.bpm == 172);
+    /* style and part are saved */
+    FILE *f = tmpfile();
+    seq_save(&s, f); rewind(f);
+    Seq b;
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0);
+    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(b.track[t].style == s.track[t].style && b.track[t].part == s.track[t].part);
+    fclose(f);
+    /* a file from before per-track styles: every track takes the file's style */
+    f = tmpfile();
+    fputs("seq4h 1\nbpm 100\nstyle 1\nt 0 0 16 0\n", f); rewind(f);
+    seq_init(&b, NULL, NULL);
+    CHECK(seq_load(&b, f) == 0 && b.track[0].style == STYLE_TECHNO && b.track[3].style == STYLE_TECHNO && b.track[2].part == 2);
+    fclose(f);
+}
+
+/* The newer styles: their own tempos, and a drum part on track 4 that plays
+ * DRUM MAP notes on a note track. */
+static void test_new_styles(void) {
+    static const int sty[] = {STYLE_HIPHOP, STYLE_DNB, STYLE_HOUSE, STYLE_TRIPHOP};
+    static const int bpm[] = {88, 172, 124, 80};
+    for (unsigned k = 0; k < 4; k++) {
+        Seq s;
+        seq_init(&s, NULL, NULL);
+        style_apply(&s, sty[k], 0);
+        CHECK(s.bpm == bpm[k] && strlen(style_name(sty[k])) <= 12);
+        CHECK(style_part_is_drums(sty[k], 3) && !style_part_is_drums(sty[k], 0));
+        const SeqTrack *d = &s.track[3];
+        int n = 0, kicks = 0;
+        for (int i = 0; i < d->len; i++) {
+            if (!d->step[i].on) continue;
+            n++;
+            int lane = -1;
+            for (int l = 0; l < SEQ_LANES; l++) if (s.lane_note[l] == d->step[i].note) lane = l;
+            CHECK(lane >= 0);                         /* every hit is a DRUM MAP note */
+            kicks += lane == 0;
+        }
+        CHECK(n >= 4 && kicks >= 1 && d->step[0].on && d->step[0].note == s.lane_note[0]);   /* the one is a kick */
+        for (int t = 0; t < 3; t++) CHECK(hits(&s, t) > 0 && strlen(style_part_name(sty[k], t)) <= 6);
+        /* a roll gives a new kit pattern, still drum notes */
+        gen_roll(&s, 3);
+        CHECK(s.track[3].step[0].on && s.track[3].step[0].note == s.lane_note[0]);
+        for (int t = 0; t < SEQ_TRACKS; t++)
+            for (int i = 0; i < s.track[t].len; i++)
+                if (s.track[t].step[i].on && t < 3) CHECK(seq_in_scale(&s, s.track[t].step[i].note));
+    }
+}
+
+/* Ambient's drum kit is as sparse as build #68's ambient track 4 (about two
+ * notes a bar): averaged over many rolls, at most 3 hits a bar. */
+static void test_ambient_kit_sparse(void) {
+    Seq s;
+    seq_init(&s, NULL, NULL);
+    seq_track_type(&s, 3, TRACK_DRUMS);
+    long total = 0, bars = 0;
+    for (int r = 0; r < 200; r++) {
+        style_apply(&s, STYLE_AMBIENT, 0);
+        const SeqTrack *tr = &s.track[3];
+        for (int l = 0; l < SEQ_LANES; l++)
+            for (int i = 0; i < tr->len; i++) if (tr->drum.vel[l][i]) total += tr->drum.prob[l][i];
+        bars += tr->len;
+    }
+    double per_bar = total / 100.0 / (bars / 16.0);   /* expected hits per 16 steps */
+    CHECK(per_bar > 1.0 && per_bar < 3.0);
+}
+
 int main(void) {
     test_scale_helpers();
     test_follow();
@@ -1232,6 +1335,9 @@ int main(void) {
     test_nudge();
     test_shuffle();
     test_blank_style();
+    test_style_tracks();
+    test_new_styles();
+    test_ambient_kit_sparse();
     test_save_all_slots();
     if (fails) { fprintf(stderr, "%d generator check(s) failed\n", fails); return 1; }
     puts("generator tests passed");

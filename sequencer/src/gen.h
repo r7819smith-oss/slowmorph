@@ -91,7 +91,14 @@ void gen_morph(Seq *s, int t, const SeqStep *target, int pct);
 /* Styles set generator defaults and can lay out a whole starting project. */
 /* STYLE_BLANK is "no style": table generator defaults, and NEW FROM STYLE
  * gives four empty MANUAL tracks to build from scratch. */
-typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_BLANK, STYLE_DRONE, STYLE_COUNT } Style;
+typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_BLANK, STYLE_DRONE,
+               STYLE_HIPHOP, STYLE_DNB, STYLE_HOUSE, STYLE_TRIPHOP, STYLE_COUNT } Style;
+/* HIP HOP (88 BPM, swung boom bap), DRUM N BASS (172, two-step), HOUSE (124,
+ * four on the floor) and TRIP HOP (80, slow half-time) each have a bass, a
+ * chord or pad part, a lead, and a drum part on track 4. Each style has its
+ * own drum kit, used by any drum track whose style it is. */
+#define STYLE_KEEP (-1)   /* in style_apply_tracks: leave this track as it is */
+#define STYLE_PARTS SEQ_TRACKS   /* every style has one part per track */
 /* STYLE_DRONE is an ambient variant: a held bass and a chord pad that move
  * rarely, a drifting line, sparse bells, slow swells and rests, and evolution
  * over 16-32 bars. It uses AMBIENT's generator defaults. */
@@ -106,6 +113,19 @@ const char *style_name(int style);
  * steps, every step off, evolution off, no anchor, chaining off, unmuted.
  * Tempo, swing, scale, root, MIDI channels and stored slots stay as they are. */
 int         style_apply(Seq *s, int style, int keep_manual);
+/* NEW FROM STYLE track by track: track t gets part part[t] (0..3) of style
+ * style[t], or stays as it is with STYLE_KEEP. A drum track gets the style's
+ * drum kit whatever the part; BLANK empties the track. `lead` is the MUSIC
+ * STYLE: when no track is kept it sets the tempo, swing, scale and root (BLANK
+ * leaves them); when any track is kept they all stay, so the new parts fit.
+ * Each track remembers its style and part (SeqTrack.style, .part) for its
+ * generator defaults, its drum kit and rolls. Returns how many tracks changed. */
+int         style_apply_tracks(Seq *s, int lead, const int style[SEQ_TRACKS], const int part[SEQ_TRACKS]);
+/* Short name of a style's part ("BASS", "PAD", "DRUMS" ...), "" for BLANK. */
+const char *style_part_name(int style, int part);
+/* 1 if the part is a drum part (a note track then plays the kit's main hits
+ * as notes from the DRUM MAP, for an FM1 track on the DRUM engine). */
+int         style_part_is_drums(int style, int part);
 /* Short generator name for the grid ("MANUAL", "EUCLID", "CA", ...), <= 6 chars. */
 const char *gen_short_name(int type);
 
