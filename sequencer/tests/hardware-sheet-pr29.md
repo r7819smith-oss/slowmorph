@@ -101,10 +101,9 @@ length, not a lock. 5: "STEP n UNLOCKED". The grid shows the same locks.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### 8. Restart keeps it all (and test 10 from the #133 sheet)
+### 8. Restart keeps it all
 1. Quit with **Select + Start** and start SEQ4H again.
 2. On GENERATE roll the drum track: it is still the same style's kit. **M**: the T rows show each track's style and part.
-3. Do test 10 from `hardware-sheet-133.md` (buttons against the help, short M press), which wasn't run last time.
 
 **Expected:** patterns, piano roll locks, and each track's style are kept.
 

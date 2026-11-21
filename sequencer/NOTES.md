@@ -464,8 +464,8 @@ Works and tested on desktop Linux:
 ## Next steps (suggested order)
 
 1. Run the short sheet for PR 29 (`tests/hardware-sheet-pr29.md`: per-track
-   NEW FROM STYLE, the new styles, the sparser ambient kit, roll locks) and
-   test 10 of `tests/hardware-sheet-133.md`, then add to the results table.
+   NEW FROM STYLE, the new styles, the sparser ambient kit, roll locks), then
+   add to the results table.
    Still open: a hub and the FM1 audio fluttering.
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
@@ -911,7 +911,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | 30-minute run | good on build #124 (2026-11-21) |
 | Piano roll (build #127) | works; needed moving between steps while editing and a length for new notes (fixed in PR 25) |
 | Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
-| Build #133 (20-test sheet `tests/hardware-sheet-133.md`, 2026-11-21) | 19 of 20 PASS: 1-9 and 11-20. Test 10 (buttons vs help, short M) not run. Test 3 was ticked both ways; Roy confirmed PASS. D3 is done: DRUM MAP, Felucca lane sounds, presets, drum grid, roll length, stick and X+L/R stepping all good |
+| Build #133 (20-test sheet `tests/hardware-sheet-133.md`, 2026-11-21) | 20 of 20 PASS. Test 10 (buttons vs help, short M) was run afterwards and passed. Test 3 was ticked both ways; Roy confirmed PASS. D3 is done: DRUM MAP, Felucca lane sounds, presets, drum grid, roll length, stick and X+L/R stepping all good |
 | Roy's feedback on #133 | NEW FROM STYLE kept one track and redid the other three (it kept MANUAL tracks with notes); he wants to choose all / one / several tracks and mix styles. Wants hip hop and drum n bass (more drum styles). AMBIENT felt busier than the first version. Wants step locks in the piano roll. All four done in PR 29 (sheet `tests/hardware-sheet-pr29.md`) |
 | PR 29 build | not tested yet: `tests/hardware-sheet-pr29.md` |
 | Drum lane mute/solo (D4) | not tested yet |
