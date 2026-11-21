@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "drum.h"
 #include "gen.h"
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -26,7 +27,14 @@ static void emit1(Seq *s, uint8_t a) {
     if (s->send) s->send(s->ctx, &a, 1);
 }
 
+static void release_lane(Seq *s, SeqTrack *t, int l) {
+    if (!(t->drum_down & (1 << l))) return;
+    emit3(s, 0x80 | t->channel, t->drum_note[l], 0);
+    t->drum_down &= (uint8_t)~(1 << l);
+}
+
 static void release(Seq *s, SeqTrack *t) {
+    for (int l = 0; t->drum_down && l < SEQ_LANES; l++) release_lane(s, t, l);
     if (t->sounding >= 0) {
         emit3(s, 0x80 | t->channel, (uint8_t)t->sounding, 0);
         for (int k = 0; k < t->nvoice; k++) emit3(s, 0x80 | t->channel, t->voice[k], 0);
@@ -45,6 +53,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
     s->rng = 0x2545F491u;
     s->send = send;
     s->ctx = ctx;
+    seq_drum_map_gm(s);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         tr->len = SEQ_DEFAULT_LEN;
@@ -54,6 +63,10 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t] - 12), 2, 0x9E37u + (uint32_t)t * 0x2F1Bu};
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->chain_bars = 4;
+        tr->drum_busy = 50;
+        for (int l = 0; l < SEQ_LANES; l++)
+            for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
+        for (int k = 0; k < SEQ_SLOTS; k++) tr->slot[k].drum = tr->drum;
         for (int i = 0; i < SEQ_STEPS; i++)
             tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0, 0, 0};
     }
@@ -155,7 +168,33 @@ static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
     tr->off_tick = now + (gl ? gl : 1);
 }
 
+/* A drum track's step: every lane with a hit there plays its own note (from
+ * the DRUM MAP), each with its own chance, as short one-shots. */
+static void play_drums(Seq *s, int t, uint32_t now, int idx) {
+    SeqTrack *tr = &s->track[t];
+    for (int l = 0; l < SEQ_LANES; l++) {
+        int v = tr->drum.vel[l][idx];
+        if (!v) continue;
+        int p = tr->drum.prob[l][idx];
+        if (p < 100 && (int)(seq_rand(s) % 100) >= p) continue;
+        release_lane(s, tr, l);
+        uint8_t note = s->lane_note[l];
+        for (int m = 0; m < SEQ_LANES; m++)   /* two lanes on one note: the new hit takes over */
+            if (m != l && (tr->drum_down & (1 << m)) && tr->drum_note[m] == note) release_lane(s, tr, m);
+        emit3(s, 0x90 | tr->channel, note, (uint8_t)seq_swell_vel(s, t, now, v));
+        tr->drum_note[l] = note;
+        tr->drum_down |= (uint8_t)(1 << l);
+        tr->drum_off[l] = now + SEQ_DRUM_GATE;
+    }
+}
+
+/* The UI's auditioned note: its note-off, playing or stopped. */
+static void audition_tick(Seq *s) {
+    if (s->aud_left && --s->aud_left == 0) emit3(s, 0x80 | s->aud_ch, (uint8_t)s->aud_note, 0);
+}
+
 void seq_tick(Seq *s) {
+    audition_tick(s);
     if (!s->playing) {
         /* Keep sending clock while stopped, so the FM1 locks to the tempo
          * before Start (and shows it). Start then restarts the count. */
@@ -187,6 +226,9 @@ void seq_tick(Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         if (tr->sounding >= 0 && (int32_t)(now - tr->off_tick) >= 0) release(s, tr);
+        for (int l = 0; tr->drum_down && l < SEQ_LANES; l++)
+            if ((tr->drum_down & (1 << l)) && (int32_t)(now - tr->drum_off[l]) >= 0) release_lane(s, tr, l);
+        int drums = tr->type == TRACK_DRUMS;
         if (!seq_track_audible(s, t) || tr->rest_left) continue;   /* a rest lets held notes ring out */
 
         /* A step plays at its grid time + swing + its own offset. Swing follows
@@ -201,15 +243,16 @@ void seq_tick(Seq *s) {
             uint32_t g = gstep + (uint32_t)ahead;
             int idx = (int)(g % tr->len);
             const SeqStep *st = &tr->step[idx];
-            if (!st->on || tr->played[idx] == g + 1) continue;
+            if (!(drums ? seq_drum_column(tr, idx) : st->on) || tr->played[idx] == g + 1) continue;
             int live = live_offset(tr);
-            int when = ((g & 1) ? s->swing : 0) + (live ? tr->jit[idx] : st->nudge);
+            int when = ((g & 1) ? s->swing : 0) + (live ? tr->jit[idx] : drums ? 0 : st->nudge);   /* drum steps have no OFFSET */
             int due = ahead == 0 ? (when == phase || (when < 0 && now == 0))   /* an early first step plays at Start */
                                  : (when < 0 && when + SEQ_TICKS_PER_STEP == phase);
             if (!due) continue;
             tr->played[idx] = g + 1;
             if (live) tr->jit[idx] = draw_offset(s, tr, st);   /* where it lands next time round */
-            play_step(s, t, now, st);
+            if (drums) play_drums(s, t, now, idx);
+            else play_step(s, t, now, st);
         }
     }
     s->tick++;
@@ -299,15 +342,15 @@ void seq_adjust_swing(Seq *s, int d) { s->swing = clampi(s->swing + d, 0, SEQ_MA
  * a random amount up to `shuffle` either side; with NEVER ON GRID, never
  * closer than SEQ_OFFGRID_MIN ticks to the grid. */
 static int8_t draw_offset(Seq *s, const SeqTrack *tr, const SeqStep *st) {
-    int a = tr->shuffle;
+    int a = tr->shuffle, own = tr->type == TRACK_DRUMS ? 0 : st->nudge;
     for (int tries = 0; tries < 16; tries++) {
-        int v = st->nudge + (a ? (int)(seq_rand(s) % (uint32_t)(2 * a + 1)) - a : 0);
+        int v = own + (a ? (int)(seq_rand(s) % (uint32_t)(2 * a + 1)) - a : 0);
         v = clampi(v, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
         if (!tr->offgrid || v <= -SEQ_OFFGRID_MIN || v >= SEQ_OFFGRID_MIN) return (int8_t)v;
         if (!a) break;   /* nothing random to retry with */
     }
     /* still too close: push it off the grid, the way it already leans, else either way */
-    int v = st->nudge;
+    int v = own;
     int dir = v > 0 ? 1 : v < 0 ? -1 : (seq_rand(s) & 1) ? 1 : -1;
     return (int8_t)(dir * SEQ_OFFGRID_MIN);
 }
@@ -348,6 +391,7 @@ void seq_slot_store(Seq *s, int t, int k) {
     SeqTrack *tr = &s->track[t];
     memcpy(tr->slot[k].step, tr->step, sizeof tr->step);
     tr->slot[k].len = tr->len;
+    tr->slot[k].drum = tr->drum;
     tr->slot[k].used = 1;
     tr->cur_slot = (uint8_t)k;
 }
@@ -356,6 +400,7 @@ int seq_slot_recall(Seq *s, int t, int k) {
     if (k < 0 || k >= SEQ_SLOTS || !s->track[t].slot[k].used) return -1;
     SeqTrack *tr = &s->track[t];
     memcpy(tr->step, tr->slot[k].step, sizeof tr->step);
+    tr->drum = tr->slot[k].drum;
     tr->len = tr->slot[k].len;
     tr->cur_slot = (uint8_t)k;
     return 0;
@@ -363,7 +408,9 @@ int seq_slot_recall(Seq *s, int t, int k) {
 
 void seq_slot_clear(Seq *s, int t, int k) {
     if (k < 0 || k >= SEQ_SLOTS) return;
-    memset(&s->track[t].slot[k], 0, sizeof s->track[t].slot[k]);
+    SeqSlot *sl = &s->track[t].slot[k];
+    memset(sl, 0, sizeof *sl);
+    memset(sl->drum.prob, 100, sizeof sl->drum.prob);
 }
 
 int seq_slot_copy(Seq *s, int t, int from, int to) {
@@ -417,7 +464,7 @@ void seq_chain_bar(Seq *s, int t, uint32_t bar) {
     }
     if (tr->chain_morph) {
         const SeqSlot *sl = &tr->slot[tr->chain[tr->chain_pos]];
-        if (sl->used) gen_morph(s, t, sl->step, tr->chain_morph);
+        if (sl->used) { gen_morph(s, t, sl->step, tr->chain_morph); gen_drum_morph(s, t, &sl->drum, tr->chain_morph); }
     }
 }
 
@@ -427,11 +474,33 @@ void seq_note_name(int note, char out[8]) {
     snprintf(out, 8, "%s%d", n[note % 12], note / 12 - 1);
 }
 
+/* Drum hits: "PREFIX ... LANE STEP VEL PROB", one line per hit. */
+static void save_hits(FILE *f, const char *prefix, const SeqDrums *d) {
+    for (int l = 0; l < SEQ_LANES; l++)
+        for (int i = 0; i < SEQ_STEPS; i++)
+            if (d->vel[l][i]) fprintf(f, "%s %d %d %d %d\n", prefix, l, i, d->vel[l][i], d->prob[l][i]);
+}
+
+static void load_hit(SeqDrums *d, int l, int i, int v, int p) {
+    if (l < 0 || l >= SEQ_LANES || i < 0 || i >= SEQ_STEPS) return;
+    d->vel[l][i] = (uint8_t)clampi(v, 0, 127);
+    d->prob[l][i] = (uint8_t)clampi(p, 0, 100);
+}
+
 void seq_save(const Seq *s, FILE *f) {
+    char pre[32];
     fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->scale, s->root, s->style);
+    for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
+        char nm[SEQ_LANE_NAME + 1];
+        snprintf(nm, sizeof nm, "%s", s->lane_name[l][0] ? s->lane_name[l] : seq_lane_gm_name(l));
+        for (char *c = nm; *c; c++) if (*c == ' ') *c = '_';
+        fprintf(f, "dm %d %d %s\n", l, s->lane_note[l], nm);
+    }
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const SeqTrack *tr = &s->track[t];
         fprintf(f, "t %d %d %d %d\n", t, tr->channel, tr->len, tr->mute);
+        if (tr->type || tr->drum_lock || tr->drum_busy != 50)   /* drum track: "ty T TYPE LOCKS BUSY" */
+            fprintf(f, "ty %d %d %d %d\n", t, tr->type, tr->drum_lock, tr->drum_busy);
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
@@ -455,10 +524,13 @@ void seq_save(const Seq *s, FILE *f) {
                 if (st->hold) fprintf(f, "sh %d %d %d %d\n", t, k, i, st->hold);
                 if (st->nudge) fprintf(f, "so %d %d %d %d\n", t, k, i, st->nudge);
             }
+            snprintf(pre, sizeof pre, "dsh %d %d", t, k);
+            save_hits(f, pre, &sl->drum);
         }
         fprintf(f, "ch %d %d %d %d %d %d %d", t, tr->cur_slot, tr->chain_len, tr->chain_pos, tr->chain_bars, tr->chain_morph, SEQ_SLOTS);
         for (int k = 0; k < SEQ_SLOTS; k++) fprintf(f, " %d", tr->chain[k]);
         fputc('\n', f);
+        if (tr->has_anchor) { snprintf(pre, sizeof pre, "dah %d", t); save_hits(f, pre, &tr->drum_anchor); }
         if (tr->has_anchor)
             for (int i = 0; i < SEQ_STEPS; i++) {
                 const SeqStep *st = &tr->anchor[i];
@@ -472,6 +544,8 @@ void seq_save(const Seq *s, FILE *f) {
             if (st->hold) fprintf(f, "h %d %d %d\n", t, i, st->hold);
             if (st->nudge) fprintf(f, "o %d %d %d\n", t, i, st->nudge);   /* offset; older versions skip it */
         }
+        snprintf(pre, sizeof pre, "dh %d", t);
+        save_hits(f, pre, &tr->drum);
     }
 }
 
@@ -507,7 +581,28 @@ int seq_load(Seq *s, FILE *f) {
     unsigned u;
     if (!fgets(line, sizeof line, f) || strncmp(line, "seq4h ", 6) != 0) return -1;
     while (fgets(line, sizeof line, f)) {
-        if (sscanf(line, "bpm %d", &a) == 1) s->bpm = clampi(a, 30, 300);
+        if (line[0] == 'd') {   /* drum lines */
+            if (sscanf(line, "dh %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+                if (a >= 0 && a < SEQ_TRACKS) load_hit(&s->track[a].drum, b, c, d, e);
+            } else if (sscanf(line, "dah %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+                if (a >= 0 && a < SEQ_TRACKS) load_hit(&s->track[a].drum_anchor, b, c, d, e);
+            } else if (sscanf(line, "dsh %d %d %d %d %d %d", &a, &k, &b, &c, &d, &e) == 6) {
+                if (a >= 0 && a < SEQ_TRACKS && k >= 0 && k < SEQ_SLOTS) load_hit(&s->track[a].slot[k].drum, b, c, d, e);
+            } else if (sscanf(line, "dm %d %d %15s", &a, &b, nm) == 3) {
+                if (a < 0 || a >= SEQ_LANES) continue;
+                s->lane_note[a] = (uint8_t)clampi(b, 0, 127);
+                for (char *q = nm; *q; q++) if (*q == '_') *q = ' ';
+                seq_lane_set_name(s, a, nm);
+            }
+            continue;
+        }
+        if (sscanf(line, "ty %d %d %d %d", &a, &b, &c, &d) == 4) {
+            if (a < 0 || a >= SEQ_TRACKS) continue;
+            s->track[a].type = b == TRACK_DRUMS ? TRACK_DRUMS : TRACK_NOTES;
+            s->track[a].drum_lock = (uint8_t)c;
+            s->track[a].drum_busy = (uint8_t)clampi(d, 0, 100);
+        }
+        else if (sscanf(line, "bpm %d", &a) == 1) s->bpm = clampi(a, 30, 300);
         else if (sscanf(line, "swing %d", &a) == 1) s->swing = clampi(a, 0, SEQ_MAX_SWING);
         else if (sscanf(line, "clock %d", &a) == 1) s->clock_out = a != 0;
         else if (sscanf(line, "style %d", &a) == 1) s->style = clampi(a, 0, style_count() - 1);

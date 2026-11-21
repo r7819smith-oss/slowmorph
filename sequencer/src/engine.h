@@ -53,11 +53,25 @@ typedef struct {
 #define SEQ_MAX_EVERY 64  /* longest evolution interval, in bars */
 #define SEQ_SLOT_NAME 8   /* characters in a slot name */
 
+/* Drum tracks (SeqTrack.type = TRACK_DRUMS): instead of one note per step,
+ * 8 lanes, each with its own hits; every lane plays its own MIDI note (the
+ * DRUM MAP, Seq.lane_note), so a kick and a hat can sound on the same step.
+ * See drum.h. */
+#define SEQ_LANES 8
+#define SEQ_LANE_NAME 8   /* characters in a lane name */
+enum { TRACK_NOTES, TRACK_DRUMS };
+#define SEQ_DRUM_GATE 12  /* ticks a drum hit's note is held (half a step) */
+typedef struct {
+    uint8_t vel[SEQ_LANES][SEQ_STEPS];    /* 0 = no hit, else the hit's velocity 1..127 */
+    uint8_t prob[SEQ_LANES][SEQ_STEPS];   /* chance a hit plays, 0..100 */
+} SeqDrums;
+
 typedef struct {
     SeqStep step[SEQ_STEPS];
     uint8_t len;
     uint8_t used;       /* 0 = empty slot */
     char name[SEQ_SLOT_NAME + 1];   /* "" = default ("SLOT 3"); A-Z, 0-9, space, '-' */
+    SeqDrums drum;      /* a drum track's lanes (slots keep both kinds of pattern) */
 } SeqSlot;
 
 typedef struct {
@@ -98,6 +112,16 @@ typedef struct {
     int16_t sounding;   /* note currently held, or -1 */
     int16_t last_note;  /* last note sent on this track, or -1 (seq_panic re-sends its note-off) */
     uint32_t off_tick;
+    /* Drum track. The note steps above are kept while a track is a drum track
+     * (and the lanes while it is a note track), so switching TYPE loses nothing. */
+    uint8_t type;               /* TRACK_NOTES or TRACK_DRUMS */
+    uint8_t drum_lock;          /* bit per lane: generators and evolution leave the lane alone */
+    uint8_t drum_busy;          /* 0..100: how busy the drum generator is (50 = the style's own) */
+    SeqDrums drum;
+    SeqDrums drum_anchor;       /* anchor of the lanes (with has_anchor) */
+    uint8_t drum_down;          /* bit per lane: its note is sounding (not saved) */
+    uint8_t drum_note[SEQ_LANES];   /* note each sounding lane sent */
+    uint32_t drum_off[SEQ_LANES];   /* tick its note-off is due */
 } SeqTrack;
 
 typedef void (*SeqSend)(void *ctx, const uint8_t *msg, int len);
@@ -115,6 +139,9 @@ typedef struct {
     uint32_t idle_tick; /* tick counter while stopped, for the free-running clock */
     int resync;         /* send Stop+Start at the next bar boundary (after a MIDI reconnect) */
     uint32_t rng;
+    uint8_t lane_note[SEQ_LANES];                 /* DRUM MAP: MIDI note of each lane, shared by every drum track */
+    char lane_name[SEQ_LANES][SEQ_LANE_NAME + 1];
+    int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
     SeqSend send;
     void *ctx;
 } Seq;

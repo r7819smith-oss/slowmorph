@@ -141,7 +141,12 @@ which track you are on. Keyboard keys are in brackets.
 | A [Z] | step on / off |
 | X [C] | edit this step (opens the STEP page) |
 | Y [V] | lock / unlock this step |
+| Select [Tab] | open the **piano roll** (note track) or the **drum grid** (drum track); press and let go on its own, so Select + Start still quits |
 | Left from step 1 | move the cursor onto the track label (T1-T4) |
+
+On a drum track A and X open the drum grid at that step instead, since a
+drum step has 8 lanes. The grid draws a drum step as thin bars, one per lane
+that hits (kick at the top), and the label reads DRUMS.
 
 With the cursor on a **track label**:
 
@@ -158,6 +163,60 @@ silent. Mute is saved with the pattern; solo is not, so seq4h always starts
 with every unmuted track playing. The TRACK page's MUTE row is the same
 setting.
 
+**Piano roll** (Select on the GRID, note tracks): one track full screen,
+steps across (16 at a time, as on the grid) and the scale's notes down the
+left, 14 rows at a time with the root's rows lighter. Each note is a bar as
+long as it sounds (gate plus hold, cut off by the next note), moved by its
+offset, brighter when louder; a note outside the scale has a white outline
+and chord notes (from CHORD) are drawn faintly. A track still plays one note
+per step, so each column holds one note. B or Select goes back to the grid;
+L2/R2 changes track (a drum track opens its drum grid).
+
+| Input | Action |
+|---|---|
+| D-pad | move the cursor: left/right step, up/down pitch (scrolls at the edge) |
+| A [Z] | put the step's note on this pitch, or take it off if it is already there (heard once while stopped) |
+| hold Y [V] + left / right | shorter / longer: a quarter step at a time up to one step, then whole steps (that is HOLD) |
+| hold Y + up / down | move the step's note up / down a scale degree (the cursor follows) |
+| hold X [C] + left / right | offset: 1 tick (1/24 step) earlier / later |
+| hold X + up / down | velocity up / down by 8 |
+
+**Drum tracks and the drum grid.** On the TRACK page set **TYPE** to DRUMS
+and the track plays 8 lanes instead of one note per step: KICK, SNARE,
+CL HAT, OP HAT, CLAP, RIM, TOM and CRASH, each with its own hits, velocity
+and chance, so a kick and a hat can play on the same step. Each lane sends
+its own MIDI note on the track's channel (the **DRUM MAP**, below) as a short
+one-shot. Switching TYPE back keeps both patterns, so nothing is lost.
+Swing, live shuffle, NEVER ON GRID, swell, rests, mute/solo, slots, chains
+(with morph), undo and the anchor all work on drum tracks; drum steps have no
+OFFSET of their own. On the GENERATE page a drum track's generator is the
+**DRUM KIT**: A rolls a kit pattern in the current style (ambient: sparse
+and soft, much of it left to chance; techno: four on the floor, claps on 2
+and 4, offbeat hats with ghosts; melodic: a plain backbeat with 8th hats),
+and **BUSY** (0-100%, 50 = as written) makes it sparser or busier.
+Evolution works per lane: RHYTHM moves a hit to a free step next to it,
+VELOCITY and PROB nudge hits, ROTATE turns a lane by a step, REGEN re-rolls,
+and the anchor pull brings the lanes home (PITCH and OFFSET do nothing on
+drums). The transforms REVERSE, SHIFT, THIN, FILL, HUMANIZE and CLEAR work on
+the lanes. NEW FROM STYLE keeps a drum track a drum track and rolls it a kit
+pattern in the new style. The STEP page shows a drum step as one row per
+lane: left/right changes the hit's velocity (below 1 removes it), A puts a
+hit on or off.
+
+The **drum grid** (Select on the GRID, drum tracks): the 8 lanes, with each
+lane's name and note on the left, 16 steps at a time. A lane can be
+**locked** (yellow marks): rolls, evolution and transforms leave it alone.
+
+| Input | Action |
+|---|---|
+| D-pad | move the cursor: up/down lane, left/right step |
+| A [Z] | hit on / off (a new hit: velocity 100, chance 100%; heard once while stopped) |
+| hold X [C] + up / down | velocity up / down by 10 |
+| hold X + left / right | chance down / up by 10% |
+| Y [V] | lock / unlock the lane |
+| Left from step 1 | onto the lane name: A plays the lane's note, Y locks, right goes back |
+| B or Select | back to the grid |
+
 **STEP, TRACK and GENERATE pages**: a list of values for the current track.
 Up/down picks a row, left/right changes it, and holding **Y** makes the
 change bigger.
@@ -165,7 +224,7 @@ change bigger.
 | Page | Rows | Also |
 |---|---|---|
 | STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, offset, probability, lock | A = step on/off |
-| TRACK | track, MIDI channel, length, mute, shuffle, never on grid, BPM, swing, MIDI port (shown only) | |
+| TRACK | track, type (NOTES or DRUMS), MIDI channel, length, mute, shuffle, never on grid, BPM, swing, MIDI port (shown only) | |
 | GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 
 **Main menu** (M): settings for the whole session. Up/down picks a row,
@@ -203,6 +262,7 @@ you were on. Rows:
   (27 steps) that rest now and then, with slow swells and evolution every 4
   to 32 bars.
 - *Slots*: A opens the **Slots page** (below).
+- *Drum map*: A opens the **Drum map page** (below).
 - *Button codes*: show each button's raw code (see *Button mapping*).
 - *Save and quit*
 
@@ -219,6 +279,24 @@ right side shows the selected slot's pattern. L2/R2 changes track.
 | Select [Tab] | copy or clear: COPY TO (left/right picks the slot), CLEAR SLOT, BACK; A does it, and A again confirms replacing a full slot or clearing |
 | B [X] | back to the main menu (closes the copy/clear panel first) |
 | M [M] | close the menu |
+
+**Drum map page** (M > DRUM MAP, A): the MIDI note each drum lane plays,
+one map shared by every drum track and saved in `seq4h.pat` (lines `dm LANE
+NOTE NAME`). It starts as the General MIDI drum map, which Felucca's DRUM
+engine follows: KICK 36, SNARE 38, CL HAT 42, OP HAT 46, CLAP 39, RIM 37,
+TOM 45, CRASH 49 (seq4h names notes with middle C = C4 = 60, so 36 shows as
+C2). Felucca does not publish which 8 notes its lanes answer to, so check on
+the FM1 (NOTES.md checklist D3) and change any that are wrong. Notes play on
+the current track if it is a drum track, otherwise on the first drum track,
+otherwise on the current track; the right side says which.
+
+| Input | Action |
+|---|---|
+| Up / down | pick a lane (the last row is RESET TO GM) |
+| Left / right | lane note down / up, and play it (hold Y: an octave) |
+| A [Z] | play the lane's note; on RESET TO GM press A twice to reset all 8 |
+| Y [V] | rename the lane (as slot names; an empty name gives the GM name back) |
+| B [X] | back to the main menu |
 
 **Renaming**: names are up to 8 characters (A-Z, 0-9, space and `-`) and
 start as SLOT 1 to SLOT 8. Up/down changes the letter under the cursor,

@@ -1,4 +1,5 @@
 #include "gen.h"
+#include "drum.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -518,6 +519,8 @@ static void style_blank(Seq *s) {
         for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0};
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->has_anchor = 0;
+        memset(tr->drum.vel, 0, sizeof tr->drum.vel);   /* a drum track stays one, with empty lanes */
+        tr->drum_lock = 0;
         tr->chain_len = 0;
         tr->chain_pos = 0;
         tr->mute = 0;
@@ -575,6 +578,12 @@ int style_apply(Seq *s, int st, int keep_manual) {
         if (keep[t]) continue;
         gen_apply(s, t);
         style_shape(s, t, STYLE_SET[st].t[t].shape, prog);
+        if (s->track[t].type == TRACK_DRUMS) {   /* a drum track gets a kit pattern in the style */
+            s->track[t].drum_busy = 50;
+            s->track[t].drum_lock = 0;
+            gen_drum_roll(s, t);
+            if (s->track[t].evo.pull) gen_set_anchor(s, t);
+        }
         if (s->track[t].evo.pull) gen_set_anchor(s, t);
     }
     return kept;
@@ -931,6 +940,7 @@ void gen_apply(Seq *s, int t) {
 }
 
 void gen_roll(Seq *s, int t) {
+    if (s->track[t].type == TRACK_DRUMS) { gen_drum_roll(s, t); return; }
     GenSettings *g = &s->track[t].gen;
     if (g->type == GEN_CELLULAR) g->p[1] = (uint8_t)((g->p[1] + 1) % 64);
     if (g->type == GEN_TURING) {
@@ -997,6 +1007,7 @@ static void keep_density(Seq *s, int t) {
 void gen_evolve_bar(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     const EvolveSettings *e = &tr->evo;
+    if (tr->type == TRACK_DRUMS) { gen_drum_evolve(s, t); return; }
 
     /* Pull first, so this bar's new changes are heard before they can be undone. */
     if (tr->has_anchor && e->pull) gen_morph(s, t, tr->anchor, e->pull);
@@ -1067,6 +1078,7 @@ void gen_set_anchor(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     memcpy(tr->anchor, tr->step, sizeof tr->anchor);
     for (int i = 0; i < SEQ_STEPS; i++) tr->anchor[i].lock = 0;
+    tr->drum_anchor = tr->drum;
     tr->has_anchor = 1;
 }
 
@@ -1112,6 +1124,7 @@ const char *gen_xform_name(int op) {
 
 void gen_transform(Seq *s, int t, int op, int amount) {
     SeqTrack *tr = &s->track[t];
+    if (tr->type == TRACK_DRUMS) { gen_drum_transform(s, t, op, amount); return; }
     int pos[SEQ_STEPS], np = unlocked(tr, pos);
     if (np == 0) return;
     SeqStep tmp[SEQ_STEPS];

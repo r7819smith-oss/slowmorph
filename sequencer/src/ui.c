@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "battery.h"
+#include "drum.h"
 #include "gen.h"
 #include "input.h"
 
@@ -78,8 +79,11 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
 /* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
-               P_MENU = P_TABS, P_SLOTS, P_COUNT } Page;      /* SLOTS opens from the main menu */
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS"};
+               P_MENU = P_TABS, P_SLOTS, P_DRUMMAP,             /* SLOTS and DRUM MAP open from the main menu */
+               P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
+               P_COUNT } Page;
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "SLOTS", "DRUM MAP", "ROLL", "DRUMS"};
+#define MAP_ROWS (SEQ_LANES + 1)   /* DRUM MAP: the 8 lanes, then RESET TO GM */
 
 /* SLOTS page: a second press confirms anything that overwrites or empties a slot. */
 enum { CF_NONE, CF_SAVE, CF_COPY, CF_CLEAR };
@@ -99,6 +103,7 @@ typedef struct {
     int row[P_COUNT];         /* selected row on each list page */
     int menu_from;            /* page to return to when the main menu closes */
     SeqStep undo[SEQ_STEPS];  /* the track as it was before the last roll, transform or slot load */
+    SeqDrums undo_drum;       /* ...and its drum lanes */
     int undo_len;
     int undo_track;           /* -1 = nothing to undo */
     int xf_op, xf_amt;        /* transform chosen on the generate page, and its amount */
@@ -112,6 +117,12 @@ typedef struct {
     int naming;               /* SLOTS page: the name editor is open */
     char name_buf[SEQ_SLOT_NAME + 1];
     int name_pos;             /* character being edited */
+    int lane;                 /* drum grid: lane under the cursor (0 = top) */
+    int drum_label;           /* drum grid cursor is on the lane name (left of step 1) */
+    int roll_note;            /* piano roll: pitch under the cursor (a scale note) */
+    int roll_top;             /* piano roll: note of the top row */
+    int sel_used;             /* another button was pressed while Select was held (so its release does nothing) */
+    int map_confirm;          /* DRUM MAP: RESET TO GM was pressed once */
     const char *msg;
     Uint32 msg_until;
     char msg_buf[48];         /* for messages built on the fly */
@@ -144,6 +155,9 @@ static int wrap(int v, int n) { return (v % n + n) % n; }
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+static void say(Ui *u, const char *m);
+static int is_drums(const Seq *s, int t) { return s->track[t].type == TRACK_DRUMS; }
+
 static int gen_row_is_head(int row) {
     return row == GR_TRACK || row == GR_GEN || row == GR_EVOLVE || row == GR_ANCHOR || row == GR_CHORD || row == GR_XFORM ||
            row == GR_SLOT || row == GR_SCALE;
@@ -156,7 +170,11 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     static const char *EVO_NAMES[7] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN", "EVO PROB", "EVO OFFSET"};
     label[0] = val[0] = 0;
     if (row == GR_TRACK) { snprintf(label, 24, "TRACK"); snprintf(val, 24, "%d", t + 1); }
-    else if (row == GR_GEN) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", gen_name(g->type)); }
+    else if (row == GR_GEN) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "DRUM KIT" : gen_name(g->type)); }
+    else if (row <= GR_P3 && tr->type == TRACK_DRUMS) {   /* the drum generator has one setting */
+        snprintf(label, 24, row == GR_P0 ? "  BUSY" : "  -");
+        if (row == GR_P0) snprintf(val, 24, "%d%%", tr->drum_busy);
+    }
     else if (row <= GR_P3) {
         int k = row - GR_P0;
         if (k < gen_param_count(g->type)) {
@@ -235,6 +253,10 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     GenSettings *g = &tr->gen;
     EvolveSettings *e = &tr->evo;
     if (row == GR_TRACK) u->track = wrap(u->track + d, SEQ_TRACKS);
+    else if (tr->type == TRACK_DRUMS && row == GR_GEN) say(u, "DRUM TRACK: TYPE IS ON THE TRACK PAGE");
+    else if (tr->type == TRACK_DRUMS && row <= GR_P3) {
+        if (row == GR_P0) tr->drum_busy = (uint8_t)clampi(tr->drum_busy + 5 * d * (big ? 2 : 1), 0, 100);
+    }
     else if (row == GR_GEN) gen_set_type(s, u->track, wrap(g->type + d, GEN_COUNT));
     else if (row <= GR_P3) {
         int k = row - GR_P0;
@@ -295,11 +317,28 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }
 
+/* The track the DRUM MAP plays its notes on: the current track if it is a
+ * drum track, else the first drum track, else the current track. */
+static int audition_track(const Seq *s, const Ui *u) {
+    if (is_drums(s, u->track)) return u->track;
+    for (int t = 0; t < SEQ_TRACKS; t++) if (is_drums(s, t)) return t;
+    return u->track;
+}
+
 #define STEP_ROWS 9
-#define TRACK_ROWS 9
+#define TRACK_ROWS 10
+#define TRACK_BPM_ROW 7
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
+    if (is_drums(s, u->track) && row > 0) {   /* a drum step: one row per lane */
+        const SeqDrums *d = &s->track[u->track].drum;
+        int l = row - 1;
+        snprintf(label, 24, "%s", s->lane_name[l]);
+        if (d->vel[l][u->step]) snprintf(val, 24, "VEL %d  %d%%", d->vel[l][u->step], d->prob[l][u->step]);
+        else snprintf(val, 24, "-");
+        return;
+    }
     static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "OFFSET", "PROBABILITY", "LOCK"};
     snprintf(label, 24, "%s", L[row]);
     switch (row) {
@@ -320,6 +359,13 @@ static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char 
 
 static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     SeqStep *st = &s->track[u->track].step[u->step];
+    if (is_drums(s, u->track) && row > 0) {   /* left/right velocity; below 1 the hit goes */
+        uint8_t *v = &s->track[u->track].drum.vel[row - 1][u->step];
+        if (!*v) { if (d > 0) seq_drum_toggle(s, u->track, row - 1, u->step); }
+        else if (*v + d * (big ? 25 : 5) < 1) *v = 0;
+        else seq_drum_adjust(s, u->track, row - 1, u->step, d * (big ? 25 : 5), 0);
+        return;
+    }
     switch (row) {
     case 0: u->step = wrap(u->step + d, SEQ_STEPS); break;
     case 1: seq_step_toggle(s, u->track, u->step); break;
@@ -338,8 +384,10 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 
 static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char *val, const char *midi_desc) {
     const SeqTrack *tr = &s->track[u->track];
-    static const char *L[TRACK_ROWS] = {"TRACK", "MIDI CHANNEL", "LENGTH", "MUTE", "SHUFFLE", "NEVER ON GRID", "BPM", "SWING", "MIDI OUT"};
+    static const char *L[TRACK_ROWS] = {"TRACK", "TYPE", "MIDI CHANNEL", "LENGTH", "MUTE", "SHUFFLE", "NEVER ON GRID", "BPM", "SWING", "MIDI OUT"};
     snprintf(label, 24, "%s", L[row]);
+    if (row >= 2) row--;   /* the rows below TYPE keep their old numbers */
+    else if (row == 1) { snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "DRUMS (8 LANES)" : "NOTES"); return; }
     switch (row) {
     case 0: snprintf(val, 24, "%d", u->track + 1); break;
     case 1: snprintf(val, 24, "%d", tr->channel + 1); break;
@@ -357,6 +405,12 @@ static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char
 }
 
 static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    if (row == 1) {
+        seq_track_type(s, u->track, is_drums(s, u->track) ? TRACK_NOTES : TRACK_DRUMS);
+        say(u, is_drums(s, u->track) ? "DRUMS: SELECT ON THE GRID OPENS THE LANES" : "NOTES: SELECT ON THE GRID OPENS THE ROLL");
+        return;
+    }
+    if (row >= 2) row--;
     switch (row) {
     case 0: u->track = wrap(u->track + d, SEQ_TRACKS); break;
     case 1: seq_track_channel(s, u->track, d); break;
@@ -373,8 +427,8 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 6
-enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_SLOTS, MENU_CODES, MENU_QUIT };
+#define MENU_ROWS 7
+enum { MENU_RESUME, MENU_STYLE, MENU_NEW, MENU_SLOTS, MENU_DRUMMAP, MENU_CODES, MENU_QUIT };
 
 static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     val[0] = 0;
@@ -385,6 +439,7 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : "A: START OVER");
     }
     else if (row == MENU_SLOTS) { snprintf(label, 24, "SLOTS"); snprintf(val, 24, "A: OPEN"); }
+    else if (row == MENU_DRUMMAP) { snprintf(label, 24, "DRUM MAP"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_CODES) { snprintf(label, 24, "BUTTON CODES"); snprintf(val, 24, "%s", u->show_input ? "ON" : "OFF"); }
     else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
 }
@@ -420,13 +475,17 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->row[P_SLOTS] = s->track[u->track].cur_slot;
         u->slot_confirm = u->slot_more = u->naming = 0;
     }
+    else if (row == MENU_DRUMMAP) {
+        u->page = P_DRUMMAP;
+        u->naming = u->map_confirm = 0;
+    }
     else if (row == MENU_CODES) toggle_codes(u);
     else if (row == MENU_QUIT) u->quit = 1;
 }
 
 static int page_rows(int page) {
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
-         : page == P_SLOTS ? SEQ_SLOTS : GEN_ROWS;
+         : page == P_SLOTS ? SEQ_SLOTS : page == P_DRUMMAP ? MAP_ROWS : GEN_ROWS;
 }
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
@@ -437,12 +496,13 @@ static int grid_steps(const Seq *s) {
 
 static void remember(Seq *s, Ui *u) {
     memcpy(u->undo, s->track[u->track].step, sizeof u->undo);
+    u->undo_drum = s->track[u->track].drum;
     u->undo_len = s->track[u->track].len;
     u->undo_track = u->track;
 }
 
 static void roll(Seq *s, Ui *u) {
-    if (s->track[u->track].gen.type == GEN_NONE) {
+    if (!is_drums(s, u->track) && s->track[u->track].gen.type == GEN_NONE) {
         say(u, "NO GENERATOR: PICK ONE ON GENERATE");
         return;
     }
@@ -454,6 +514,7 @@ static void roll(Seq *s, Ui *u) {
 static void undo(Seq *s, Ui *u) {
     if (u->undo_track < 0) { say(u, "NOTHING TO UNDO"); return; }
     memcpy(s->track[u->undo_track].step, u->undo, sizeof u->undo);
+    s->track[u->undo_track].drum = u->undo_drum;
     s->track[u->undo_track].len = (uint8_t)u->undo_len;
     u->undo_track = -1;
     say(u, "UNDONE");
@@ -464,6 +525,10 @@ static void gen_action(Seq *s, Ui *u, int row) {
     SeqTrack *tr = &s->track[u->track];
     if (row == GR_ANCHOR) { gen_set_anchor(s, u->track); say(u, "ANCHOR SET"); }
     else if (row == GR_XFORM || row == GR_XAMOUNT) {
+        if (is_drums(s, u->track) && (u->xf_op == XF_INVERT || u->xf_op == XF_TRANSPOSE || u->xf_op == XF_SPREAD || u->xf_op == XF_GRID)) {
+            say(u, "NOT FOR DRUM TRACKS");
+            return;
+        }
         remember(s, u);
         gen_transform(s, u->track, u->xf_op, u->xf_amt);
         say(u, gen_xform_name(u->xf_op));
@@ -517,7 +582,7 @@ static void name_slot_start(const Seq *s, Ui *u, int k) {
 
 /* The name editor: up/down letter, left/right move, X space, A keep, B cancel. */
 static void name_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
-    int k = u->row[P_SLOTS];
+    int k = u->row[u->page];
     char *c = &u->name_buf[u->name_pos];
     if (dy) {
         const char *at = strchr(NAME_CHARS, *c);
@@ -526,6 +591,12 @@ static void name_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     }
     else if (dx) u->name_pos = clampi(u->name_pos + dx, 0, SEQ_SLOT_NAME - 1);
     else if (b == B_X) *c = ' ';
+    else if (b == B_A && u->page == P_DRUMMAP) {   /* naming a drum lane */
+        seq_lane_set_name(s, k, u->name_buf);
+        u->naming = 0;
+        snprintf(u->msg_buf, sizeof u->msg_buf, "LANE %d IS %s", k + 1, s->lane_name[k]);
+        say(u, u->msg_buf);
+    }
     else if (b == B_A) {
         seq_slot_set_name(s, u->track, k, u->name_buf);
         u->naming = 0;
@@ -596,6 +667,171 @@ static void slots_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     else if (b == B_SEL) { u->slot_more = 1; u->more_row = MORE_COPY; u->copy_to = (k + 1) % SEQ_SLOTS; }
 }
 
+/* ---- piano roll (Select on the GRID, note tracks) ----
+ * One track full screen: steps across, the scale's notes down the side, 14
+ * rows at a time. A track still plays one note per step, so each column holds
+ * at most one note (chord notes are drawn faintly; CHORD sets them). */
+#define ROLL_ROWS 14
+#define ROLL_RH 24
+#define ROLL_Y0 62
+
+static int roll_top_max(const Seq *s) { return gen_degree_note(s, gen_note_degree(s, 127)); }
+
+/* Scroll so the cursor's row is on screen. */
+static void roll_follow(const Seq *s, Ui *u) {
+    u->roll_note = gen_snap_note(s, u->roll_note);
+    u->roll_top = gen_snap_note(s, u->roll_top);
+    int dn = gen_note_degree(s, u->roll_note), dt = gen_note_degree(s, u->roll_top);
+    if (dn > dt) dt = dn;
+    if (dn < dt - (ROLL_ROWS - 1)) dt = dn + ROLL_ROWS - 1;
+    if (dt < ROLL_ROWS - 1) dt = ROLL_ROWS - 1;   /* the bottom row is never below the lowest note */
+    u->roll_top = gen_degree_note(s, dt);
+    if (u->roll_top > roll_top_max(s)) u->roll_top = roll_top_max(s);
+}
+
+static void open_roll(const Seq *s, Ui *u) {
+    const SeqTrack *tr = &s->track[u->track];
+    const SeqStep *st = &tr->step[u->step];
+    u->page = P_ROLL;
+    u->on_label = 0;
+    if (u->step >= tr->len) u->step = 0;
+    u->roll_note = gen_snap_note(s, st->on ? st->note : tr->gen.base + 12);
+    u->roll_top = gen_degree_note(s, gen_note_degree(s, u->roll_note) + ROLL_ROWS / 2);   /* the cursor in the middle */
+    roll_follow(s, u);
+}
+
+static void open_drums(const Seq *s, Ui *u) {
+    u->page = P_DRUMS;
+    u->on_label = u->drum_label = 0;
+    if (u->step >= s->track[u->track].len) u->step = 0;
+}
+
+/* After L2/R2: the roll or the drum grid, whichever fits the new track. */
+static void sub_page_for_track(const Seq *s, Ui *u) {
+    if (u->page != P_ROLL && u->page != P_DRUMS) return;
+    if (is_drums(s, u->track)) open_drums(s, u);
+    else open_roll(s, u);
+}
+
+/* Length as hundredths of a step: gate (5..100) plus 100 per held step.
+ * Up to a step it moves in quarters, then a whole step at a time. */
+static void roll_length(SeqStep *st, int d) {
+    int L = st->hold * 100 + st->gate;
+    if (d > 0) L = L < 100 ? (L / 25 + 1) * 25 : L + 100;
+    else L = L > 100 ? L - 100 : L > 25 ? ((L + 24) / 25 - 1) * 25 : 5;
+    L = clampi(L, 5, 100 + 100 * SEQ_MAX_HOLD);
+    st->hold = (uint8_t)(L > 100 ? (L - 1) / 100 : 0);
+    st->gate = (uint8_t)(L - st->hold * 100);
+}
+
+static void roll_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    SeqTrack *tr = &s->track[u->track];
+    SeqStep *st = &tr->step[u->step];
+    roll_follow(s, u);
+    if (u->held[B_Y] && dx) { if (st->on) roll_length(st, dx); else say(u, "NO NOTE ON THIS STEP"); }
+    else if (u->held[B_Y] && dy) {   /* move the step's note by a scale degree; the cursor goes with it */
+        if (!st->on) { say(u, "NO NOTE ON THIS STEP"); return; }
+        st->note = (uint8_t)gen_step_note(s, gen_snap_note(s, st->note), -dy);
+        u->roll_note = st->note;
+        if (!s->playing) seq_audition(s, tr->channel, st->note, st->vel);
+    }
+    else if (u->held[B_X] && dx) { if (st->on) seq_step_nudge(s, u->track, u->step, dx); else say(u, "NO NOTE ON THIS STEP"); }
+    else if (u->held[B_X] && dy) { if (st->on) seq_step_adjust(s, u->track, u->step, 0, -dy * 8, 0, 0); else say(u, "NO NOTE ON THIS STEP"); }
+    else if (dx) u->step = wrap(u->step + dx, tr->len);
+    else if (dy) u->roll_note = gen_step_note(s, u->roll_note, -dy);
+    else if (b == B_A) {
+        if (st->on && st->note == u->roll_note) st->on = 0;
+        else {
+            st->note = (uint8_t)u->roll_note;
+            st->on = 1;
+            if (!s->playing) seq_audition(s, tr->channel, st->note, st->vel);
+        }
+    }
+    roll_follow(s, u);
+}
+
+/* ---- drum grid (Select on the GRID, drum tracks) ---- */
+#define DRUM_RH 40
+#define DRUM_Y0 62
+
+static void drums_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    SeqTrack *tr = &s->track[u->track];
+    int l = u->lane, i = u->step;
+    if (u->drum_label) {   /* on the lane name: A hear it, Y lock it */
+        if (dy) u->lane = wrap(u->lane + dy, SEQ_LANES);
+        else if (dx > 0) { u->drum_label = 0; u->step = 0; }
+        else if (b == B_A) seq_audition(s, tr->channel, s->lane_note[l], 100);
+        else if (b == B_Y || b == B_LOCK) seq_drum_lock(s, u->track, l);
+        return;
+    }
+    if (u->held[B_X] && dy) seq_drum_adjust(s, u->track, l, i, -dy * 10, 0);
+    else if (u->held[B_X] && dx) seq_drum_adjust(s, u->track, l, i, 0, dx * 10);
+    else if (dx < 0 && i == 0) u->drum_label = 1;
+    else if (dx) u->step = wrap(u->step + dx, tr->len);
+    else if (dy) u->lane = wrap(u->lane + dy, SEQ_LANES);
+    else if (b == B_A) {
+        seq_drum_toggle(s, u->track, l, i);
+        if (tr->drum.vel[l][i] && !s->playing) seq_audition(s, tr->channel, s->lane_note[l], tr->drum.vel[l][i]);
+    }
+    else if (b == B_Y || b == B_LOCK) {
+        seq_drum_lock(s, u->track, l);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "%s %s", s->lane_name[l], tr->drum_lock & (1 << l) ? "LOCKED" : "UNLOCKED");
+        say(u, u->msg_buf);
+    }
+}
+
+/* ---- DRUM MAP (M > DRUM MAP): the note and name of each lane ---- */
+static void map_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    if (row == SEQ_LANES) {
+        snprintf(label, 24, "RESET TO GM");
+        snprintf(val, 24, "%s", u->map_confirm ? "A AGAIN: RESET" : "A: RESET");
+        return;
+    }
+    char nn[8];
+    seq_note_name(s->lane_note[row], nn);
+    snprintf(label, 24, "%d %s", row + 1, s->lane_name[row]);
+    snprintf(val, 24, "%3d %s", s->lane_note[row], nn);
+}
+
+static void map_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    int *row = &u->row[P_DRUMMAP], k = *row, ch = s->track[audition_track(s, u)].channel;
+    int confirm = u->map_confirm;
+    u->map_confirm = 0;
+    if (u->naming) { name_press(s, u, b, dx, dy); return; }
+    if (dy) *row = wrap(*row + dy, MAP_ROWS);
+    else if (b == B_B) u->page = P_MENU;
+    else if (k == SEQ_LANES) {
+        if (b != B_A) return;
+        if (!confirm) { u->map_confirm = 1; say(u, "A AGAIN: ALL 8 LANES BACK TO GM"); return; }
+        seq_drum_map_gm(s);
+        say(u, "DRUM MAP RESET TO GM");
+    }
+    else if (dx) {   /* change the note and hear it straight away */
+        seq_lane_note(s, k, dx * (u->held[B_Y] ? 12 : 1));
+        seq_audition(s, ch, s->lane_note[k], 100);
+    }
+    else if (b == B_A) seq_audition(s, ch, s->lane_note[k], 100);
+    else if (b == B_Y) {
+        snprintf(u->name_buf, sizeof u->name_buf, "%-*s", SEQ_LANE_NAME, s->lane_name[k]);
+        u->name_pos = 0;
+        u->naming = 1;
+    }
+}
+
+/* Select pressed and released on its own: the GRID opens the piano roll (note
+ * track) or drum grid (drum track); from either, back to the GRID. */
+static void select_tap(Ui *u) {
+    player_lock(u->p);
+    Seq *s = &u->p->seq;
+    if (u->page == P_GRID) {
+        u->on_label = 0;
+        if (is_drums(s, u->track)) open_drums(s, u);
+        else open_roll(s, u);
+    }
+    else if (u->page == P_ROLL || u->page == P_DRUMS) u->page = P_GRID;
+    player_unlock(u->p);
+}
+
 /* Controls (same on every page unless noted):
  *   L1/R1 page   L2/R2 track   B back to grid   Start play/stop   Select+Start quit
  *   M main menu (B or M again closes it)
@@ -614,15 +850,19 @@ static void press(Ui *u, Btn b) {
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
-    int in_menu = u->page == P_MENU || u->page == P_SLOTS;
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_DRUMMAP;
+    int sub = u->page == P_ROLL || u->page == P_DRUMS;   /* opened from the GRID */
+    int from = in_menu ? u->menu_from : sub ? P_GRID : u->page;   /* where L1/R1 count from */
     if (b == B_QUIT || (b == B_START && u->held[B_SEL])) u->quit = 1;
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
     else if (b == B_MENU) {
-        u->naming = u->slot_more = u->slot_confirm = 0;
+        u->naming = u->slot_more = u->slot_confirm = u->map_confirm = 0;
         if (in_menu) u->page = u->menu_from;
         else { u->menu_from = u->page; u->page = P_MENU; }
     }
     else if (u->page == P_SLOTS && u->naming) slots_press(s, u, b, dx, dy);   /* the editor takes every button */
+    else if (u->page == P_DRUMMAP && u->naming) map_press(s, u, b, dx, dy);
+    else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
     else if (u->page == P_SLOTS && (b == B_L2 || b == B_R2)) {
         u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
         u->slot_more = u->slot_confirm = 0;
@@ -630,9 +870,11 @@ static void press(Ui *u, Btn b) {
     else if (u->page == P_SLOTS && b != B_L && b != B_R && b != B_PAGE) slots_press(s, u, b, dx, dy);
     else if (u->page == P_MENU && b == B_B) u->page = u->menu_from;
     else if (u->page == P_MENU && b == B_A) menu_row_select(s, u, u->row[P_MENU]);
-    else if (b == B_L || b == B_R) u->page = wrap((in_menu ? u->menu_from : u->page) + (b == B_R ? 1 : -1), P_TABS);
-    else if (b == B_PAGE) u->page = wrap((in_menu ? u->menu_from : u->page) + 1, P_TABS);
-    else if (b == B_L2 || b == B_R2) u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
+    else if (b == B_L || b == B_R) u->page = wrap(from + (b == B_R ? 1 : -1), P_TABS);
+    else if (b == B_PAGE) u->page = wrap(from + 1, P_TABS);
+    else if (b == B_L2 || b == B_R2) { u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS); sub_page_for_track(s, u); }
+    else if (u->page == P_ROLL && (b == B_A || b == B_X || b == B_Y || dx || dy)) roll_press(s, u, b, dx, dy);
+    else if (u->page == P_DRUMS && (b == B_A || b == B_X || b == B_Y || b == B_LOCK || dx || dy)) drums_press(s, u, b, dx, dy);
     else if (u->page == P_GRID && u->on_label && (b == B_A || b == B_B || b == B_X || b == B_Y || dx || dy)) {
         if (b == B_A) label_mute(s, u);
         else if (b == B_B) label_solo(s, u);
@@ -644,6 +886,8 @@ static void press(Ui *u, Btn b) {
     else if (b == B_UNDO) undo(s, u);
     else if (b == B_LOCK) s->track[u->track].step[u->step].lock ^= 1;
     else if (b == B_B) u->page = P_GRID;
+    else if (u->page == P_GRID && is_drums(s, u->track) && (b == B_A || b == B_X)) open_drums(s, u);   /* a drum step has 8 lanes */
+    else if (u->page == P_GRID && is_drums(s, u->track) && b == B_Y) say(u, "DRUMS: LOCK LANES WITH Y IN THE DRUM GRID");
     else if (u->page == P_GRID) {
         if (b == B_A) seq_step_toggle(s, u->track, u->step);
         else if (b == B_X) u->page = P_STEP;
@@ -657,6 +901,7 @@ static void press(Ui *u, Btn b) {
         else if (dx && u->page == P_TRACK) track_row_adjust(s, u, *row, dx, big);
         else if (dx && u->page == P_MENU) menu_row_adjust(s, u, *row, dx, big);
         else if (dx) gen_row_adjust(s, u, *row, dx, big);
+        else if (b == B_A && u->page == P_STEP && is_drums(s, u->track)) { if (*row > 0) seq_drum_toggle(s, u->track, *row - 1, u->step); }
         else if (b == B_A && u->page == P_STEP) seq_step_toggle(s, u->track, u->step);
         else if (b == B_A && u->page == P_GEN) gen_action(s, u, *row);
         else if (b == B_X && u->page == P_GEN) undo(s, u);
@@ -668,11 +913,15 @@ static int repeats(Btn b) { return b <= B_RIGHT; }  /* the d-pad auto-repeats */
 
 static void set_button(Ui *u, Btn b, int down) {
     if (down && !u->held[b]) {
+        if (b == B_SEL) u->sel_used = 0;
+        else if (u->held[B_SEL]) u->sel_used = 1;   /* Select+Start quits, so Select's release must not also open a page */
         u->held[b] = 1;
         u->next_rep[b] = SDL_GetTicks() + 350;
         press(u, b);
     } else if (!down) {
+        int was = u->held[b];
         u->held[b] = 0;
+        if (b == B_SEL && was && !u->sel_used && !u->quit) select_tap(u);
     }
 }
 
@@ -836,7 +1085,7 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
         }
     }
     for (int i = 0, x = 20; i < P_TABS; x += 6 * ((int)strlen(PAGE_NAMES[i]) + 2), i++)   /* page tabs */
-        text(r, x, 46, 1, i == u->page ? YELLOW : DIM, PAGE_NAMES[i]);
+        text(r, x, 46, 1, i == u->page || (i == P_GRID && (u->page == P_ROLL || u->page == P_DRUMS)) ? YELLOW : DIM, PAGE_NAMES[i]);
     snprintf(buf, sizeof buf, "T%d", u->track + 1);
     text(r, 200, 46, 1, TRACK_COL[u->track], buf);
     static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -876,14 +1125,14 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         if (tr->solo) { rect(r, 40, y + 22, 9, 11, YELLOW); text(r, 42, y + 24, 1, BG, "S"); }
         if (tr->mute) text(r, 12, y + 38, 1, DIM, "MUTE");
         else if (tr->solo) text(r, 12, y + 38, 1, YELLOW, "SOLO");
-        else text(r, 12, y + 38, 1, scale(base, tr->evo.every ? 100 : 60), gen_short_name(tr->gen.type));   /* bright = evolving */
+        else text(r, 12, y + 38, 1, scale(base, tr->evo.every ? 100 : 60), tr->type == TRACK_DRUMS ? "DRUMS" : gen_short_name(tr->gen.type));   /* bright = evolving */
         int head = seq_playhead(&s, t);
         /* How much of each step a held note from an earlier step covers: 100 =
          * all of it, less = the note ends part-way (its gate), 0 = none. A held
          * note runs on until its hold ends or the next note cuts it off, and
          * wraps round the end of the pattern as it does when playing. */
         uint8_t tail[SEQ_STEPS] = {0};
-        for (int i = 0; i < tr->len; i++) {
+        for (int i = 0; i < tr->len && tr->type == TRACK_NOTES; i++) {
             const SeqStep *st = &tr->step[i];
             if (!st->on || !st->hold) continue;
             for (int k = 1; k <= st->hold && k < tr->len; k++) {
@@ -898,6 +1147,15 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
             if (i >= tr->len) { frame(r, x, y, w, h, 1, (Col){40, 42, 52}); continue; }
             rect(r, x, y, w, h, (i / 4) % 2 ? (Col){38, 40, 52} : (Col){30, 32, 42});
             const SeqStep *st = &tr->step[i];
+            if (tr->type == TRACK_DRUMS) {   /* a drum step: one thin bar per lane that hits, kick at the top */
+                for (int l = 0; l < SEQ_LANES; l++) {
+                    int v = tr->drum.vel[l][i];
+                    if (v) rect(r, x + 3, y + 3 + l * 6, w - 6, 5, scale(base, 35 + 65 * v / 127));
+                }
+                if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 2, WHITE);
+                if (t == u->track && i == u->step && !u->on_label) frame(r, x - 2, y - 2, w + 4, h + 4, 2, YELLOW);
+                continue;
+            }
             int band_y = y + h / 2 - 6;   /* held notes: a bar through the middle of the steps they cover */
             if (!st->on && tail[i]) {
                 Col tc = scale(base, 55);
@@ -944,6 +1202,19 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  SELECT+START QUIT");
         return;
     }
+    if (tr->type == TRACK_DRUMS) {   /* which lanes hit on this step */
+        snprintf(buf, sizeof buf, "T%d STEP %02d DRUMS  LEN %d  CH %d", u->track + 1, u->step + 1, tr->len, tr->channel + 1);
+        text(r, 20, y, 2, WHITE, buf);
+        int n = 0;
+        buf[0] = 0;
+        for (int l = 0; l < SEQ_LANES; l++)
+            if (tr->drum.vel[l][u->step] && n < 120) n += snprintf(buf + n, sizeof buf - n, "%s%s", n ? " " : "", s.lane_name[l]);
+        text(r, 20, y + 22, n > 40 ? 1 : 2, WHITE, n ? buf : "NO HITS");
+        text(r, 20, y + 44, 2, DIM, "SELECT OR A: OPEN THE DRUM GRID");
+        text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A/X/SELECT DRUM GRID  START PLAY/STOP  LEFT OF STEP 1: MUTE/SOLO");
+        text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  SELECT+START QUIT");
+        return;
+    }
     {
         char ob[16] = "";
         if (st->nudge) snprintf(ob, sizeof ob, "  %s %d%%", st->nudge < 0 ? "EARLY" : "LATE", (abs(st->nudge) * 100 + 12) / SEQ_TICKS_PER_STEP);
@@ -961,7 +1232,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     else snprintf(buf, sizeof buf, "GEN %s  EVOLVE OFF", gen_name(tr->gen.type));
     text(r, 20, y + 44, 2, DIM, buf);
 
-    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A STEP ON/OFF  X EDIT STEP  Y LOCK STEP  START PLAY/STOP  LEFT OF STEP 1: MUTE/SOLO");
+    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A ON/OFF  X EDIT  Y LOCK  SELECT PIANO ROLL  START PLAY/STOP  LEFT OF 1: MUTE/SOLO");
     text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  SELECT+START QUIT");
 }
 
@@ -971,8 +1242,18 @@ static void draw_preview(SDL_Renderer *r, const Seq *s, const Ui *u) {
     const SeqTrack *tr = &s->track[u->track];
     Col base = TRACK_COL[u->track];
     int px = 392, py = 70, pw = tr->len > 16 ? 240 / tr->len : 15, ph = 150;
-    text(r, px, py - 14, 1, DIM, "PATTERN");
+    text(r, px, py - 14, 1, DIM, tr->type == TRACK_DRUMS ? "DRUM LANES" : "PATTERN");
     rect(r, px - 4, py - 2, 16 * pw + 6, ph + 4, (Col){24, 26, 36});
+    if (tr->type == TRACK_DRUMS) {
+        int head = seq_playhead(s, u->track), lh = ph / SEQ_LANES;
+        for (int i = 0; i < tr->len; i++) {
+            for (int l = 0; l < SEQ_LANES; l++)
+                if (tr->drum.vel[l][i]) rect(r, px + i * pw, py + l * lh + 2, pw - 3, lh - 4, scale(base, 35 + 65 * tr->drum.vel[l][i] / 127));
+            if (i == head) frame(r, px + i * pw - 1, py, pw - 1, ph, 1, WHITE);
+            if (u->page == P_STEP && i == u->step) frame(r, px + i * pw - 2, py - 1, pw + 1, ph + 2, 2, YELLOW);
+        }
+        return;
+    }
     int lo = tr->gen.base, hi = tr->gen.base + 12 * tr->gen.span;
     for (int i = 0; i < tr->len; i++) {
         const SeqStep *st = &tr->step[i];
@@ -989,6 +1270,45 @@ static void draw_preview(SDL_Renderer *r, const Seq *s, const Ui *u) {
         if (i == head) frame(r, px + i * pw - 1, py, pw - 1, ph, 1, WHITE);
         if (u->page == P_STEP && i == u->step) frame(r, px + i * pw - 2, py - 1, pw + 1, ph + 2, 2, YELLOW);
     }
+}
+
+/* The 8-letter name editor (slot and lane names), at the right of a list page. */
+static void draw_name_editor(SDL_Renderer *r, const Ui *u, int y) {
+    text(r, 392, y, 2, YELLOW, "RENAME");
+    for (int i = 0; i < SEQ_SLOT_NAME; i++) {
+        int x = 392 + i * 28;
+        char ch[2] = {u->name_buf[i], 0};
+        rect(r, x, y + 24, 24, 34, i == u->name_pos ? (Col){40, 44, 64} : (Col){24, 26, 36});
+        if (i == u->name_pos) frame(r, x, y + 24, 24, 34, 2, YELLOW);
+        text(r, x + 5, y + 30, 2, i == u->name_pos ? YELLOW : WHITE, ch[0] == ' ' ? "_" : ch);
+    }
+    text(r, 392, y + 70, 1, DIM, "UP/DOWN LETTER  LEFT/RIGHT MOVE");
+    text(r, 392, y + 82, 1, DIM, "X SPACE  A KEEP  B CANCEL");
+}
+
+/* Right-hand side of the DRUM MAP page. */
+static void draw_map_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    char buf[64];
+    int at = audition_track(s, u);
+    text(r, 392, 62, 2, YELLOW, "DRUM MAP");
+    snprintf(buf, sizeof buf, "NOTES PLAY ON T%d, CHANNEL %d", at + 1, s->track[at].channel + 1);
+    text(r, 392, 86, 1, WHITE, buf);
+    int y = 110;
+    if (u->naming) draw_name_editor(r, u, y);
+    else {
+        text(r, 392, y, 1, DIM, "EACH LANE OF A DRUM TRACK PLAYS");
+        text(r, 392, y + 12, 1, DIM, "ITS OWN MIDI NOTE. FIND THE NOTE");
+        text(r, 392, y + 24, 1, DIM, "EACH FELUCCA DRUM SOUND ANSWERS TO:");
+        text(r, 392, y + 42, 1, DIM, "LEFT/RIGHT  NOTE (PLAYS IT)");
+        text(r, 392, y + 54, 1, DIM, "HOLD Y      BY OCTAVES");
+        text(r, 392, y + 66, 1, DIM, "A           PLAY IT AGAIN");
+        text(r, 392, y + 78, 1, DIM, "Y           RENAME THE LANE");
+        text(r, 392, y + 96, 1, DIM, "STARTS AS GENERAL MIDI (GM). ONE");
+        text(r, 392, y + 108, 1, DIM, "MAP FOR ALL DRUM TRACKS; SAVED");
+        text(r, 392, y + 120, 1, DIM, "WITH THE PATTERNS.");
+    }
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN LANE  LEFT/RIGHT NOTE (HOLD Y = OCTAVE)  A PLAY  Y RENAME");
+    text(r, 20, H - 20, 1, DIM, "L2/R2 TRACK  B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
 }
 
 /* Right-hand side of the SLOTS page: the selected slot's pattern, then the name
@@ -1023,16 +1343,7 @@ static void draw_slots_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
     }
     y += 18;
     if (u->naming) {
-        text(r, 392, y, 2, YELLOW, "RENAME");
-        for (int i = 0; i < SEQ_SLOT_NAME; i++) {
-            int x = 392 + i * 28;
-            char ch[2] = {u->name_buf[i], 0};
-            rect(r, x, y + 24, 24, 34, i == u->name_pos ? (Col){40, 44, 64} : (Col){24, 26, 36});
-            if (i == u->name_pos) frame(r, x, y + 24, 24, 34, 2, YELLOW);
-            text(r, x + 5, y + 30, 2, i == u->name_pos ? YELLOW : WHITE, ch[0] == ' ' ? "_" : ch);
-        }
-        text(r, 392, y + 70, 1, DIM, "UP/DOWN LETTER  LEFT/RIGHT MOVE");
-        text(r, 392, y + 82, 1, DIM, "X SPACE  A KEEP  B CANCEL");
+        draw_name_editor(r, u, y);
     } else if (u->slot_more) {
         static const char *L[MORE_ROWS] = {"COPY TO", "CLEAR SLOT", "BACK"};
         for (int i = 0; i < MORE_ROWS; i++) {
@@ -1074,7 +1385,8 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         if (u->page == P_STEP) step_row_text(&s, u, row, label, val);
         else if (u->page == P_MENU) menu_row_text(&s, u, row, label, val);
         else if (u->page == P_SLOTS) { slots_row_text(&s, u, row, label, val); head = s.track[u->track].slot[row].used; }
-        else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == 6; }
+        else if (u->page == P_TRACK) { track_row_text(&s, u, row, label, val, midi_desc); head = row == 0 || row == TRACK_BPM_ROW; }
+        else if (u->page == P_DRUMMAP) map_row_text(&s, u, row, label, val);
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
@@ -1082,6 +1394,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 215, y, 2, sel ? YELLOW : WHITE, val);
     }
     if (u->page == P_SLOTS) { draw_slots_side(r, &s, u); return; }
+    if (u->page == P_DRUMMAP) { draw_map_side(r, &s, u); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
     else text(r, 392, 62, 2, YELLOW, "MAIN MENU");
     if (u->page == P_GEN) {
@@ -1092,6 +1405,13 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 300, 1, DIM, "EVOLVE CHANGES THE PATTERN EVERY N");
         text(r, 392, 312, 1, DIM, "BARS: AMOUNT = CHANCE PER STEP.");
         text(r, 392, 324, 1, DIM, "REGEN RE-RUNS THE GENERATOR.");
+    } else if (u->page == P_STEP && is_drums(&s, u->track)) {
+        text(r, 392, 240, 1, DIM, "A DRUM STEP: ONE ROW PER LANE.");
+        text(r, 392, 252, 1, DIM, "LEFT/RIGHT CHANGES THE HIT'S");
+        text(r, 392, 264, 1, DIM, "VELOCITY; DOWN PAST 1 REMOVES IT.");
+        text(r, 392, 276, 1, DIM, "A PUTS A HIT ON OR OFF.");
+        text(r, 392, 300, 1, DIM, "CHANCE AND LANE LOCKS ARE IN THE");
+        text(r, 392, 312, 1, DIM, "DRUM GRID (SELECT ON THE GRID).");
     } else if (u->page == P_STEP) {
         text(r, 392, 240, 1, DIM, "NOTE MOVES BY SCALE DEGREE;");
         text(r, 392, 252, 1, DIM, "HOLD Y TO MOVE BY OCTAVE.");
@@ -1112,6 +1432,128 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
     text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  B BACK TO GRID  START PLAY/STOP");
 }
 
+static void draw_roll(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    const SeqTrack *tr = &s->track[u->track];
+    Col base = TRACK_COL[u->track];
+    char buf[96], nn[8];
+    int view = (u->step / GRID_COLS) * GRID_COLS;
+    snprintf(buf, sizeof buf, "ROLL %d-%d", view + 1, view + GRID_COLS);
+    text(r, 560, 46, 1, YELLOW, buf);
+    int cur = gen_snap_note(s, u->roll_note), top = gen_snap_note(s, u->roll_top);
+    int dtop = gen_note_degree(s, top), xend = X0 + GRID_COLS * CELL;
+    /* rows: the scale's notes, the root's rows lighter */
+    for (int k = 0; k < ROLL_ROWS; k++) {
+        int note = gen_degree_note(s, dtop - k), y = ROLL_Y0 + k * ROLL_RH;
+        if (dtop - k < 0) break;
+        int root = ((note - s->root) % 12 + 12) % 12 == 0;
+        seq_note_name(note, nn);
+        text(r, 10, y + 8, 1, note == cur ? YELLOW : root ? WHITE : DIM, nn);
+        for (int i = view; i < view + GRID_COLS; i++) {
+            int x = X0 + (i - view) * CELL;
+            if (i >= tr->len) { rect(r, x, y, CELL - 1, ROLL_RH - 1, (Col){20, 21, 28}); continue; }
+            Col bg = (i / 4) % 2 ? (Col){34, 36, 48} : (Col){28, 30, 40};
+            if (root) bg = (Col){(uint8_t)(bg.r + 14), (uint8_t)(bg.g + 14), (uint8_t)(bg.b + 18)};
+            rect(r, x, y, CELL - 1, ROLL_RH - 1, bg);
+        }
+    }
+    /* notes: a bar as long as the note sounds (gate + hold, cut by the next
+     * note), shifted by its offset; brightness = velocity */
+    for (int i = 0; i < tr->len; i++) {
+        const SeqStep *st = &tr->step[i];
+        if (!st->on) continue;
+        int L = st->hold * 100 + st->gate, next = tr->len;
+        for (int j = i + 1; j < tr->len; j++) if (tr->step[j].on) { next = j; break; }
+        if (L > (next - i) * 100) L = (next - i) * 100;
+        int x0 = X0 + (i - view) * CELL + st->nudge * CELL / SEQ_TICKS_PER_STEP, x1 = x0 + CELL * L / 100 - 2;
+        int cx0 = x0 < X0 ? X0 : x0, cx1 = x1 > xend ? xend : x1;
+        if (cx1 <= cx0) continue;
+        uint8_t cn[SEQ_CHORD_MAX];
+        int nc = tr->chord ? gen_chord_notes(s, st->note, tr->chord, cn) : 0;
+        for (int c = 0; c < nc; c++) {   /* chord notes, faint (set by CHORD, not edited here) */
+            int row = dtop - gen_note_degree(s, cn[c]);
+            if (row >= 0 && row < ROLL_ROWS) rect(r, cx0, ROLL_Y0 + row * ROLL_RH + 8, cx1 - cx0, ROLL_RH - 17, scale(base, 30));
+        }
+        int row = dtop - gen_note_degree(s, st->note);
+        if (row < 0 || row >= ROLL_ROWS) continue;
+        int y = ROLL_Y0 + row * ROLL_RH;
+        rect(r, cx0, y + 3, cx1 - cx0, ROLL_RH - 7, scale(base, 35 + 65 * st->vel / 127));
+        if (!seq_in_scale(s, st->note)) frame(r, cx0, y + 3, cx1 - cx0, ROLL_RH - 7, 1, WHITE);   /* not in the scale */
+        if (st->prob < 100) rect(r, cx0, y + 3, (cx1 - cx0) * st->prob / 100, 2, WHITE);
+        if (st->lock && x0 >= X0) rect(r, x0 + 2, y + 5, 5, 5, YELLOW);
+    }
+    int head = seq_playhead(s, u->track);
+    if (head >= view && head < view + GRID_COLS) {
+        int x = X0 + (head - view) * CELL;
+        frame(r, x - 1, ROLL_Y0 - 1, CELL + 1, ROLL_ROWS * ROLL_RH + 1, 1, WHITE);
+    }
+    int crow = dtop - gen_note_degree(s, cur);
+    if (crow >= 0 && crow < ROLL_ROWS)
+        frame(r, X0 + (u->step - view) * CELL - 2, ROLL_Y0 + crow * ROLL_RH - 2, CELL + 3, ROLL_RH + 3, 2, YELLOW);
+
+    const SeqStep *st = &tr->step[u->step];
+    int y = ROLL_Y0 + ROLL_ROWS * ROLL_RH + 8;
+    if (st->on) {
+        int L = st->hold * 100 + st->gate;
+        char ob[16] = "";
+        if (st->nudge) snprintf(ob, sizeof ob, "  %s %d%%", st->nudge < 0 ? "EARLY" : "LATE", (abs(st->nudge) * 100 + 12) / SEQ_TICKS_PER_STEP);
+        seq_note_name(st->note, nn);
+        snprintf(buf, sizeof buf, "STEP %02d %s  VEL %d  LEN %d.%02d%s", u->step + 1, nn, st->vel, L / 100, L % 100, ob);
+    } else snprintf(buf, sizeof buf, "STEP %02d  NO NOTE", u->step + 1);
+    text(r, 20, y, 2, WHITE, buf);
+    seq_note_name(cur, nn);
+    snprintf(buf, sizeof buf, "T%d %s  CURSOR %s  PROB %d%%%s  LEN %d", u->track + 1, gen_name(tr->gen.type), nn, st->prob,
+             st->lock ? "  LOCKED" : "", tr->len);
+    text(r, 20, y + 20, 1, DIM, buf);
+    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A NOTE ON/OFF  HOLD Y: LEFT/RIGHT LENGTH, UP/DOWN MOVE THE NOTE");
+    text(r, 20, H - 20, 1, DIM, "HOLD X: LEFT/RIGHT OFFSET, UP/DOWN VELOCITY  L2/R2 TRACK  B OR SELECT BACK TO GRID");
+}
+
+static void draw_drums(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    const SeqTrack *tr = &s->track[u->track];
+    Col base = seq_track_audible(s, u->track) ? TRACK_COL[u->track] : scale(TRACK_COL[u->track], 40);
+    char buf[96], nn[8];
+    int view = (u->step / GRID_COLS) * GRID_COLS, head = seq_playhead(s, u->track);
+    snprintf(buf, sizeof buf, "DRUMS %d-%d", view + 1, view + GRID_COLS);
+    text(r, 560, 46, 1, YELLOW, buf);
+    for (int l = 0; l < SEQ_LANES; l++) {
+        int y = DRUM_Y0 + l * DRUM_RH, locked = tr->drum_lock & (1 << l), cur = l == u->lane;
+        if (u->drum_label && cur) { rect(r, 2, y - 2, 52, DRUM_RH - 2, (Col){40, 44, 64}); frame(r, 2, y - 2, 52, DRUM_RH - 2, 2, YELLOW); }
+        text(r, 5, y + 6, 1, cur ? YELLOW : WHITE, s->lane_name[l]);
+        seq_note_name(s->lane_note[l], nn);
+        snprintf(buf, sizeof buf, "%d %s", s->lane_note[l], nn);
+        text(r, 5, y + 18, 1, DIM, buf);
+        if (locked) rect(r, 46, y + 26, 6, 6, YELLOW);
+        for (int i = view; i < view + GRID_COLS; i++) {
+            int x = X0 + (i - view) * CELL, w = CELL - 4, h = DRUM_RH - 6;
+            if (i >= tr->len) { frame(r, x, y, w, h, 1, (Col){40, 42, 52}); continue; }
+            rect(r, x, y, w, h, (i / 4) % 2 ? (Col){38, 40, 52} : (Col){30, 32, 42});
+            int v = tr->drum.vel[l][i];
+            if (v) {
+                rect(r, x + 3, y + 3, w - 6, h - 6, scale(base, 35 + 65 * v / 127));
+                if (tr->drum.prob[l][i] < 100) rect(r, x + 3, y + 3, (w - 6) * tr->drum.prob[l][i] / 100, 3, WHITE);
+            }
+            if (locked) rect(r, x + w - 6, y + 2, 4, 4, YELLOW);
+            if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 1, WHITE);
+            if (cur && i == u->step && !u->drum_label) frame(r, x - 2, y - 2, w + 4, h + 4, 2, YELLOW);
+        }
+    }
+    int y = DRUM_Y0 + SEQ_LANES * DRUM_RH + 6, l = u->lane, v = tr->drum.vel[l][u->step];
+    seq_note_name(s->lane_note[l], nn);
+    if (u->drum_label) snprintf(buf, sizeof buf, "T%d %s  NOTE %d %s%s", u->track + 1, s->lane_name[l], s->lane_note[l], nn, tr->drum_lock & (1 << l) ? "  LOCKED" : "");
+    else if (v) snprintf(buf, sizeof buf, "STEP %02d %s  VEL %d  CHANCE %d%%", u->step + 1, s->lane_name[l], v, tr->drum.prob[l][u->step]);
+    else snprintf(buf, sizeof buf, "STEP %02d %s  NO HIT", u->step + 1, s->lane_name[l]);
+    text(r, 20, y, 2, WHITE, buf);
+    snprintf(buf, sizeof buf, "T%d DRUMS  CH %d  LEN %d  %d HITS  BUSY %d%%", u->track + 1, tr->channel + 1, tr->len, seq_drum_hits(tr), tr->drum_busy);
+    text(r, 20, y + 20, 1, DIM, buf);
+    if (u->drum_label) {
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN LANE  A HEAR THE LANE'S NOTE  Y LOCK THE LANE  RIGHT BACK TO STEP 1");
+        text(r, 20, H - 20, 1, DIM, "NOTES ARE SET ON M > DRUM MAP  L2/R2 TRACK  B OR SELECT BACK TO GRID");
+        return;
+    }
+    text(r, 20, H - 34, 1, DIM, "D-PAD MOVE  A HIT ON/OFF  HOLD X: UP/DOWN VELOCITY, LEFT/RIGHT CHANCE  Y LOCK LANE");
+    text(r, 20, H - 20, 1, DIM, "LEFT OF STEP 1: LANE NAME  L2/R2 TRACK  M MENU  B OR SELECT BACK TO GRID");
+}
+
 static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     Seq s;
     char midi_desc[128];
@@ -1123,6 +1565,8 @@ static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     SDL_RenderClear(r);
     draw_header(r, &s, u, midi_desc);
     if (u->page == P_GRID) draw_grid(r, &s, u);
+    else if (u->page == P_ROLL) draw_roll(r, &s, u);
+    else if (u->page == P_DRUMS) draw_drums(r, &s, u);
     else draw_list(r, &s, u, midi_desc);
 }
 
@@ -1207,7 +1651,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     Ui u = {.p = p, .undo_track = -1, .xf_amt = 1, .snap = 1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
            .midi_up = -1};
     if (opt->keys) {
-        char tmp[256];
+        static char tmp[4096];
         snprintf(tmp, sizeof tmp, "%s", opt->keys);
         for (char *tok = strtok(tmp, ","); tok; tok = strtok(NULL, ",")) {
             int down = 1, up = 1;

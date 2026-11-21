@@ -73,6 +73,11 @@ render)
     # the grid, one note per channel at a time, nothing hung.
     ./seq4h-render --pattern tests/fixtures/shuffle.pat --bars 128 --out "$OUT/midi/render-shuffle.cap"
     check render-shuffle-128-bars "$OUT/midi/render-shuffle.cap" --bpm 120 --offset 11 --min-offset 2 --expect-channels 1-2 --tolerance-ms 0.01
+    # Drum tracks: two lanes on one channel at once (so --poly pairing), a
+    # techno kit chained over two slots with morphing, evolution and live
+    # shuffle, and an ambient kit that re-rolls every 2 bars.
+    ./seq4h-render --pattern tests/fixtures/drums.pat --bars 128 --out "$OUT/midi/render-drums.cap"
+    check render-drums-128-bars "$OUT/midi/render-drums.cap" --bpm 124 --poly --offset 3 --expect-channels 1,2,4 --tolerance-ms 0.01
     "$PY" tests/test_midicheck.py "$OUT/midi/render-demo.cap"
     result "midicheck catches broken MIDI (wrong channel, hung note, late note, slow clock...)" $?
     note ""
@@ -113,11 +118,11 @@ step-note-up|c,Down,Down,Right,Right
 step-offset|c,Down,Down,Down,Down,Down,Down,Left,Left,Left,Left,Left
 grid-hold-offset|c,Down,Down,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Right,Right,Right,Right,c,Left,Left,Left,Left,Left,Left,Left,Left,x,Right,Right,Right,Right,c,Up,Right,Right,Right,Right,Right,Right,x
 track-page|w,w
-track-shuffle|w,w,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Down,Right
+track-shuffle|w,w,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Down,Right
 generate-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right
 grid-after-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right,z,x
-track-length-12|w,w,Down,Down,Left,Left,Left,Left
-track2-muted|2,w,w,Down,Down,Down,Right
+track-length-12|w,w,Down,Down,Down,Left,Left,Left,Left
+track2-muted|2,w,w,Down,Down,Down,Down,Right
 generate-page|w,w,w
 generate-euclid|w,w,w,Down,Right
 grid-after-euclid-roll|w,w,w,Down,Right,z,x
@@ -125,7 +130,7 @@ grid-label-cursor|Left
 grid-label-muted|Left,z
 grid-label-solo|Down,Left,x,Down,x
 grid-label-back|Left,Right
-track-page-solo|Left,x,Down,x,w,w,Down,Down,Down
+track-page-solo|Left,x,Down,x,w,w,Down,Down,Down,Down
 bat17-grid|
 menu-style-blank|m,Down,Right,Right,Right
 grid-blank|m,Down,Right,Right,Right,Down,z,z
@@ -138,6 +143,17 @@ slots-saved|m,Down,Down,Down,z,c,Down,c,c,c
 slots-rename|m,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
 slots-named|m,Down,Down,Down,z,c,v,Down,Down,Down,Down,Right,Down,z
 slots-copy-panel|m,Down,Down,Down,z,c,Tab,Right
+roll-page|Tab
+roll-edited|Tab,Up,Up,z,+v,Right,Right,Right,-v,+c,Up,Up,Up,Right,Right,-c
+roll-track2|Tab,2
+track-type-drums|w,w,Down,Right
+grid-drums|w,w,Down,Right,w,z,x
+step-drums|w,w,Down,Right,w,z,x,w
+drums-page|w,w,Down,Right,w,z,x,Tab
+drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
+drums-label|w,w,Down,Right,w,z,x,Tab,Left
+drum-map|m,Down,Down,Down,Down,z
+drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,v,Up
 EOF
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
@@ -155,6 +171,10 @@ EOF
         \
         --differ grid-demo slots-page --differ slots-page slots-saved --differ slots-saved slots-rename \
         --differ slots-rename slots-named --differ slots-saved slots-copy-panel \
+        --differ grid-demo roll-page --differ roll-page roll-edited --differ roll-page roll-track2 \
+        --differ track-page track-type-drums --differ grid-demo grid-drums --differ step-page step-drums \
+        --differ grid-drums drums-page --differ drums-page drums-edited --differ drums-page drums-label \
+        --differ grid-demo drum-map --differ drum-map drum-map-rename \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"
