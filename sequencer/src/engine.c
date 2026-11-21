@@ -490,6 +490,7 @@ static void load_hit(SeqDrums *d, int l, int i, int v, int p) {
 void seq_save(const Seq *s, FILE *f) {
     char pre[32];
     fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->scale, s->root, s->style);
+    fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
         char nm[SEQ_LANE_NAME + 1];
         snprintf(nm, sizeof nm, "%s", s->lane_name[l][0] ? s->lane_name[l] : seq_lane_gm_name(l));
@@ -579,10 +580,12 @@ int seq_load(Seq *s, FILE *f) {
     char line[128], nm[16];
     int a, b, c, d, e, g, h, k, m, n;
     unsigned u;
+    int map_lines = 0, map_version = 1;
     if (!fgets(line, sizeof line, f) || strncmp(line, "seq4h ", 6) != 0) return -1;
     while (fgets(line, sizeof line, f)) {
         if (line[0] == 'd') {   /* drum lines */
-            if (sscanf(line, "dh %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+            if (sscanf(line, "dmv %d", &a) == 1) map_version = a;
+            else if (sscanf(line, "dh %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
                 if (a >= 0 && a < SEQ_TRACKS) load_hit(&s->track[a].drum, b, c, d, e);
             } else if (sscanf(line, "dah %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
                 if (a >= 0 && a < SEQ_TRACKS) load_hit(&s->track[a].drum_anchor, b, c, d, e);
@@ -591,6 +594,7 @@ int seq_load(Seq *s, FILE *f) {
             } else if (sscanf(line, "dm %d %d %15s", &a, &b, nm) == 3) {
                 if (a < 0 || a >= SEQ_LANES) continue;
                 s->lane_note[a] = (uint8_t)clampi(b, 0, 127);
+                map_lines++;
                 for (char *q = nm; *q; q++) if (*q == '_') *q = ' ';
                 seq_lane_set_name(s, a, nm);
             }
@@ -700,5 +704,9 @@ int seq_load(Seq *s, FILE *f) {
                                             (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0, 0};
         }
     }
+    /* The first drum build (PR 23) defaulted to the GM map and wrote it to
+     * every pattern file; a file that still has exactly that map gets the
+     * FELUCCA map, the default now. A map someone changed is kept. */
+    if (map_lines && map_version < 2 && seq_drum_map_is(s, DRUM_GM)) seq_drum_map_preset(s, DRUM_FELUCCA);
     return 0;
 }

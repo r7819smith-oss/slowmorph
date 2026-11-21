@@ -45,7 +45,8 @@ static void fresh(Seq *s) {
 static int test_play(void) {
     static Seq s;
     fresh(&s);
-    CHECK(s.lane_note[0] == 36 && s.lane_note[2] == 42 && !strcmp(s.lane_name[2], "CL HAT"));
+    CHECK(s.lane_note[0] == 36 && s.lane_note[2] == 42 && !strcmp(s.lane_name[2], "HAT CL"));
+    CHECK(s.lane_note[7] == 56 && !strcmp(s.lane_name[7], "BELL") && seq_drum_map_is(&s, DRUM_FELUCCA));
     seq_track_type(&s, 3, TRACK_DRUMS);
     SeqTrack *tr = &s.track[3];
     tr->step[0].on = 1;              /* the note steps stay, but a drum track doesn't play them */
@@ -151,12 +152,70 @@ static int test_save_load(void) {
     CHECK(seq_load(&t, f) == 0);
     fclose(f);
     CHECK(t.bpm == 90 && t.track[0].step[0].on && t.track[0].type == TRACK_NOTES);
-    CHECK(t.lane_note[0] == 36 && !strcmp(t.lane_name[7], "CRASH") && t.track[0].drum_busy == 50);
+    CHECK(t.lane_note[0] == 36 && !strcmp(t.lane_name[7], "BELL") && t.track[0].drum_busy == 50);
     /* names: blank gives the GM name back, odd characters become spaces */
     seq_lane_set_name(&t, 1, "  ");
     CHECK(!strcmp(t.lane_name[1], "SNARE"));
     seq_lane_set_name(&t, 1, "sn*re2long");
     CHECK(!strcmp(t.lane_name[1], "SN RE2LO"));
+    return 0;
+}
+
+static int test_map(void) {
+    static Seq s;
+    seq_init(&s, NULL, NULL);
+    /* what Felucca plays: its 8 lanes' own notes at their own pitch */
+    static const uint8_t lane[8] = {36, 38, 39, 42, 46, 45, 37, 56};
+    static const char *name[8] = {"KICK", "SNARE", "CLAP", "HAT CL", "HAT OP", "TOM", "RIM", "BELL"};
+    for (int k = 0; k < 8; k++) {
+        int st = 99;
+        CHECK(!strcmp(seq_felucca_sound(lane[k], &st), name[k]) && st == 0);
+    }
+    int st;
+    CHECK(!strcmp(seq_felucca_sound(41, &st), "TOM") && st == -7);
+    CHECK(!strcmp(seq_felucca_sound(49, NULL), "CYMBAL"));
+    CHECK(!strcmp(seq_felucca_sound(24, NULL), "KICK"));      /* below 35: its octave of 36..47 */
+    CHECK(!strcmp(seq_felucca_sound(127, NULL), "TOM"));      /* above 81: 36 + (127 - 36) % 12 = 43, a tom */
+    return 0;
+}
+
+static int test_map_next(void) {
+    /* next sound up from the kick, at its own pitch: RIM 37, SNARE 38, CLAP 39, HAT CL 42 ... */
+    CHECK(seq_felucca_next_sound(36, 1) == 37);
+    CHECK(seq_felucca_next_sound(37, 1) == 38);
+    CHECK(seq_felucca_next_sound(39, 1) == 42);
+    CHECK(seq_felucca_next_sound(42, -1) == 39);
+    CHECK(seq_felucca_next_sound(36, -1) == 36);   /* nothing below the kick */
+    CHECK(seq_felucca_next_sound(0, 1) == 37);     /* from far below: starts at 35 */
+    return 0;
+}
+
+static int test_map_migrate(void) {
+    static Seq t;
+    /* a PR 23 file: the GM map, no version line -> FELUCCA */
+    static const char gm[] = "seq4h 1\ndm 0 36 KICK\ndm 1 38 SNARE\ndm 2 42 CL_HAT\ndm 3 46 OP_HAT\n"
+                             "dm 4 39 CLAP\ndm 5 37 RIM\ndm 6 45 TOM\ndm 7 49 CRASH\n";
+    FILE *f = tmpfile();
+    fputs(gm, f); rewind(f);
+    seq_init(&t, NULL, NULL);
+    CHECK(seq_load(&t, f) == 0);
+    fclose(f);
+    CHECK(seq_drum_map_is(&t, DRUM_FELUCCA));
+    /* a map someone changed stays */
+    f = tmpfile();
+    fputs(gm, f); fputs("dm 0 35 KICK2\n", f); rewind(f);
+    seq_init(&t, NULL, NULL);
+    CHECK(seq_load(&t, f) == 0);
+    fclose(f);
+    CHECK(t.lane_note[0] == 35 && t.lane_note[7] == 49 && !strcmp(t.lane_name[0], "KICK2"));
+    /* GM chosen in a new build (version 2) stays GM after a save and load */
+    seq_drum_map_preset(&t, DRUM_GM);
+    f = tmpfile();
+    seq_save(&t, f); rewind(f);
+    seq_init(&t, NULL, NULL);
+    CHECK(seq_load(&t, f) == 0);
+    fclose(f);
+    CHECK(seq_drum_map_is(&t, DRUM_GM));
     return 0;
 }
 
@@ -241,7 +300,7 @@ static int test_audition(void) {
 }
 
 int main(void) {
-    if (test_play() || test_shuffle_and_mute() || test_save_load() || test_generate() || test_audition()) return 1;
+    if (test_play() || test_shuffle_and_mute() || test_save_load() || test_map() || test_map_next() || test_map_migrate() || test_generate() || test_audition()) return 1;
     printf("drum tests passed\n");
     return 0;
 }

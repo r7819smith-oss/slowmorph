@@ -12,17 +12,75 @@ static int range(Seq *s, int lo, int hi) { return lo + pick(s, hi - lo + 1); }
 
 /* ---- DRUM MAP ---- */
 
-/* General MIDI: kick, snare, closed hat, open hat, clap, rim (side stick), low tom, crash. */
-static const uint8_t GM_NOTE[SEQ_LANES] = {36, 38, 42, 46, 39, 37, 45, 49};
-static const char *GM_NAME[SEQ_LANES] = {"KICK", "SNARE", "CL HAT", "OP HAT", "CLAP", "RIM", "TOM", "CRASH"};
+/* Presets. FELUCCA: the notes Felucca's DRUM engine designs each of its 8
+ * lanes on (firmware eng_drum.c DRUM_LANE_NOTE: KICK 36, SNARE 38, CLAP 39,
+ * HAT CL 42, HAT OP 46, TOM 45, RIM 37, BELL 56), in seq4h's lane order.
+ * GM: the General MIDI drum notes, with a crash (49) for the last lane. */
+static const uint8_t PRESET_NOTE[DRUM_PRESETS][SEQ_LANES] = {
+    {36, 38, 42, 46, 39, 37, 45, 56},
+    {36, 38, 42, 46, 39, 37, 45, 49},
+};
+static const char *PRESET_LANE[DRUM_PRESETS][SEQ_LANES] = {
+    {"KICK", "SNARE", "HAT CL", "HAT OP", "CLAP", "RIM", "TOM", "BELL"},
+    {"KICK", "SNARE", "CL HAT", "OP HAT", "CLAP", "RIM", "TOM", "CRASH"},
+};
+static const char *PRESET_NAME[DRUM_PRESETS] = {"FELUCCA", "GM"};
 
-const char *seq_lane_gm_name(int lane) { return GM_NAME[clampi(lane, 0, SEQ_LANES - 1)]; }
+const char *seq_lane_gm_name(int lane) { return PRESET_LANE[DRUM_FELUCCA][clampi(lane, 0, SEQ_LANES - 1)]; }
+const char *seq_drum_preset_name(int k) { return PRESET_NAME[clampi(k, 0, DRUM_PRESETS - 1)]; }
 
-void seq_drum_map_gm(Seq *s) {
+void seq_drum_map_preset(Seq *s, int k) {
+    k = clampi(k, 0, DRUM_PRESETS - 1);
     for (int l = 0; l < SEQ_LANES; l++) {
-        s->lane_note[l] = GM_NOTE[l];
-        snprintf(s->lane_name[l], sizeof s->lane_name[l], "%s", GM_NAME[l]);
+        s->lane_note[l] = PRESET_NOTE[k][l];
+        snprintf(s->lane_name[l], sizeof s->lane_name[l], "%s", PRESET_LANE[k][l]);
     }
+}
+
+void seq_drum_map_gm(Seq *s) { seq_drum_map_preset(s, DRUM_FELUCCA); }
+
+int seq_drum_map_is(const Seq *s, int k) {
+    k = clampi(k, 0, DRUM_PRESETS - 1);
+    for (int l = 0; l < SEQ_LANES; l++)
+        if (s->lane_note[l] != PRESET_NOTE[k][l] || strcmp(s->lane_name[l], PRESET_LANE[k][l])) return 0;
+    return 1;
+}
+
+/* What Felucca's DRUM engine (STD kit) plays for each note 35..81 (firmware
+ * eng_drum.c DRUM_GM): the sound and its semitones from that sound's own
+ * pitch. Other notes play as their octave of 36..47. */
+enum { FS_KICK, FS_RIM, FS_SNARE, FS_CLAP, FS_HATC, FS_HATO, FS_TOM, FS_CYM, FS_BELL, FS_CLAVE, FS_CONGA };
+static const char *FS_NAME[] = {"KICK", "RIM", "SNARE", "CLAP", "HAT CL", "HAT OP", "TOM", "CYMBAL", "BELL", "CLAVE", "CONGA"};
+static const int8_t FELUCCA_GM[47][2] = {
+    {FS_KICK, -2}, {FS_KICK, 0}, {FS_RIM, 0}, {FS_SNARE, 0}, {FS_CLAP, 0}, {FS_SNARE, 2},       /* 35 */
+    {FS_TOM, -7}, {FS_HATC, 0}, {FS_TOM, -4}, {FS_HATC, -2}, {FS_TOM, 0}, {FS_HATO, 0},          /* 41 */
+    {FS_TOM, 3}, {FS_TOM, 5}, {FS_CYM, 0}, {FS_TOM, 8}, {FS_CYM, -3}, {FS_CYM, 2},               /* 47 */
+    {FS_BELL, 5}, {FS_HATC, 5}, {FS_CYM, 4}, {FS_BELL, 0}, {FS_CYM, 1}, {FS_CLAVE, -12},         /* 53 */
+    {FS_CYM, -2}, {FS_CONGA, 5}, {FS_CONGA, 2}, {FS_CONGA, 0}, {FS_CONGA, 0}, {FS_CONGA, -5},    /* 59 */
+    {FS_TOM, 10}, {FS_TOM, 7}, {FS_BELL, 7}, {FS_BELL, 3}, {FS_HATC, 3}, {FS_HATC, 7},           /* 65 */
+    {FS_CLAVE, 7}, {FS_CLAVE, 5}, {FS_HATC, -4}, {FS_HATC, -6}, {FS_CLAVE, 0}, {FS_CLAVE, -4},   /* 71 */
+    {FS_CLAVE, -7}, {FS_CONGA, 7}, {FS_CONGA, 3}, {FS_BELL, 12}, {FS_BELL, 12},                  /* 77 */
+};
+
+static int felucca_index(int note) {
+    note = clampi(note, 0, 127);
+    return (note >= 35 && note <= 81 ? note : 36 + (note + 120 - 36) % 12) - 35;
+}
+
+const char *seq_felucca_sound(int note, int *semis) {
+    const int8_t *e = FELUCCA_GM[felucca_index(note)];
+    if (semis) *semis = e[1];
+    return FS_NAME[(int)e[0]];
+}
+
+int seq_felucca_next_sound(int note, int dir) {
+    int cur = FELUCCA_GM[felucca_index(note)][0];
+    dir = dir < 0 ? -1 : 1;
+    for (int n = clampi(note, 35, 81) + dir; n >= 35 && n <= 81; n += dir) {
+        const int8_t *e = FELUCCA_GM[n - 35];
+        if (e[1] == 0 && e[0] != cur) return n;   /* the next sound, at its own pitch */
+    }
+    return note;
 }
 
 void seq_lane_note(Seq *s, int lane, int d) {
@@ -43,7 +101,7 @@ void seq_lane_set_name(Seq *s, int lane, const char *name) {
     buf[n] = 0;
     int lead = 0;
     while (buf[lead] == ' ') lead++;
-    if (!buf[lead]) snprintf(buf, sizeof buf, "%s", GM_NAME[lane]);
+    if (!buf[lead]) snprintf(buf, sizeof buf, "%s", seq_lane_gm_name(lane));
     memcpy(s->lane_name[lane], buf, sizeof buf);
 }
 
