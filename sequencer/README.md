@@ -129,6 +129,10 @@ which track you are on. Keyboard keys are in brackets.
 | L1 / R1 [Q / W] | previous / next page |
 | L2 / R2 [1 / 2] | previous / next track |
 | Left stick left / right [, / .] | previous / next step (grid, STEP page, piano roll, drum grid) |
+| Left stick up / down [`]` / `[`] | velocity: the grid step (on a drum step every hit on it, on a track label every step of the track), the piano roll note, the drum grid hit (on a lane name every hit of the lane). On STEP, TRACK, GENERATE and ALL STEPS it changes the selected row's value, like right / left |
+| Stick press [R] | quick roll of the current track (as A on GENERATE) |
+| hold Select + A / X / Y | roll / undo / lock or unlock the whole track |
+| hold Select + stick up / down | tempo up / down by 1 BPM (keeps going while held) |
 | B [X] | back to the grid (on a grid track label: solo) |
 | M [M] | open / close the main menu |
 | Start [Space] | play / stop |
@@ -141,7 +145,7 @@ which track you are on. Keyboard keys are in brackets.
 | D-pad [arrows] | move the cursor (up/down = track, left/right = step) |
 | A [Z] | step on / off |
 | X [C] | edit this step (opens the STEP page) |
-| Y [V] | lock / unlock this step |
+| Y [V] | lock / unlock this step (generators, evolution and transforms leave a locked step alone; on a drum track it locks every lane's hit on that step) |
 | Select [Tab] | open the **piano roll** (note track) or the **drum grid** (drum track); press and let go on its own, so Select + Start still quits |
 | Left from step 1 | move the cursor onto the track label (T1-T4) |
 
@@ -155,8 +159,26 @@ With the cursor on a **track label**:
 |---|---|
 | A [Z] | mute / unmute the track |
 | B [X] | solo / unsolo the track (several tracks can be soloed) |
+| X [C] | roll (generate) this track, as A on GENERATE does. Hold X for half a second instead to undo the last roll |
+| Y [V] | lock / unlock the whole track |
+| Select [Tab] | open **ALL STEPS** for this track (below) |
 | Up / down | next / previous track |
 | Right | back to step 1 |
+
+A **locked track** shows an orange **L** badge. Roll, evolution, the
+GENERATE page transforms and M > NEW FROM STYLE (BLANK too) leave it exactly
+as it is; you can still edit it by hand, load slots into it and chain it.
+The lock is saved with the pattern.
+
+**ALL STEPS** (Select on a track label) changes one setting on every step
+of the track at once. Rows: VELOCITY, GATE, HOLD, OFFSET, PROBABILITY and
+STEP LOCKS (a drum track has VELOCITY, PROBABILITY and STEP LOCKS, and they
+change every hit of every lane). Each row shows the range over the notes
+that play, e.g. `60 TO 110`. Left/right moves every step's value up or down
+together (hold Y for big steps; values stop at their limits). A gives every
+step the average. On STEP LOCKS, A locks every step, or clears all step
+locks if any step is locked. ALL STEPS is a hand edit, so locked steps
+change too. B or Select goes back to the track label.
 
 Muted tracks turn grey and show an **M** badge; soloed tracks show a yellow
 **S** badge, and while anything is soloed the other tracks are dimmed and
@@ -412,11 +434,11 @@ your unit (below).
 | Select | joy 9 | select |
 | Start | joy 10 | start |
 | M / Menu | joy 11 | menu |
-| Stick press | joy 12 | not used |
+| Stick press | joy 12 | roll (quick roll of the current track) |
 | L2 | joy 13 | l2 (previous track) |
 | R2 | joy 14 | r2 (next track) |
 | D-pad | hat 0 (up/right/down/left) | up/right/down/left |
-| Left stick | axes 0 (x) and 1 (y) | x: prev / next (previous / next step); check the axis number on BUTTON CODES |
+| Left stick | axes 0 (x) and 1 (y) | x: prev / next (previous / next step); y: vup / vdown (velocity or value); check the axis numbers on BUTTON CODES |
 
 L2 and R2 are plain on/off buttons, not analog trigger axes. Note Y comes
 before X. Anbernic's stock firmware numbers the same buttons 3 lower
@@ -459,8 +481,9 @@ not matter and later lines win.
 | `key` | SDL key name, `_` for spaces | `key Left_Shift lock` |
 
 `BUTTON` is one of `up down left right a b x y l r l2 r2 select start menu`, a
-shortcut action `page` (next page), `roll`, `undo`, `lock` (this step) or
-`quit`, or `none` to unmap. Two settings also go in the
+shortcut action `page` (next page), `roll`, `undo`, `lock` (this step),
+`quit`, `prev` / `next` (step) or `vup` / `vdown` (stick up / down), or
+`none` to unmap. Two settings also go in the
 file:
 
 - `mode auto` (default): pads SDL recognises use the `pad` lines, other
@@ -470,7 +493,7 @@ file:
   count as a press.
 
 Examples (Knulli codes): swap A and B with `joy 3 b` and `joy 4 a`; make the
-stick press undo the last roll with `joy 12 undo`.
+stick press undo the last roll instead of rolling with `joy 12 undo`.
 
 On a desktop, the `pad` defaults use SDL's names (A = the bottom face button)
 with the triggers as L2/R2; keyboard defaults are listed in the Controls
