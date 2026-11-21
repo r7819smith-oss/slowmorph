@@ -175,6 +175,8 @@ step-drums|w,w,Down,Right,w,z,x,w
 drums-page|w,w,Down,Right,w,z,x,Tab
 drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
 drums-label|w,w,Down,Right,w,z,x,Tab,Left
+drums-lane-mute|w,w,Down,Right,w,z,x,Tab,Left,z
+drums-lane-solo|w,w,Down,Right,w,z,x,Tab,Left,Down,Down,x
 drum-map|m,Down,Down,Down,Down,z
 drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,c,Up
 drum-map-next-sound|m,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
@@ -207,7 +209,7 @@ EOF
         --differ grid-demo roll-page --differ roll-page roll-edited --differ roll-page roll-track2 \
         --differ midi-page midi-cable-row --differ midi-cable-row midi-cable-chosen --differ midi-page midinone-page \
         --differ track-page track-type-drums --differ grid-demo grid-drums --differ step-page step-drums \
-        --differ grid-drums drums-page --differ drums-page drums-edited --differ drums-page drums-label \
+        --differ grid-drums drums-page --differ drums-page drums-edited --differ drums-page drums-label --differ drums-label drums-lane-mute --differ drums-label drums-lane-solo \
         --differ grid-demo drum-map --differ drum-map drum-map-rename \
         --differ drum-map drum-map-next-sound --differ drum-map drum-map-preset \
         --differ step-page step-next-x --differ step-next-x step-next-stick --differ roll-page roll-new-length \

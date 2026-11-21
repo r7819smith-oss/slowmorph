@@ -174,7 +174,7 @@ static void play_drums(Seq *s, int t, uint32_t now, int idx) {
     SeqTrack *tr = &s->track[t];
     for (int l = 0; l < SEQ_LANES; l++) {
         int v = tr->drum.vel[l][idx];
-        if (!v) continue;
+        if (!v || !seq_lane_audible(tr, l)) continue;
         int p = tr->drum.prob[l][idx];
         if (p < 100 && (int)(seq_rand(s) % 100) >= p) continue;
         release_lane(s, tr, l);
@@ -322,6 +322,26 @@ void seq_track_mute_toggle(Seq *s, int t) {
 void seq_track_solo_toggle(Seq *s, int t) {
     s->track[t].solo ^= 1;
     release_silenced(s);
+}
+
+int seq_lane_audible(const SeqTrack *tr, int l) {
+    return !(tr->drum_mute & (1 << l)) && (!tr->drum_solo || (tr->drum_solo & (1 << l)));
+}
+
+static void release_silenced_lanes(Seq *s, SeqTrack *tr) {
+    for (int l = 0; l < SEQ_LANES; l++) if (!seq_lane_audible(tr, l)) release_lane(s, tr, l);
+}
+
+void seq_lane_mute_toggle(Seq *s, int t, int l) {
+    if (l < 0 || l >= SEQ_LANES) return;
+    s->track[t].drum_mute ^= (uint8_t)(1 << l);
+    release_silenced_lanes(s, &s->track[t]);
+}
+
+void seq_lane_solo_toggle(Seq *s, int t, int l) {
+    if (l < 0 || l >= SEQ_LANES) return;
+    s->track[t].drum_solo ^= (uint8_t)(1 << l);
+    release_silenced_lanes(s, &s->track[t]);
 }
 
 void seq_track_len(Seq *s, int t, int d) {
@@ -500,8 +520,8 @@ void seq_save(const Seq *s, FILE *f) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         const SeqTrack *tr = &s->track[t];
         fprintf(f, "t %d %d %d %d\n", t, tr->channel, tr->len, tr->mute);
-        if (tr->type || tr->drum_lock || tr->drum_busy != 50)   /* drum track: "ty T TYPE LOCKS BUSY" */
-            fprintf(f, "ty %d %d %d %d\n", t, tr->type, tr->drum_lock, tr->drum_busy);
+        if (tr->type || tr->drum_lock || tr->drum_busy != 50 || tr->drum_mute)   /* drum track: "ty T TYPE LOCKS BUSY MUTES" */
+            fprintf(f, "ty %d %d %d %d %d\n", t, tr->type, tr->drum_lock, tr->drum_busy, tr->drum_mute);
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
@@ -600,8 +620,9 @@ int seq_load(Seq *s, FILE *f) {
             }
             continue;
         }
-        if (sscanf(line, "ty %d %d %d %d", &a, &b, &c, &d) == 4) {
+        if ((n = sscanf(line, "ty %d %d %d %d %d", &a, &b, &c, &d, &e)) >= 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
+            s->track[a].drum_mute = n >= 5 ? (uint8_t)e : 0;   /* older files have no lane mutes */
             s->track[a].type = b == TRACK_DRUMS ? TRACK_DRUMS : TRACK_NOTES;
             s->track[a].drum_lock = (uint8_t)c;
             s->track[a].drum_busy = (uint8_t)clampi(d, 0, 100);

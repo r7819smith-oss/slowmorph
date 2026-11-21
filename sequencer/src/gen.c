@@ -525,6 +525,7 @@ static void style_blank(Seq *s) {
         tr->chain_pos = 0;
         tr->mute = 0;
         tr->solo = 0;
+        tr->drum_mute = tr->drum_solo = 0;
     }
 }
 
