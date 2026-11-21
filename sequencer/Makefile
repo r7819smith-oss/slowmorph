@@ -24,7 +24,8 @@ seq4h: $(SRC) $(wildcard src/*.h)
 
 test: tests/test_engine tests/test_gen tests/test_ambient tests/test_drum tests/test_input tests/test_battery tests/test_usbinfo tests/test_song tests/test_device
 	./tests/test_engine
-	./tests/test_song tests/test_device
+	./tests/test_song
+	./tests/test_device
 	./tests/test_drum
 	./tests/test_gen
 	./tests/test_ambient
