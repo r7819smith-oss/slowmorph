@@ -100,12 +100,35 @@ screenshots)
     printf 'Battery\n' > "$OUT/power/bat17/battery/type"
     printf '17\n' > "$OUT/power/bat17/battery/capacity"
     printf 'Charging\n' > "$OUT/power/bat17/battery/status"
+    # Fake USB for the M > MIDI shots: midi-* see a hub, the FM1 and a cheap
+    # cable; midinone-* see nothing. SEQ4H_TEST_PORTS gives the null output
+    # two pretend ports.
+    rm -rf "$OUT/usb"; mkdir -p "$OUT/usb/none"
+    usbdev() {   # dir name vid pid product class [interface-subclass driver]
+        mkdir -p "$1/$2"
+        printf '%s\n' "$3" > "$1/$2/idVendor"; printf '%s\n' "$4" > "$1/$2/idProduct"
+        printf '%s\n' "$5" > "$1/$2/product"; printf '%s\n' "$6" > "$1/$2/bDeviceClass"
+        if [ -n "${7:-}" ]; then
+            mkdir -p "$1/$2:1.1"
+            printf '01\n' > "$1/$2:1.1/bInterfaceClass"; printf '%s\n' "$7" > "$1/$2:1.1/bInterfaceSubClass"
+            [ -n "${8:-}" ] && ln -s "../../../bus/usb/drivers/$8" "$1/$2:1.1/driver"
+        fi
+        return 0
+    }
+    usbdev "$OUT/usb/midi" 1-1 1a40 0101 "USB 2.0 Hub" 09
+    usbdev "$OUT/usb/midi" 1-1.1 1a86 752d "USB2.0-MIDI" 00 03 snd-usb-audio
+    usbdev "$OUT/usb/midi" 1-1.2 1209 4f46 "FM-1" 00 03 snd-usb-audio
     # name|keys. Keyboard: arrows = D-pad, Z = A, X = B (back to grid), C = X,
     # V = Y, Q/W = L1/R1 (page), 1/2 = L2/R2 (track), Space = Start.
     # Pages in order: GRID, STEP, TRACK, GENERATE.
     while IFS='|' read -r name keys; do
         [ -z "$name" ] && continue
-        SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" SEQ4H_BATTERY_PERCENT_FILE=/nonexistent ./seq4h --midi none --demo \
+        usb="$OUT/usb/none"; ports=
+        case $name in
+        midi-*) usb="$OUT/usb/midi"; ports="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" ;;
+        esac
+        if [ -n "$ports" ]; then export SEQ4H_TEST_PORTS="$ports"; else unset SEQ4H_TEST_PORTS; fi
+        SEQ4H_USB_DIR="$usb" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" SEQ4H_BATTERY_PERCENT_FILE=/nonexistent ./seq4h --midi none --demo \
             --screenshot "$OUT/shots/$name.bmp" ${keys:+--keys "$keys"} >/dev/null 2>&1
         [ -f "$OUT/shots/$name.bmp" ] || note "- **FAIL** $name: no screenshot written"
     done <<'EOF'
@@ -154,7 +177,12 @@ drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
 drums-label|w,w,Down,Right,w,z,x,Tab,Left
 drum-map|m,Down,Down,Down,Down,z
 drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,v,Up
+midi-page|m,Down,Down,Down,Down,Down,z
+midi-cable-row|m,Down,Down,Down,Down,Down,z,Down
+midi-cable-chosen|m,Down,Down,Down,Down,Down,z,Down,z
+midinone-page|m,Down,Down,Down,Down,Down,z
 EOF
+    unset SEQ4H_TEST_PORTS
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
         --differ grid-demo grid-step-locked --differ grid-demo step-page \
@@ -172,6 +200,7 @@ EOF
         --differ grid-demo slots-page --differ slots-page slots-saved --differ slots-saved slots-rename \
         --differ slots-rename slots-named --differ slots-saved slots-copy-panel \
         --differ grid-demo roll-page --differ roll-page roll-edited --differ roll-page roll-track2 \
+        --differ midi-page midi-cable-row --differ midi-cable-row midi-cable-chosen --differ midi-page midinone-page \
         --differ track-page track-type-drums --differ grid-demo grid-drums --differ step-page step-drums \
         --differ grid-drums drums-page --differ drums-page drums-edited --differ drums-page drums-label \
         --differ grid-demo drum-map --differ drum-map drum-map-rename \
@@ -216,6 +245,17 @@ persist)
     cat "$P/run2.log"
     [ $rc = 0 ] && grep -q 'loaded .*(9 stored slots)' "$P/run2.log" && cmp -s "$P/before.pat" "$P/seq4h.pat"
     result "relaunch loads all 9 slots and the slot name, and quit saves the same file" $?
+    # M > MIDI: picking the second pretend port keeps it in seq4h.midi next to
+    # the pattern, and the next start (no --midi name, as SEQ4H.sh runs it)
+    # asks for that port.
+    SEQ4H_TEST_PORTS="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
+    [ "$(cat "$P/seq4h.midi" 2>/dev/null)" = "FM-1:FM-1 MIDI 1" ]
+    result "a port picked on M > MIDI is kept in seq4h.midi" $?
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" --keys Escape 2> "$P/run4.log"
+    cat "$P/run4.log"
+    grep -q 'MIDI output from .*seq4h.midi: FM-1:FM-1 MIDI 1' "$P/run4.log"
+    result "the next start uses the kept port" $?
     note ""
     ;;
 alsa)

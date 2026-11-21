@@ -2,7 +2,8 @@
 # Launcher for Knulli's Ports menu. Works on a Knulli RG40XX-V (2026-11-19).
 # Copy this file to /userdata/roms/ports/ and the seq4h binary plus
 # seq4h.input to /userdata/roms/ports/seq4h/, then refresh the game list.
-# Set SEQ4H_MIDI to part of the MIDI port name, e.g. "FM" (empty = first port).
+# Set SEQ4H_MIDI to part of the MIDI port name, e.g. "FM" (empty = the port
+# picked on M > MIDI OUTPUT, kept in seq4h/seq4h.midi; none picked = first port).
 # Output and errors go to /userdata/roms/ports/seq4h/seq4h.log.
 # Set SEQ4H_SHOW_INPUT=1 (or start SHOW-BUTTONS.sh) to show each button's code
 # on screen and in the log. M > BUTTON CODES does the same while running.

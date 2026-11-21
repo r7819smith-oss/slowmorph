@@ -4,14 +4,25 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define MIDI_PORT_NAME 64   /* longest port name kept, with its terminator */
+
 typedef struct Midi {
     void (*send)(struct Midi *self, const uint8_t *msg, int len);
     /* Optional (may be NULL). Called about once a second from the UI thread with
      * the player lock held: checks the device is still there and reconnects if
      * it was unplugged or plugged in late. Returns 1 when connected. */
     int (*poll)(struct Midi *self);
+    /* Optional: fills names with the output ports that could be used now and
+     * returns how many (at most max). Opens its own handles and touches no
+     * shared state, so it needs no lock. */
+    int (*ports)(struct Midi *self, char (*names)[MIDI_PORT_NAME], int max);
+    /* Optional, with the player lock held: silence the current port, then use
+     * the first port whose name contains match ("" = first port of any kind).
+     * Connects at once if the port is there, else poll() keeps trying. */
+    void (*choose)(struct Midi *self, const char *match);
     void (*close)(struct Midi *self);
     char desc[128];
+    char want[MIDI_PORT_NAME];   /* the port asked for; "" = the first one found */
 } Midi;
 
 /* Prints MIDI to stderr when verbose; otherwise discards it. */

@@ -16,7 +16,7 @@
 
 typedef struct {
     Midi base;
-    char match[64];
+    char match[MIDI_PORT_NAME];
     /* sequencer */
     snd_seq_t *seq;
     int port;               /* our port, or -1 */
@@ -31,9 +31,9 @@ static void set_desc(AlsaMidi *a, const char *s) { snprintf(a->base.desc, sizeof
 
 /* ---------- sequencer ---------- */
 
-/* Iterate writable ports of other clients. If match is non-NULL and non-empty,
- * pick the first whose "client:port" contains it. With list != 0, print them. */
-static int seq_scan(snd_seq_t *seq, const char *match, int list, int *oc, int *op, char *desc, size_t dn) {
+/* Walk the writable ports of other clients: calls fn(ctx, client, port, "client:port").
+ * Stops and returns 1 when fn returns non-zero. */
+static int seq_each(snd_seq_t *seq, int (*fn)(void *, int, int, const char *), void *ctx) {
     int self = snd_seq_client_id(seq);
     snd_seq_client_info_t *ci;
     snd_seq_port_info_t *pi;
@@ -51,17 +51,36 @@ static int seq_scan(snd_seq_t *seq, const char *match, int list, int *oc, int *o
             if ((caps & need) != need || (caps & SND_SEQ_PORT_CAP_NO_EXPORT)) continue;
             char name[128];
             snprintf(name, sizeof name, "%s:%s", snd_seq_client_info_get_name(ci), snd_seq_port_info_get_name(pi));
-            if (list) {
-                printf("seq  %d:%d  %s\n", c, snd_seq_port_info_get_port(pi), name);
-                continue;
-            }
-            if (match && *match && !strcasestr(name, match)) continue;
-            *oc = c; *op = snd_seq_port_info_get_port(pi);
-            snprintf(desc, dn, "%s", name);
-            return 1;
+            if (fn(ctx, c, snd_seq_port_info_get_port(pi), name)) return 1;
         }
     }
     return 0;
+}
+
+typedef struct { const char *match; int c, p; char *desc; size_t dn; } SeqFind;
+
+static int seq_find(void *ctx, int c, int p, const char *name) {
+    SeqFind *f = ctx;
+    if (f->match && *f->match && !strcasestr(name, f->match)) return 0;
+    f->c = c; f->p = p;
+    snprintf(f->desc, f->dn, "%s", name);
+    return 1;
+}
+
+static int seq_print(void *ctx, int c, int p, const char *name) {
+    (void)ctx;
+    printf("seq  %d:%d  %s\n", c, p, name);
+    return 0;
+}
+
+/* Collects names into a list (MIDI_PORT_NAME each). */
+typedef struct { char (*names)[MIDI_PORT_NAME]; int n, max; } NameList;
+
+static int seq_collect(void *ctx, int c, int p, const char *name) {
+    (void)c; (void)p;
+    NameList *l = ctx;
+    if (l->n < l->max) snprintf(l->names[l->n++], MIDI_PORT_NAME, "%s", name);
+    return l->n >= l->max;
 }
 
 static int seq_dest_alive(AlsaMidi *a) {
@@ -71,11 +90,11 @@ static int seq_dest_alive(AlsaMidi *a) {
 }
 
 static int seq_connect(AlsaMidi *a) {
-    int c, p;
     char desc[128];
-    if (!seq_scan(a->seq, a->match, 0, &c, &p, desc, sizeof desc)) return 0;
-    if (snd_seq_connect_to(a->seq, a->port, c, p) < 0) return 0;
-    a->dc = c; a->dp = p;
+    SeqFind f = {a->match, -1, -1, desc, sizeof desc};
+    if (!seq_each(a->seq, seq_find, &f)) return 0;
+    if (snd_seq_connect_to(a->seq, a->port, f.c, f.p) < 0) return 0;
+    a->dc = f.c; a->dp = f.p;
     set_desc(a, desc);
     return 1;
 }
@@ -161,6 +180,13 @@ static int raw_try(void *ctx, const char *id, const char *name) {
     return 1;
 }
 
+static int raw_collect(void *ctx, const char *id, const char *name) {
+    (void)id;
+    NameList *l = ctx;
+    if (l->n < l->max) snprintf(l->names[l->n++], MIDI_PORT_NAME, "%s", name);
+    return l->n >= l->max;
+}
+
 static int raw_connect(AlsaMidi *a) {
     RawTry t = {a};
     return raw_each(raw_try, &t);
@@ -202,6 +228,42 @@ static int alsa_poll(Midi *m) {
     return 1;
 }
 
+/* The ports poll() could connect to: sequencer ports when there are any, else
+ * raw MIDI devices (poll() tries them in the same order). Uses its own
+ * sequencer handle, so the timing thread's one is never touched. */
+static int alsa_ports(Midi *m, char (*names)[MIDI_PORT_NAME], int max) {
+    (void)m;
+    NameList l = {names, 0, max};
+    snd_seq_t *seq;
+    if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_OUTPUT, 0) >= 0) {
+        seq_each(seq, seq_collect, &l);
+        snd_seq_close(seq);
+    }
+    if (l.n == 0) raw_each(raw_collect, &l);
+    return l.n;
+}
+
+static void alsa_choose(Midi *m, const char *match) {
+    AlsaMidi *a = (AlsaMidi *)m;
+    if (connected(a)) {
+        /* All notes off and all sound off on every channel of the old port,
+         * so nothing hangs there. */
+        for (int ch = 0; ch < 16; ch++) {
+            uint8_t off[3] = {(uint8_t)(0xB0 | ch), 123, 0}, snd[3] = {(uint8_t)(0xB0 | ch), 120, 0};
+            alsa_send(m, off, 3);
+            alsa_send(m, snd, 3);
+        }
+        if (a->seq && a->dc >= 0) snd_seq_disconnect_to(a->seq, a->port, a->dc, a->dp);
+        a->dc = -1;
+        raw_drop(a);
+    }
+    snprintf(a->match, sizeof a->match, "%s", match ? match : "");
+    snprintf(a->base.want, sizeof a->base.want, "%s", a->match);
+    fprintf(stderr, "seq4h: MIDI output chosen: %s\n", a->match[0] ? a->match : "first port found");
+    a->logged = 0;
+    alsa_poll(m);
+}
+
 static void alsa_close(Midi *m) {
     AlsaMidi *a = (AlsaMidi *)m;
     if (a->dropped) fprintf(stderr, "seq4h: %d raw MIDI messages dropped (output full)\n", a->dropped);
@@ -214,9 +276,12 @@ Midi *midi_alsa_open(const char *match, char *err, size_t errlen) {
     AlsaMidi *a = calloc(1, sizeof *a);
     if (!a) { snprintf(err, errlen, "out of memory"); return NULL; }
     snprintf(a->match, sizeof a->match, "%s", match ? match : "");
+    snprintf(a->base.want, sizeof a->base.want, "%s", a->match);
     a->port = -1; a->dc = -1;
     a->base.send = alsa_send;
     a->base.poll = alsa_poll;
+    a->base.ports = alsa_ports;
+    a->base.choose = alsa_choose;
     a->base.close = alsa_close;
 
     if (snd_seq_open(&a->seq, "default", SND_SEQ_OPEN_OUTPUT, 0) >= 0) {
@@ -238,8 +303,7 @@ Midi *midi_alsa_open(const char *match, char *err, size_t errlen) {
 void midi_alsa_list(void) {
     snd_seq_t *seq;
     if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_OUTPUT, 0) >= 0) {
-        int c, p; char d[8];
-        seq_scan(seq, NULL, 1, &c, &p, d, sizeof d);
+        seq_each(seq, seq_print, NULL);
         snd_seq_close(seq);
     } else {
         printf("(no ALSA sequencer: snd-seq is not loaded or not built)\n");

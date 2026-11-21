@@ -34,10 +34,11 @@ cd "$seq"
 # 1. Engine unit tests on the build machine (portable C, no SDL). The input
 #    tests need SDL, which is only installed for arm64: they run under qemu below.
 make clean PKG="$CROSS_PKG"
-make tests/test_engine tests/test_gen tests/test_battery PKG="$CROSS_PKG"
+make tests/test_engine tests/test_gen tests/test_battery tests/test_usbinfo PKG="$CROSS_PKG"
 ./tests/test_engine
 ./tests/test_gen
 ./tests/test_battery
+./tests/test_usbinfo
 
 # 2. Cross-build. -mcpu matches the H700's Cortex-A53 cores.
 make clean PKG="$CROSS_PKG"
