@@ -129,7 +129,7 @@ which track you are on. Keyboard keys are in brackets.
 | L1 / R1 [Q / W] | previous / next page |
 | L2 / R2 [1 / 2] | previous / next track |
 | Left stick left / right [, / .] | previous / next step (grid, STEP page, piano roll, drum grid) |
-| Left stick up / down [] / [] | velocity: the grid step (on a drum step every hit on it, on a track label every step of the track), the piano roll note, the drum grid hit (on a lane name every hit of the lane). On STEP, TRACK, GENERATE and ALL STEPS it changes the selected row's value, like right / left |
+| Left stick up / down [`]` / `[`] | velocity: the grid step (on a drum step every hit on it, on a track label every step of the track), the piano roll note, the drum grid hit (on a lane name every hit of the lane). On STEP, TRACK, GENERATE and ALL STEPS it changes the selected row's value, like right / left |
 | Stick press [R] | quick roll of the current track (as A on GENERATE) |
 | hold Select + A / X / Y | roll / undo / lock or unlock the whole track |
 | hold Select + stick up / down | tempo up / down by 1 BPM (keeps going while held) |
