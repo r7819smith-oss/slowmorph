@@ -1765,7 +1765,7 @@ static void handle_input(Ui *u, Dev *devs, const SDL_Event *e, int verbose) {
 
 static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *midi_desc) {
     char buf[160];
-    text(r, 20, 14, 3, WHITE, "SEQ4H");
+    text(r, 20, 18, 2, WHITE, "GENVOLVE");
     snprintf(buf, sizeof buf, "BPM %d", s->bpm);
     text(r, 150, 18, 2, WHITE, buf);
     snprintf(buf, sizeof buf, "SWING %d", s->swing);
@@ -2045,10 +2045,10 @@ static void draw_midi_side(SDL_Renderer *r, const Ui *u, const char *desc) {
     if (!u->nusb) { text(r, 392, y, 1, YELLOW, "NONE"); y += 14; }
 
     const char *hint =
-        off ? "SEQ4H WAS STARTED WITH --MIDI NONE." :
+        off ? "GENVOLVE WAS STARTED WITH --MIDI NONE." :
         !devs ? "NOTHING DETECTED ON USB. CHECK THE OTG ADAPTER, TRY THE CABLE IN A POWERED HUB, AND REPLUG." :
         !midi ? "A DEVICE IS SEEN BUT IT IS NOT USB MIDI CLASS. THIS CABLE NEEDS ITS OWN DRIVER: USE ANOTHER." :
-        !bound ? "USB MIDI SEEN BUT NO DRIVER TOOK IT. QUIT AND START SEQ4H AGAIN WITH IT PLUGGED IN." :
+        !bound ? "USB MIDI SEEN BUT NO DRIVER TOOK IT. QUIT AND START GENVOLVE AGAIN WITH IT PLUGGED IN." :
         !u->nports ? "USB MIDI AND DRIVER OK BUT NO PORT YET. WAIT A SECOND OR REPLUG." :
         waiting ? "PICK A PORT ON THE LEFT AND PRESS A." :
         "OK. NO SOUND? SWAP THE DIN PLUGS, USE A TYPE A TRS ADAPTER, CHECK THE MIDI IN CHANNELS.";
@@ -2081,14 +2081,14 @@ static void draw_device_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
         text(r, 392, y + 44, 1, YELLOW, "ON THE DEVICE:");
         for (int i = 0; i < 8 && p->setup[i]; i++) text(r, 392, y + 56 + 12 * i, 1, WHITE, p->setup[i]);
     } else if (k == DR_CLOCK) {
-        text(r, 392, y, 1, WHITE, "SEND: SEQ4H IS THE CLOCK MASTER,");
+        text(r, 392, y, 1, WHITE, "SEND: GENVOLVE IS THE CLOCK MASTER,");
         text(r, 392, y + 12, 1, WHITE, "24 PER BEAT, ALSO WHILE STOPPED.");
         text(r, 392, y + 32, 1, WHITE, "OFF: THE DEVICE RUNS ITS OWN");
         text(r, 392, y + 44, 1, WHITE, "TEMPO; NOTES STILL PLAY.");
     } else if (k == DR_TRANSPORT) {
         text(r, 392, y, 1, WHITE, "SEND: START PLAYS THE DEVICE'S");
         text(r, 392, y + 12, 1, WHITE, "OWN SEQUENCER TOO, STOP STOPS IT.");
-        text(r, 392, y + 32, 1, WHITE, "OFF: ONLY SEQ4H'S NOTES (AND THE");
+        text(r, 392, y + 32, 1, WHITE, "OFF: ONLY GENVOLVE'S NOTES (AND THE");
         text(r, 392, y + 44, 1, WHITE, "CLOCK, IF ON) GO OUT.");
     } else {
         text(r, 392, y, 1, WHITE, "PICK THE PORT ON M > MIDI OUTPUT.");
@@ -2575,7 +2575,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         return 1;
     }
     Uint32 wflags = opt->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
-    SDL_Window *win = SDL_CreateWindow("seq4h", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, wflags);
+    SDL_Window *win = SDL_CreateWindow("Genvolve", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, wflags);
     if (!win) { fprintf(stderr, "window: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     SDL_Renderer *r = SDL_CreateRenderer(win, -1, opt->screenshot ? SDL_RENDERER_SOFTWARE : SDL_RENDERER_ACCELERATED);
     if (!r) r = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);

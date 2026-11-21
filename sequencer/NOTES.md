@@ -1,4 +1,4 @@
-# seq4h handoff notes
+# Genvolve (was seq4h) handoff notes
 
 Use this to resume work in a new chat or a Claude Project. For usage and
 controls see [README.md](README.md). The sequencer is on `main`. USB MIDI
@@ -16,6 +16,24 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
 
 ## Decisions made
 
+- **Renamed to Genvolve** (Roy, 2026-11-21, from the build after main
+  f2f57f2). What changed: the header and window title read GENVOLVE, the
+  Ports launcher is `knulli/GENVOLVE.sh` with a `genvolve/` folder and a
+  `genvolve` binary, the log is `genvolve/genvolve.log`, the ALSA client is
+  `Genvolve`, the CI workflow is *Genvolve aarch64 build* and the artifact
+  and zip are `genvolve-knulli-aarch64`. `GENVOLVE_MIDI` and
+  `GENVOLVE_SHOW_INPUT` replace `SEQ4H_MIDI` / `SEQ4H_SHOW_INPUT` (the old
+  names still work). What kept the old name, on purpose: the saved files
+  (`seq4h.pat`, `seq4h.midi`, `seq4h-song1..8.pat`, `seq4h.input`) and the
+  `seq4h 1` file header, so no saved work needs converting and older builds
+  still read them; and the source, make targets (`make seq4h`,
+  `seq4h-render`), header guards, `SEQ4H_*` test variables and the `seq4h:`
+  log prefix, so parallel branches don't conflict. The GitHub repo stays
+  `slowmorph`. On its first start `GENVOLVE.sh` copies `seq4h.pat`,
+  `seq4h.midi` and `seq4h-song*.pat` from an old `seq4h/` folder next to it
+  into `genvolve/`, never overwriting a file already there and leaving the
+  old folder untouched. Roy's steps: README *Moving from seq4h* and
+  checklist D8.
 - **C, SDL2, ALSA sequencer.** The engine (`src/engine.c`, `src/gen.c`) is pure
   C with a send callback, so it is unit-tested on a normal machine. The ALSA
   sequencer backend was chosen because USB MIDI and BlueZ BLE-MIDI both show up
@@ -546,7 +564,8 @@ Works and tested on desktop Linux:
   Whether Felucca follows MIDI Start/Stop is not documented.
 - Bluetooth: the Felucca wiki text lists only USB and TRS, so don't plan on it.
 - **TRS MIDI into the FM1 not working yet** (2026-11-21): USB cable → DIN → host box → FM1 works; DIN → TRS adapter → FM1 doesn't, most likely a Type B adapter. See *USB MIDI cable to the FM1's TRS in*.
-- `knulli/SEQ4H.sh` launcher works on Roy's RG40XX-V (2026-11-19).
+- `knulli/SEQ4H.sh` launcher works on Roy's RG40XX-V (2026-11-19). It is now
+  `knulli/GENVOLVE.sh` (2026-11-21), not yet run on the device: checklist D8.
 
 ## Next steps (suggested order)
 
@@ -832,30 +851,35 @@ a Mac. Tick each box or write what happened. Steps that need SSH are in
 **How to install a new build**
 
 1. On the Mac, open the repo on GitHub and click **Actions**.
-2. On the left, click **seq4h aarch64 build**. Click the newest run with a
-   green tick whose branch is **main**.
+2. On the left, click **Genvolve aarch64 build** (called **seq4h aarch64
+   build** before 2026-11-21). Click the newest run with a green tick whose
+   branch is **main**.
 3. Scroll to **Artifacts** at the bottom and click
-   **seq4h-knulli-aarch64** to download it.
-4. Unzip it. Inside is another zip, `seq4h-knulli-aarch64.zip`. Unzip that
+   **genvolve-knulli-aarch64** to download it.
+4. Unzip it. Inside is another zip, `genvolve-knulli-aarch64.zip`. Unzip that
    one too. (Safari may already have done the first unzip for you.) You now
-   have `SEQ4H.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and a `seq4h`
-   folder.
+   have `GENVOLVE.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and a
+   `genvolve` folder. (Builds before the rename: `SEQ4H.sh` and `seq4h`.)
 5. Switch the handheld off and put its SD card in the Mac, or open the
    handheld's **SHARE** over the network.
 6. Copy all of those into `roms/ports/`. When the Mac asks, choose
-   **Replace** for every file. Replacing the `seq4h` folder's files is fine:
-   your saved patterns (`seq4h.pat`) are not in the zip, so they stay.
-   If you once edited `seq4h/seq4h.input` yourself, replace it anyway: an
+   **Replace** for every file. Replacing the `genvolve` folder's files is
+   fine: your saved patterns (`seq4h.pat`) are not in the zip, so they stay.
+   If you once edited `genvolve/seq4h.input` yourself, replace it anyway: an
    old one overrides the new button codes.
+   **First Genvolve build only:** also delete the old `SEQ4H.sh` from
+   `roms/ports/`, and keep the old `seq4h` folder until checklist D8 passes:
+   Genvolve copies your saved work out of it on its first start.
 7. Eject the card, put it back and switch the handheld on.
 8. On the handheld, press Start for the main menu, then **Game settings >
-   Update game lists**. **SEQ4H**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**
+   Update game lists**. **GENVOLVE**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**
    appear under **Ports**.
 
 **How to read the logs on the Mac**
 
-seq4h writes `roms/ports/seq4h/seq4h.log`, and USB-MIDI-CHECK writes
-`roms/ports/seq4h/usb-midi-check.log`. Quit seq4h first (Select + Start),
+Genvolve writes `roms/ports/genvolve/genvolve.log`, and USB-MIDI-CHECK writes
+`roms/ports/genvolve/usb-midi-check.log` (before the rename: the same files in
+`roms/ports/seq4h/`, the log called `seq4h.log`). Quit Genvolve first (Select + Start),
 then open the SD card or SHARE on the Mac and open the file in TextEdit.
 The newest run is at the bottom; each seq4h run starts with a
 `=== ... seq4h start` line.
@@ -1110,10 +1134,31 @@ the results into the table below.
 4. [ ] Optional: a hub with power. Does the handheld charge and still see
    the FM1?
 
+**D8. Rename to Genvolve: first install (first build after 2026-11-21)**
+
+Do this once, on the Mac, with the handheld's SD card (or SHARE):
+
+1. [ ] Copy `GENVOLVE.sh`, `SHOW-BUTTONS.sh`, `USB-MIDI-CHECK.sh` and the
+   `genvolve` folder into `roms/ports/`, choosing **Replace** for the two
+   old `.sh` files.
+2. [ ] Delete `roms/ports/SEQ4H.sh`. Leave the `seq4h` folder where it is.
+3. [ ] On the handheld: **Game settings > Update game lists**. Ports shows
+   **GENVOLVE**, **SHOW-BUTTONS** and **USB-MIDI-CHECK**, and no SEQ4H.
+4. [ ] Start GENVOLVE. The header top left reads **GENVOLVE**, and the
+   pattern you had in seq4h is playing (same BPM, slots, mutes).
+5. [ ] M > SONG SAVE lists your saved songs. M > MIDI OUTPUT has the same
+   port picked as before. M > DEVICE + CLOCK keeps your device and clock.
+6. [ ] SHOW-BUTTONS from Ports starts Genvolve with the button codes showing.
+7. [ ] Quit. On the Mac, `roms/ports/genvolve/genvolve.log` has
+   `copied old .../seq4h/seq4h.pat to genvolve/seq4h.pat` lines (one per
+   file) on the first start only.
+8. [ ] Once all is well, delete the old `seq4h` folder (or keep it as a
+   backup; Genvolve no longer reads it once its own copies exist).
+
 **F. Problem reports**
 
 If something goes wrong, note what you pressed and what happened, then quit
-and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
+and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi-check.log` if MIDI never connects: run
 **USB-MIDI-CHECK** from Ports first).
 
 **Results so far (Roy's RG40XX-V and FM1, 2026-11-19 to 2026-11-21)**
@@ -1148,6 +1193,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Song save (D5) | not tested yet |
 | Track box X/Y/Select, locks, ALL STEPS, stick and Select shortcuts (D6) | not tested yet |
 | Device presets, clock and Start/Stop (D7) | Roy, 2026-11-21: the presets work; on the Blackbox 2 he had to build his own map for its 909 kit, which is now the BLACKBOX preset |
+| Rename to Genvolve (D8) | not tested yet |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)
@@ -1511,7 +1557,7 @@ and by CI:
   SDL means Knulli's own video and input backends are used. The code only
   calls SDL functions from 2.0.5 or older, so the device's SDL version does
   not matter. If a future Knulli lacked one of these, bundle the `.so` next to
-  the binary and set `LD_LIBRARY_PATH` in `SEQ4H.sh`.
+  the binary and set `LD_LIBRARY_PATH` in `GENVOLVE.sh`.
 - `-mcpu=cortex-a53` for the H700. The script fails if the result is not
   aarch64 or lacks ALSA.
 - **Tests:** unit tests natively, the same tests built for aarch64 under
@@ -1520,7 +1566,8 @@ and by CI:
   not that it works on the handheld.
 - **Reproducible:** `-ffile-prefix-map`, a stripped binary and a zip with
   fixed timestamps give identical SHA-256s on every run.
-- **Package:** `dist/seq4h-knulli-aarch64.zip` in the Ports layout. CI
+- **Package:** `dist/genvolve-knulli-aarch64.zip` in the Ports layout
+  (`GENVOLVE.sh`, `genvolve/genvolve`; the make target is still `seq4h`). CI
   uploads the zip inside the artifact, because GitHub artifacts drop the
   execute bit.
 - Behind a proxy that blocks plain HTTP, the apt sources need switching to
@@ -1571,7 +1618,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
 - `tests/hardware-sheet-133.md`: 20 on-device tests (PASS/FAIL) for build #133
-- `knulli/SEQ4H.sh`: Ports launcher script
-- `knulli/SHOW-BUTTONS.sh`: Ports entry that starts seq4h with button codes shown
+- `knulli/GENVOLVE.sh`: Ports launcher script (was `SEQ4H.sh`); copies saved work from an old `seq4h/` folder on first start
+- `knulli/SHOW-BUTTONS.sh`: Ports entry that starts Genvolve with button codes shown
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
 - `knulli/build.sh`, `knulli/Dockerfile`: aarch64 cross-build and packaging
