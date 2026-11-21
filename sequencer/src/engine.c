@@ -57,6 +57,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
     s->bpm = 120;
     s->scale = SCALE_MIN_PENT;
     s->clock_out = 1;
+    s->transport_out = 1;
     s->style = STYLE_AMBIENT;
     s->rng = 0x2545F491u;
     s->send = send;
@@ -114,7 +115,7 @@ void seq_start(Seq *s) {
         memset(s->track[t].played, 0, sizeof s->track[t].played);
         if (live_offset(&s->track[t])) seq_reshuffle(s, t);
     }
-    if (s->clock_out) emit1(s, 0xFA);
+    if (s->transport_out) emit1(s, 0xFA);
 }
 
 void seq_stop(Seq *s) {
@@ -125,7 +126,7 @@ void seq_stop(Seq *s) {
         release(s, &s->track[t]);
         emit3(s, 0xB0 | s->track[t].channel, 123, 0);   /* all notes off */
     }
-    if (s->clock_out) emit1(s, 0xFC);
+    if (s->transport_out) emit1(s, 0xFC);
 }
 
 void seq_panic(Seq *s) {
@@ -149,7 +150,14 @@ void seq_panic(Seq *s) {
 
 void seq_reconnected(Seq *s) {
     seq_panic(s);
-    if (s->playing && s->clock_out) s->resync = 1;
+    if (s->playing && s->transport_out) s->resync = 1;
+}
+
+void seq_set_sync(Seq *s, int clock, int transport) {
+    s->clock_out = clock != 0;
+    if (transport && !s->transport_out && s->playing) s->resync = 1;
+    s->transport_out = transport != 0;
+    if (!s->transport_out) s->resync = 0;
 }
 
 void seq_track_release(Seq *s, int t) { release(s, &s->track[t]); }
@@ -251,7 +259,7 @@ void seq_tick(Seq *s) {
     uint32_t now = s->tick;
     if (s->resync && now % (SEQ_PPQN * 4) == 0) {   /* bar line: the receiver's beat 1 */
         s->resync = 0;
-        if (s->clock_out) { emit1(s, 0xFC); emit1(s, 0xFA); }
+        if (s->transport_out) { emit1(s, 0xFC); emit1(s, 0xFA); }
     }
     if (s->clock_out && now % (SEQ_PPQN / 24) == 0) emit1(s, 0xF8);
 
@@ -774,7 +782,7 @@ static void load_hit(SeqDrums *d, int l, int i, int v, int p) {
 
 void seq_save(const Seq *s, FILE *f) {
     char pre[32];
-    fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->scale, s->root, s->style);
+    fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\ntransport %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->transport_out, s->scale, s->root, s->style);
     fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
         char nm[SEQ_LANE_NAME + 1];
@@ -920,7 +928,8 @@ int seq_load(Seq *s, FILE *f) {
         }
         else if (sscanf(line, "bpm %d", &a) == 1) s->bpm = clampi(a, 30, 300);
         else if (sscanf(line, "swing %d", &a) == 1) s->swing = clampi(a, 0, SEQ_MAX_SWING);
-        else if (sscanf(line, "clock %d", &a) == 1) s->clock_out = a != 0;
+        else if (sscanf(line, "clock %d", &a) == 1) s->clock_out = s->transport_out = a != 0;   /* older files: one setting for both */
+        else if (sscanf(line, "transport %d", &a) == 1) s->transport_out = a != 0;          /* comes after clock */
         else if (sscanf(line, "style %d", &a) == 1) {
             s->style = clampi(a, 0, style_count() - 1);
             for (int t = 0; t < SEQ_TRACKS; t++) s->track[t].style = (uint8_t)s->style;   /* files without "ts" lines */

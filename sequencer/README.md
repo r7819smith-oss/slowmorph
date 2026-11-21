@@ -17,7 +17,8 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - A global **scale and root** (12 scales). Editing a note steps by scale degree.
 - **Pattern generators** and **evolution** (below)
 - Swing, mute and solo per track (from the grid) and per drum lane (from the drum grid), BPM 30-300
-- Clock master: MIDI clock (also while stopped), start and stop output (turn off with `--no-clock`)
+- Clock master: MIDI clock (also while stopped), start and stop output; each can be turned off per output on M > DEVICE + CLOCK (or both with `--no-clock`)
+- Device presets (M > DEVICE + CLOCK): FELUCCA, JANGADA, DIGITONE and BLACKBOX 2 set the channels, drum map, clock and start/stop in one go
 - Everything (all 8 slots per track, chains, generators, evolution, mutes,
   scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
   each edit, once a minute while playing, and at quit, so it survives the
@@ -412,9 +413,35 @@ FM1 track n). If the sounds are wrong, that is the first thing to check.
 | Up / down | pick a lane (the last row is PRESET) |
 | Left / right | lane note down / up by 1, and play it |
 | hold Y [V] + left / right | jump to the next Felucca sound down / up (kick, rim, snare ... at its own pitch), and play it |
-| A [Z] | play the lane's note; on PRESET left/right picks FELUCCA or GM and A twice applies it to all 8 lanes |
+| A [Z] | play the lane's note; on PRESET left/right picks FELUCCA, GM or BLACKBOX and A twice applies it to all 8 lanes |
 | X [C] | rename the lane (as slot names; an empty name gives the Felucca name back) |
 | B [X] | back to the main menu |
+
+**Device page** (M > DEVICE + CLOCK, A): one preset per instrument, and
+MIDI clock and Start/Stop for the output in use.
+
+| Row | What it does |
+|---|---|
+| DEVICE | left/right picks FELUCCA, JANGADA, DIGITONE or BLACKBOX 2; A twice puts the four tracks' MIDI channels, the DRUM MAP, clock and Start/Stop on it. `*` = the settings match it now. Notes, track types and everything else stay. The right side lists what to set on the device itself |
+| MIDI CLOCK | SEND (seq4h is the clock master, also while stopped) or OFF (the device keeps its own tempo) |
+| START/STOP | SEND or OFF. Off: Start on the handheld does not start the device's own sequencer |
+| OUTPUT | the port these settings belong to (pick it on M > MIDI OUTPUT) |
+
+| Preset | Channels | Drum map | Clock | Start/Stop |
+|---|---|---|---|---|
+| FELUCCA | 1 2 3 4 | FELUCCA | on | on |
+| JANGADA | 1 2 3 4 | GM | on | on |
+| DIGITONE | 1 2 3 4 | GM | on | off |
+| BLACKBOX 2 | 1 2 3 4 | BLACKBOX (a 909 kit: KICK 36, SNARE 47, CL HAT 39, OP HAT 44, CLAP 41, RIM 46, TOM 51, CRASH 42) | on | on |
+
+Clock, Start/Stop and the device are kept **per output** in `seq4h.midi`
+(next to `seq4h.pat`): line 1 is the chosen port as before, then one line
+per output, `out CLOCK START/STOP DEVICE PORT`, for example
+`out 1 0 DIGITONE Elektron Digitone:Elektron Digitone MIDI 1`. Choosing that
+port again on M > MIDI OUTPUT (or starting with it) brings its settings back,
+and a port that has none but looks like one of the devices gets a hint to
+set it here. The pattern file also keeps `clock` and `transport` lines, used
+when the output has no settings of its own.
 
 **Renaming**: names are up to 8 characters (A-Z, 0-9, space and `-`) and
 start as SLOT 1 to SLOT 8. Up/down changes the letter under the cursor,

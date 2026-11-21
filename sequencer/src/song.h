@@ -50,7 +50,7 @@ void song_info(const char *path, int k, SongInfo *info);
 /* Make `song` the live session. Held notes are released first (seq_panic).
  * Kept from the live session: the MIDI callback, playing/stopped, the tick
  * position (so a playing song carries on in time and the FM1's clock does not
- * restart) and the MIDI clock setting, which belongs to the device, not the
+ * restart) and the MIDI clock and Start/Stop settings, which belong to the device, not the
  * song. Solo is cleared, as it is never saved. */
 void song_apply(Seq *s, const Seq *song);
 

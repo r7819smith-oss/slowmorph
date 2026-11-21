@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
     }
     if (bpm) s.bpm = bpm;
     if (swing >= 0) s.swing = swing;
-    if (no_clock) s.clock_out = 0;
+    if (no_clock) s.clock_out = s.transport_out = 0;
     if (channel >= 1 && channel <= 16)
         for (int t = 0; t < SEQ_TRACKS; t++) s.track[t].channel = (uint8_t)(channel - 1);
 

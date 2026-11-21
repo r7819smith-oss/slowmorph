@@ -17,6 +17,7 @@ tests/test_poly
 tests/test_drum
 tests/test_drum_asan
 tests/test_poly_asan
+tests/test_device
 tests/test_lock
 tests/test_song
 tests/test_song_asan
