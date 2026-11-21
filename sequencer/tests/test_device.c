@@ -62,8 +62,8 @@ int main(void) {
     CHECK(s.track[2].channel == 2 && s.clock_out == 1 && s.transport_out == 0);
     CHECK(seq_drum_map_is(&s, DRUM_GM) && s.track[3].type == TRACK_DRUMS && s.bpm == 77);
     device_apply(&s, DEV_BLACKBOX2);
-    CHECK(device_match(&s) == DEV_BLACKBOX2 && s.lane_note[0] == 36 && s.lane_note[7] == 43);
-    CHECK(!strcmp(s.lane_name[0], "PAD 1"));
+    CHECK(device_match(&s) == DEV_BLACKBOX2 && s.lane_note[0] == 36 && s.lane_note[1] == 47 && s.lane_note[7] == 42);
+    CHECK(!strcmp(s.lane_name[0], "BD 909") && !strcmp(s.lane_name[4], "CLAP 909"));
     device_apply(&s, DEV_FELUCCA);
     CHECK(device_match(&s) == DEV_FELUCCA && s.lane_note[7] == 56);
     for (int d = 0; d < DEV_COUNT; d++) { device_apply(&s, d); CHECK(device_match(&s) == d || d == DEV_JANGADA); }

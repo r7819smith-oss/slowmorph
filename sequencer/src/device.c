@@ -35,10 +35,10 @@ static const DevPreset PRESETS[DEV_COUNT] = {
      {"USB INTO ITS PWR/DATA PORT",
       "TRACK N: MIDI IN CHAN N",
       "GLOB SETTINGS: CLOCK SOURCE USB",
-      "DRUM MAP: LANES = PADS 1-8 (36-43)",
+      "DRUM MAP: 909 KIT PADS (PADS ARE",
+      "  36-43 BOTTOM ROW, 44-51 TOP)",
       "PAD REC ON: NOTES 68 AND UP",
-      "  START RECORDING. KEEP IT OFF",
-      "NOT CHECKED ON A BLACKBOX 2 YET"}},
+      "  START RECORDING. KEEP IT OFF"}},
 };
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }

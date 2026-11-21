@@ -408,7 +408,7 @@ MIDI clock and Start/Stop for the output in use.
 | FELUCCA | 1 2 3 4 | FELUCCA | on | on |
 | JANGADA | 1 2 3 4 | GM | on | on |
 | DIGITONE | 1 2 3 4 | GM | on | off |
-| BLACKBOX 2 | 1 2 3 4 | BLACKBOX (pads 1-8, notes 36-43) | on | on |
+| BLACKBOX 2 | 1 2 3 4 | BLACKBOX (a 909 kit: KICK 36, SNARE 47, CL HAT 39, OP HAT 44, CLAP 41, RIM 46, TOM 51, CRASH 42) | on | on |
 
 Clock, Start/Stop and the device are kept **per output** in `seq4h.midi`
 (next to `seq4h.pat`): line 1 is the chosen port as before, then one line

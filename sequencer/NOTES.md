@@ -502,7 +502,10 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - `src/device.c`: preset table, `device_apply` / `device_match` /
     `device_guess` (from the port name), and the `seq4h.midi` reader and
     writer (`MidiConf`, up to 16 outputs, the oldest is dropped).
-  - DRUM MAP gained a third preset, BLACKBOX (36-43, PAD 1-8).
+  - DRUM MAP gained a third preset, BLACKBOX: Roy's 909 kit on the Blackbox 2,
+    lanes 36 47 39 44 41 46 51 42 named after its pads (BD 909, SD 909,
+    CH 909, OH 909, CLAP 909, RIM 909, TOM MID, CRASH). Checked on the unit
+    2026-11-21: its pads are 36-43 on the bottom row and 44-51 on the top row.
   - Mono/poly per device was left out: polyphony is being built in a
     parallel thread. Add a per-device voice default there if wanted.
   - Tests: `tests/test_device.c`; harness persist checks for a device kept
@@ -734,7 +737,7 @@ What each preset sets, and why. Only Felucca has been tested with seq4h.
 | FELUCCA | 1-4 | FELUCCA (36 38 42 46 39 37 45 56) | on | on | hardware-tested; firmware `eng_drum.c` |
 | JANGADA | 1-4 | GM | on | on | Jangada README: GLO > GLOBAL CLK USB follows tempo, start, stop; track 4 SYNTH = ch 4. Its drum notes and drum channel are not published (Felucca's old README says drums on 10) |
 | DIGITONE | 1-4 | GM | on | off | Digitone manual: MIDI CONFIG > CHANNELS has TRACK 1-4 CHANNEL and AUTO CHANNEL; SYNC has CLOCK RECEIVE; PORT CONFIG has INPUT FROM (DISABLED/MIDI/USB/MIDI+USB) and RECEIVE NOTES. The manual text read gives no default values, so channels 1-4 is the usual Elektron setting, to check on the unit |
-| BLACKBOX 2 | 1-4 | BLACKBOX (36-43 = pads 1-8) | on | on | Blackbox 2 guide v1.1 (2026-10): four tracks, its included projects map track n to channel n, per-track MIDI In Chan; USB MIDI in on the PWR/DATA port (it does not send MIDI over USB). Pad notes 36-51 and following Start/Stop/Clock come from the original Blackbox manual (TOOLS > MIDI In, ClockSource) |
+| BLACKBOX 2 | 1-4 | BLACKBOX (909 kit: 36 47 39 44 41 46 51 42, from Roy's unit) | on | on | Blackbox 2 guide v1.1 (2026-10): four tracks, its included projects map track n to channel n, per-track MIDI In Chan; USB MIDI in on the PWR/DATA port (it does not send MIDI over USB). Pad notes 36-51 and following Start/Stop/Clock come from the original Blackbox manual (TOOLS > MIDI In, ClockSource) |
 
 Choices:
 
@@ -1052,8 +1055,8 @@ Elektron Digitone (USB into the Digitone):
    **BLACKBOX 2** here. On the Blackbox: each track's MIDI In Chan = its
    number; Glob Settings clock source USB; Pad Rec off.
 10. [ ] Play: does it follow tempo and Start/Stop? Set a seq4h track to
-    DRUMS on the channel of a pad track: do lanes 1-8 hit pads 1-8? Write
-    down what pad notes it really uses.
+    DRUMS on the channel of the 909 kit track: each lane hits the pad it is
+    named after (BD 909, SD 909, CH 909 ...).
 
 **Full 20-test sheet for build #133** (2026-11-21, Roy asked for one sheet
 that checks everything): `tests/hardware-sheet-133.md`. Tests 1-7 are the
@@ -1144,7 +1147,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Drum lane mute/solo (D4) | not tested yet |
 | Song save (D5) | not tested yet |
 | Track box X/Y/Select, locks, ALL STEPS, stick and Select shortcuts (D6) | not tested yet |
-| Device presets, clock and Start/Stop (D7) | not tested yet |
+| Device presets, clock and Start/Stop (D7) | Roy, 2026-11-21: the presets work; on the Blackbox 2 he had to build his own map for its 909 kit, which is now the BLACKBOX preset |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)
