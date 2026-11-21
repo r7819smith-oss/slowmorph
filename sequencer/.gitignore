@@ -12,3 +12,5 @@ seq4h.log
 __pycache__/
 tests/test_battery
 tests/test_ambient
+tests/test_drum
+tests/test_drum_asan

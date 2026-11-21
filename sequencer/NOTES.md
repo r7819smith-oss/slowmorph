@@ -255,6 +255,68 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     hats and spread notes with EVO OFFSET) for 128 bars with it. Tests:
     `test_shuffle`; screenshots `track-shuffle`, `generate-spread`,
     `grid-after-spread`.
+- **Piano roll and drum grid** (Roy, 2026-11-21: "lets sort the piano roll
+  an drumpad"; items 3 and 4 of *Piano roll, drum grid, note lengths and
+  offsets*).
+  - Opening: Select on the GRID, acted on when Select is let go and only if
+    no other button was pressed while it was held (`Ui.sel_used`), so
+    Select+Start still quits. Opens `P_ROLL` on a note track and `P_DRUMS`
+    on a drum track; B or Select goes back; L2/R2 switch track and pick the
+    view that fits it; L1/R1 count from GRID. The GRID tab stays lit.
+  - Piano roll: rows are the scale's notes (`gen_note_degree` /
+    `gen_degree_note`), 14 at a time, scrolling to follow the cursor; root
+    rows lighter. Bars are gate + hold long, cut at the next note on the
+    track (no wrap drawn), shifted by OFFSET; off-scale notes outlined; chord
+    notes faint. Controls as the roadmap: A note on/off, hold Y left/right
+    length (quarters up to a step, then whole steps of HOLD), hold Y up/down
+    moves the note a degree, hold X left/right offset, hold X up/down
+    velocity. Y and X alone do nothing there. No save-file change.
+  - Drum track: `SeqTrack.type` (TRACK page TYPE, row 1; the rows below
+    moved down one, so harness key sequences for TRACK rows gained a Down)
+    and `SeqDrums` (velocity 0 = no hit, and chance, per lane and step) in
+    the track, its anchor and every slot. The note steps are kept while a
+    track is a drum track and the other way round. The engine plays every
+    lane hitting on a due step as a one-shot of `SEQ_DRUM_GATE` (12 ticks)
+    on the lane's note, several at once on the channel; two lanes on the same
+    note retrigger it. Drum steps use swing and live shuffle but no OFFSET
+    (`draw_offset` uses 0 as the step's own offset). Per-lane lock
+    (`drum_lock`), not per step.
+  - DRUM MAP: `Seq.lane_note` / `lane_name`, one map for all drum tracks,
+    GM defaults (36 38 42 46 39 37 45 49). Felucca's DRUM engine is "an
+    8-lane kit on the General MIDI key map"; its exact lane notes are not
+    published, so they stay GM until Roy checks on the FM1 (checklist D3).
+    M > DRUM MAP: left/right changes a note and plays it, A plays it, Y
+    renames, RESET TO GM. `seq_audition` plays a note now and sends its
+    note-off half a beat later from `seq_tick`, playing or stopped; the roll
+    and drum grid also use it when a note or hit is placed while stopped.
+  - Generator: DRUM KIT (`gen_drum_roll`, `src/drum.c`): per-style lane
+    parts (hits per 16 steps from a start step, velocity and chance ranges,
+    ghosts), scaled to the track length and BUSY (`drum_busy`, 0-100, 50 =
+    as written). Three kits: ambient (also DRONE and BLANK), techno, melodic.
+    `gen_roll`, `gen_evolve_bar`, `gen_transform`, `gen_set_anchor`, chain
+    morph and `style_apply` hand drum tracks to `src/drum.c`. Evolution:
+    RHYTHM moves one hit to a free neighbour (hit count kept), VELOCITY /
+    PROB nudge hits, ROTATE, REGEN, anchor pull; min/max hits are not used
+    on drums. Transforms INVERT, TRANSPOSE, SPREAD and ON GRID say "NOT FOR
+    DRUM TRACKS". NEW FROM STYLE keeps the type and rolls a kit; BLANK
+    empties the lanes. No style makes a drum track by itself, so the ambient
+    set Roy likes plays exactly as before (ambient hash unchanged).
+  - Save: `dm LANE NOTE NAME` (map), `ty T TYPE LOCKS BUSY`, and one line
+    per hit: `dh T LANE STEP VEL PROB`, `dsh T SLOT ...`, `dah T ...`.
+    Older builds skip them; older files load as note tracks with the GM map.
+    Still `seq4h 1`.
+  - Known limits: FOLLOW reads another track's note steps, not its drum
+    lanes; on a drum track the main grid's A/X open the drum grid rather
+    than editing in place.
+  - Tests: `tests/test_drum.c` (two lanes at once, gates, chance 0, the map
+    read live, stop and type switch release notes, shuffle never on grid,
+    mute, save/load of type, lanes, locks, busy, slots, anchor and map, old
+    files, lane names, techno kit, locked lanes, BUSY, RHYTHM keeps counts,
+    anchor pull, REVERSE twice, styles, audition), also under ASan/UBSan;
+    harness render `render-drums-128-bars` (`tests/fixtures/drums.pat`,
+    `--poly`) and screenshots `roll-page`, `roll-edited`, `roll-track2`,
+    `track-type-drums`, `grid-drums`, `step-drums`, `drums-page`,
+    `drums-edited`, `drums-label`, `drum-map`, `drum-map-rename`.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -298,8 +360,8 @@ Works and tested on desktop Linux:
 ## Next steps (suggested order)
 
 1. Run the plain (no SSH) test checklist below on the RG40XX-V and add to
-   the results table. Still open: the 30-minute run, a hub, slots after
-   autosave (PR 14), and the FM1 audio fluttering.
+   the results table. Still open: a hub, the FM1 audio fluttering, and
+   checklist D3 (piano roll, drum grid, Felucca's drum notes).
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
    fullscreen on the device; adjust `seq4h.input`.
@@ -310,9 +372,8 @@ Works and tested on desktop Linux:
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
    - a song mode on top of slot chains
-   - piano roll, drum track and DRUM MAP (see *Piano roll, drum
-     grid, note lengths and offsets*); for the drum map, first check on the
-     FM1 which notes Felucca's 8 drum lanes answer to
+   - FELUCCA and JANGADA presets on M > DRUM MAP, once checklist D3 has
+     found which notes their drum lanes answer to
 
 ## USB MIDI on the RG40XX-V
 
@@ -563,6 +624,56 @@ The newest run is at the bottom; each seq4h run starts with a
    the grid move to different places. Turn on EVO OFFSET (and EVOLVE every
    2 bars): the groove drifts slowly. TRANSFORM ON GRID puts it back.
 
+**D3. Piano roll, drum grid and drum notes (2026-11-21 build)**
+
+1. [ ] On the grid, put the cursor on track 2 and press **Select** on its
+   own. The piano roll opens: note names down the left, notes as bars.
+   Move with the d-pad and press **A** on an empty spot: the note moves
+   there and you hear it once. Hold **Y** and press right twice: the bar
+   gets longer. Hold **X** and press up: it gets brighter (louder). Press
+   **Select** again: back on the grid, with the change there.
+2. [ ] Select + Start still quits (and Select alone does not open the roll
+   first).
+3. [ ] Pick the FM1 track you want for drums and set it to Felucca's
+   **DRUM** engine. In seq4h go to the **TRACK** page, pick the same track
+   (TRACK row, or L2/R2), go down to **TYPE** and press right: it reads
+   **DRUMS (8 LANES)**.
+4. [ ] **Which notes do Felucca's drum lanes answer to?** Press **M**, go
+   down to **DRUM MAP**, press **A**. The right side should say the notes
+   play on your drum track and channel. On each of the 8 lanes press **A**
+   and listen. If a lane plays the wrong sound or nothing, press
+   left/right (each press plays the new note) until it plays the right
+   sound. Write down the 8 notes below, even if they were already right:
+
+   | Lane | seq4h default | Felucca plays it on |
+   |---|---|---|
+   | KICK | 36 | |
+   | SNARE | 38 | |
+   | CL HAT | 42 | |
+   | OP HAT | 46 | |
+   | CLAP | 39 | |
+   | RIM | 37 | |
+   | TOM | 45 | |
+   | CRASH | 49 | |
+
+   Also note any other notes that make a sound (Felucca has 8 lanes, so a
+   lane seq4h lacks, a cowbell say, may sit on another note). Y renames a
+   lane if you want a different name. **RESET TO GM** puts all 8 back.
+5. [ ] Back on the grid (M, then B), on the drum track press **Select**:
+   the drum grid opens with 8 lanes. Go to **GENERATE**, press **A** on the
+   TRACK row to roll a kit, then back to the grid and Select again. Play:
+   kick, hats and the rest sound together on the FM1.
+6. [ ] In the drum grid: A adds and removes hits, hold X + up/down changes
+   a hit's loudness, hold X + left/right its chance (the white bar on top),
+   Y locks a lane (yellow marks). Roll again on GENERATE: the locked lane
+   stays as it was.
+7. [ ] Change BUSY on GENERATE (the row under GENERATOR, which reads DRUM
+   KIT) and roll: fewer or more hits. Try MUSIC STYLE TECHNO and roll: four
+   on the floor.
+8. [ ] Quit and restart: the track is still a drum track with its hits, and
+   the DRUM MAP keeps your notes and names. Set TYPE back to NOTES: the old
+   notes are back.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -580,7 +691,7 @@ If something goes wrong, note what you pressed and what happened, then quit
 and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 **USB-MIDI-CHECK** from Ports first).
 
-**Results so far (Roy's RG40XX-V and FM1, 2026-11-19)**
+**Results so far (Roy's RG40XX-V and FM1, 2026-11-19 to 2026-11-21)**
 
 | Item | Result |
 |---|---|
@@ -599,8 +710,11 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Power | the handheld charges the FM1 over USB and drains its own battery; charge the FM1 first or use a powered hub |
 | Audio | quiet fluttering noise on the FM1 output with sparse tracks; probably USB power or ground noise, not investigated yet |
 | Styles, per-track generators, MANUAL, 32 steps, slots, chaining | work |
-| Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14, merged), to retest on hardware |
-| 30-minute run | not tested yet |
+| Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14); slots name/load/copy/clear/restart all good on build #124 |
+| Hold bars, offset, shuffle, spread, EVO OFFSET, BLANK, DRONE, battery % | good on build #124 (2026-11-21) |
+| 30-minute run | good on build #124 (2026-11-21) |
+| Piano roll, drum grid (2026-11-21) | not tested yet |
+| Felucca drum lane notes | not checked yet (D3 step 4) |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)
@@ -757,7 +871,7 @@ Recommendation: keep 4 tracks while Felucca or Jangada is the firmware. If
 Roy moves to stock V16 or adds a second FM-1, build option 2. A cheaper win
 in the meantime is the optional firmware channel preset above.
 
-## Piano roll, drum grid, note lengths and offsets (evaluated 2026-11-20; 1 and 2 built)
+## Piano roll, drum grid, note lengths and offsets (evaluated 2026-11-20; all four built)
 
 Roy asked (2026-11-20) whether seq4h could open a piano roll from the grid for
 fine editing, have a drum grid for a track marked as the drum track (with a
@@ -804,7 +918,7 @@ jumps as on other rows.
   rolled notes small random offsets, and an evolution kind that drifts them.
 - About a day with tests.
 
-### 3. Piano roll view (larger)
+### 3. Piano roll view (larger) (built 2026-11-21, see Decisions)
 
 A full-screen view of one track, opened from the GRID with Select (on release,
 so Select+Start still quits) and closed with B or Select.
@@ -826,7 +940,7 @@ so Select+Start still quits) and closed with B or Select.
   seq4h and Felucca's parts work.
 - No save-file change. About two days with tests and screenshots.
 
-### 4. Drum track and drum grid (largest)
+### 4. Drum track and drum grid (largest) (built 2026-11-21, see Decisions; presets still wait for D3)
 
 **Is there a standard?** Yes: the General MIDI (GM) drum map. Felucca's DRUM
 engine is "an 8-lane kit ... on the General MIDI key map" (Felucca wiki,
@@ -1004,6 +1118,9 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 - `src/engine.c`, `engine.h`: tracks, steps, tick processing, save/load
 - `src/gen.c`, `gen.h`: scales, generators, evolution
+- `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP, audition, drum
+  kit generator, drum evolution, morph and transforms
+- `tests/test_drum.c`: drum track tests
 - `src/player.c`: timing thread and lock
 - `src/midi_alsa.c`, `midi_null.c`: MIDI output backends
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
