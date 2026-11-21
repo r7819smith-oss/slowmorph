@@ -352,6 +352,27 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Tests: `test_drum` (`test_map`, `test_map_next`, `test_map_migrate`);
     screenshots `drum-map-next-sound`, `drum-map-preset`, `step-next-x`,
     `step-next-stick`, `roll-new-length`.
+- **Mute and solo on the drum grid** (2026-11-21, Roy: "a missed
+  opportunity to be able to mute and solo on the drum grid as well as the
+  grid"). Per drum lane, the same as the grid's track mute/solo (PR 10):
+  left of step 1 puts the cursor on the lane name, **A mute, B solo**. The
+  lane's audition moved from A to **X**; **Y** still locks. B on the lane
+  name is solo, so Select (or right, then B) goes back to the grid.
+  - Engine: `SeqTrack.drum_mute` and `drum_solo` (a bit per lane),
+    `seq_lane_mute_toggle`, `seq_lane_solo_toggle`, `seq_lane_audible`.
+    `play_drums` skips silent lanes; a toggle sends note-off for a lane
+    that just went silent. Track mute/solo still apply on top. Generators,
+    evolution and slots ignore mute/solo (a muted lane still evolves).
+    BLANK clears both.
+  - Save: `ty T TYPE LOCKS BUSY MUTES` (5th field; a track with lane mutes
+    always writes the line). Lane solos are not saved, like track solos.
+    Older files without the field load unmuted; older builds read the first
+    four fields and ignore it.
+  - Screen: grey M and yellow S badges under the lane name, silent lanes
+    dim on the drum grid and in the drum track's row on the main grid.
+  - Tests: `test_drum` `test_lane_mute_solo` (mute, solo, solo on a muted
+    lane, hit released on mute, saved mutes, unsaved solos, old `ty` line);
+    screenshots `drums-lane-mute`, `drums-lane-solo`.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -777,6 +798,23 @@ The newest run is at the bottom; each seq4h run starts with a
 If a sound is still wrong after step 2, write down the lane and what you
 hear instead, and send `seq4h.log`.
 
+**D4. Mute and solo on the drum grid (2026-11-21)**
+
+1. [ ] On the drum track press **Select** to open the drum grid and press
+   **Start** to play. Press left until the cursor is on the lane names
+   (yellow box on KICK).
+2. [ ] Press **A**: KICK shows a grey **M**, its hits go dim and the kick
+   stops on the FM1. Press **A** again: it comes back.
+3. [ ] Press **down** to HAT CL and press **B**: a yellow **S**, every other
+   lane goes dim and only the closed hat plays. Go to SNARE and press **B**
+   too: snare and hat play together. Press **B** on both again: all lanes
+   play.
+4. [ ] **X** on a lane name plays its note once (this used to be A).
+   **Y** still locks the lane.
+5. [ ] Mute a lane, press **Select** to go back to the grid: that lane's
+   thin bars are dim in the drum track's row. Quit and restart: the lane
+   is still muted. A lane solo is not kept (like track solo).
+
 **Full 20-test sheet for build #133** (2026-11-21, Roy asked for one sheet
 that checks everything): `tests/hardware-sheet-133.md`. Tests 1-7 are the
 PR 25 features (D3 above, with expected results), tests 8-20 recheck A-E
@@ -825,6 +863,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | 30-minute run | good on build #124 (2026-11-21) |
 | Piano roll (build #127) | works; needed moving between steps while editing and a length for new notes (fixed in PR 25) |
 | Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
+| Drum lane mute/solo (D4) | not tested yet |
 | PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
 | Hub | not tested yet |
 
