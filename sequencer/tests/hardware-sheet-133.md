@@ -15,8 +15,11 @@ those first. Tests 8-20 recheck everything else.
 - FM1 charged, its own pattern cleared (**REC > CLEAR**), **MENU > MIDI >
   MIDI IN** = **CH1-4**, CLOCK page source = **USB**.
 - FM1 connected to the handheld with the USB-C to USB-C cable.
-- Pick one FM1 track for drums and set it to Felucca's **DRUM** engine.
-  FM1 track n listens on MIDI channel n. The sheet calls this number **c**.
+- Drums: seq4h track n plays on MIDI channel n, and FM1 track n listens on
+  channel n. So if your seq4h drum track is T4 on channel 4, **FM1 track 4
+  must be on Felucca's DRUM engine**. The sheet calls this number **c**
+  (c = 4 in that example). If FM1 track c is on a synth engine, every lane
+  plays the same synth sound at different pitches.
 - Start **SEQ4H** from Ports.
 
 ---
@@ -28,8 +31,10 @@ those first. Tests 8-20 recheck everything else.
    **DRUMS (8 LANES)** and **MIDI CHANNEL** to **c**.
 2. Press **M**, go down to **DRUM MAP**, press **A**.
 
-**Expected:** the right side reads "PLAYS ON Tn, MIDI CHANNEL c" and "FM1
-TRACK c MUST USE THE DRUM ENGINE". The last row, **PRESET**, reads
+**Expected:** the right side reads "PLAYS ON T4, MIDI CHANNEL 4" and "FM1
+TRACK 4 MUST USE THE DRUM ENGINE" (with your track and channel). Each lane
+row shows a Felucca sound name beside its note; if there are no sound
+names and no PRESET row, build #133 is not installed. The last row, **PRESET**, reads
 **FELUCCA (IN USE)**, also if you kept a save from build #127.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
@@ -39,6 +44,10 @@ TRACK c MUST USE THE DRUM ENGINE". The last row, **PRESET**, reads
 
 **Expected:** top to bottom you hear KICK 36, SNARE 38, HAT CL 42, HAT OP
 46, CLAP 39, RIM 37, TOM 45, BELL 56, each matching its name.
+
+To fix a lane that sounds wrong: up/down picks the lane, left/right moves
+its note one semitone (and plays it), hold **Y** + left/right jumps to the
+next Felucca sound. Write down what you changed.
 
 [ ] PASS  [ ] FAIL   Lanes that sound wrong, and what you hear: ________
 
