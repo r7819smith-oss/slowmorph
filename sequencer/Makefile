@@ -22,9 +22,10 @@ all: seq4h
 seq4h: $(SRC) $(wildcard src/*.h)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(MIDI_CFLAGS) -o $@ $(SRC) $(SDL_LIBS) $(MIDI_LIBS) -lpthread
 
-test: tests/test_engine tests/test_gen tests/test_ambient tests/test_drum tests/test_input tests/test_battery tests/test_usbinfo
+test: tests/test_engine tests/test_gen tests/test_ambient tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo
 	./tests/test_engine
 	./tests/test_drum
+	./tests/test_lock
 	./tests/test_gen
 	./tests/test_ambient
 	./tests/test_input
@@ -39,6 +40,9 @@ tests/test_gen: tests/test_gen.c src/engine.c src/gen.c src/drum.c $(wildcard sr
 
 tests/test_drum: tests/test_drum.c src/engine.c src/gen.c src/drum.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_drum.c src/engine.c src/gen.c src/drum.c
+
+tests/test_lock: tests/test_lock.c src/engine.c src/gen.c src/drum.c $(wildcard src/*.h)
+	$(CC) $(CFLAGS) -o $@ tests/test_lock.c src/engine.c src/gen.c src/drum.c
 
 tests/test_ambient: tests/test_ambient.c src/engine.c src/gen.c src/drum.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_ambient.c src/engine.c src/gen.c src/drum.c
@@ -74,7 +78,7 @@ screenshots: seq4h
 	./tests/harness.sh screenshots
 
 clean:
-	rm -f seq4h seq4h-render tests/test_engine tests/test_engine_asan tests/test_drum_asan tests/test_gen tests/test_ambient tests/test_drum tests/test_input tests/test_battery tests/test_usbinfo
+	rm -f seq4h seq4h-render tests/test_engine tests/test_engine_asan tests/test_drum_asan tests/test_gen tests/test_ambient tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo
 	rm -rf out
 
 .PHONY: all test test-asan check screenshots clean

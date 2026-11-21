@@ -153,6 +153,15 @@ grid-label-cursor|Left
 grid-label-muted|Left,z
 grid-label-solo|Down,Left,x,Down,x
 grid-label-back|Left,Right
+grid-label-locked|Down,Left,v
+grid-label-rolled|Down,Left,c
+all-steps|Left,Tab
+all-steps-vel|Left,Tab,+v,Left,Left,Left,-v
+all-steps-locks|Left,Tab,Up,z
+grid-after-all-steps|Left,Tab,+v,Left,Left,Left,-v,Down,z,x
+grid-drums-step-locked|w,w,Down,Right,w,z,x,Right,Right,Right,Right,v
+drums-step-locked|w,w,Down,Right,w,z,x,Right,Right,Right,Right,v,Tab
+all-steps-drums|w,w,Down,Right,w,z,x,Left,Tab
 track-page-solo|Left,x,Down,x,w,w,Down,Down,Down,Down
 bat17-grid|
 menu-style-blank|m,Down,Right,Right,Right
@@ -213,6 +222,10 @@ EOF
         --differ grid-demo drum-map --differ drum-map drum-map-rename \
         --differ drum-map drum-map-next-sound --differ drum-map drum-map-preset \
         --differ step-page step-next-x --differ step-next-x step-next-stick --differ roll-page roll-new-length \
+        --differ grid-label-cursor grid-label-locked --differ grid-label-cursor grid-label-rolled \
+        --differ grid-label-cursor all-steps --differ all-steps all-steps-vel --differ all-steps all-steps-locks \
+        --differ grid-demo grid-after-all-steps --differ grid-drums grid-drums-step-locked \
+        --differ drums-page drums-step-locked --differ all-steps all-steps-drums \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"

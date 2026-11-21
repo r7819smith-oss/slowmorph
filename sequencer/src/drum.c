@@ -225,25 +225,36 @@ static int scaled_hits(int k, int len, int busy) {
     return clampi(v, 1, len);
 }
 
+/* Step i of a drum track is not step-locked (every lane keeps its hit there). */
+static int col_free(const SeqTrack *tr, int i) { return !((tr->drum_step_lock >> i) & 1); }
+
+/* Positions within the track's length that are not step-locked. */
+static int free_cols(const SeqTrack *tr, int pos[SEQ_STEPS]) {
+    int n = 0;
+    for (int i = 0; i < tr->len; i++) if (col_free(tr, i)) pos[n++] = i;
+    return n;
+}
+
 void gen_drum_roll(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     int len = tr->len, kit = kit_for(s->style), busy = tr->drum_busy;
+    if (tr->locked) return;
     for (int l = 0; l < SEQ_LANES; l++) {
         if (tr->drum_lock & (1 << l)) continue;
         const LanePart *p = &KIT[kit][l];
-        for (int i = 0; i < SEQ_STEPS; i++) { tr->drum.vel[l][i] = 0; tr->drum.prob[l][i] = 100; }
+        for (int i = 0; i < SEQ_STEPS; i++) if (col_free(tr, i)) { tr->drum.vel[l][i] = 0; tr->drum.prob[l][i] = 100; }
         int k = scaled_hits(p->k, len, busy);
         int first = p->first >= 0 ? p->first % len : p->first == -2 ? (2 + 4 * pick(s, 4)) % len : pick(s, len);
         for (int i = 0; i < len && k; i++) {
             int j = (i - first + len) % len;
-            if ((j * k) % len < k) {
+            if ((j * k) % len < k && col_free(tr, i)) {
                 tr->drum.vel[l][i] = (uint8_t)range(s, p->vlo, p->vhi);
                 tr->drum.prob[l][i] = (uint8_t)range(s, p->plo, p->phi);
             }
         }
         for (int g = scaled_hits(p->ghost, len, busy); g > 0; g--) {
             int i = pick(s, len);
-            if (tr->drum.vel[l][i]) continue;   /* a ghost never replaces a main hit */
+            if (tr->drum.vel[l][i] || !col_free(tr, i)) continue;   /* a ghost never replaces a main hit */
             tr->drum.vel[l][i] = (uint8_t)range(s, 35, 55);
             tr->drum.prob[l][i] = (uint8_t)range(s, 30, 50);
         }
@@ -252,13 +263,14 @@ void gen_drum_roll(Seq *s, int t) {
 
 /* ---- evolution, morph, transforms ---- */
 
+/* Rotate a lane's hits round the steps that are not step-locked (locked steps stay put). */
 static void lane_rotate(SeqTrack *tr, int l, int by) {
-    int len = tr->len;
+    int pos[SEQ_STEPS], n = free_cols(tr, pos);
+    if (!n) return;
     uint8_t v[SEQ_STEPS], p[SEQ_STEPS];
-    by = ((by % len) + len) % len;
-    for (int i = 0; i < len; i++) { v[(i + by) % len] = tr->drum.vel[l][i]; p[(i + by) % len] = tr->drum.prob[l][i]; }
-    memcpy(tr->drum.vel[l], v, (size_t)len);
-    memcpy(tr->drum.prob[l], p, (size_t)len);
+    by = ((by % n) + n) % n;
+    for (int k = 0; k < n; k++) { v[(k + by) % n] = tr->drum.vel[l][pos[k]]; p[(k + by) % n] = tr->drum.prob[l][pos[k]]; }
+    for (int k = 0; k < n; k++) { tr->drum.vel[l][pos[k]] = v[k]; tr->drum.prob[l][pos[k]] = p[k]; }
 }
 
 void gen_drum_morph(Seq *s, int t, const SeqDrums *target, int pct) {
@@ -266,6 +278,7 @@ void gen_drum_morph(Seq *s, int t, const SeqDrums *target, int pct) {
     for (int l = 0; l < SEQ_LANES; l++) {
         if (tr->drum_lock & (1 << l)) continue;
         for (int i = 0; i < tr->len; i++) {
+            if (!col_free(tr, i)) continue;
             int differs = tr->drum.vel[l][i] != target->vel[l][i] || (target->vel[l][i] && tr->drum.prob[l][i] != target->prob[l][i]);
             if (differs && chance(s, pct)) { tr->drum.vel[l][i] = target->vel[l][i]; tr->drum.prob[l][i] = target->prob[l][i]; }
         }
@@ -283,15 +296,15 @@ void gen_drum_evolve(Seq *s, int t) {
         uint8_t *v = tr->drum.vel[l], *p = tr->drum.prob[l];
         if ((e->kinds & EVO_RHYTHM) && chance(s, e->amount)) {   /* move one hit to a free neighbour */
             int hits[SEQ_STEPS], n = 0;
-            for (int i = 0; i < len; i++) if (v[i]) hits[n++] = i;
+            for (int i = 0; i < len; i++) if (v[i] && col_free(tr, i)) hits[n++] = i;
             if (n && n < len) {
                 int i = hits[pick(s, n)], j = (i + (pick(s, 2) ? 1 : len - 1)) % len;
-                if (!v[j]) { v[j] = v[i]; p[j] = p[i]; v[i] = 0; }
+                if (!v[j] && col_free(tr, j)) { v[j] = v[i]; p[j] = p[i]; v[i] = 0; }
             }
         }
         if ((e->kinds & EVO_ROTATE) && chance(s, e->amount)) lane_rotate(tr, l, pick(s, 2) ? 1 : -1);
         for (int i = 0; i < len; i++) {
-            if (!v[i]) continue;
+            if (!v[i] || !col_free(tr, i)) continue;
             if ((e->kinds & EVO_VEL) && chance(s, e->amount))
                 v[i] = (uint8_t)clampi(v[i] + (pick(s, 2) ? 1 : -1) * (8 + pick(s, 12)), 1, 127);
             if ((e->kinds & EVO_PROB) && chance(s, e->amount))
@@ -302,14 +315,16 @@ void gen_drum_evolve(Seq *s, int t) {
 
 int gen_drum_transform(Seq *s, int t, int op, int amount) {
     SeqTrack *tr = &s->track[t];
-    int len = tr->len;
+    int len = tr->len, pos[SEQ_STEPS], np = free_cols(tr, pos);
+    if (tr->locked) return 0;   /* a locked track is left alone */
     switch (op) {
-    case XF_REVERSE:
+    case XF_REVERSE:   /* the steps that are not step-locked, backwards */
         for (int l = 0; l < SEQ_LANES; l++) {
             if (tr->drum_lock & (1 << l)) continue;
-            for (int i = 0, j = len - 1; i < j; i++, j--) {
-                uint8_t a = tr->drum.vel[l][i]; tr->drum.vel[l][i] = tr->drum.vel[l][j]; tr->drum.vel[l][j] = a;
-                a = tr->drum.prob[l][i]; tr->drum.prob[l][i] = tr->drum.prob[l][j]; tr->drum.prob[l][j] = a;
+            for (int a = 0, b = np - 1; a < b; a++, b--) {
+                int i = pos[a], j = pos[b];
+                uint8_t x = tr->drum.vel[l][i]; tr->drum.vel[l][i] = tr->drum.vel[l][j]; tr->drum.vel[l][j] = x;
+                x = tr->drum.prob[l][i]; tr->drum.prob[l][i] = tr->drum.prob[l][j]; tr->drum.prob[l][j] = x;
             }
         }
         return 0;
@@ -322,7 +337,7 @@ int gen_drum_transform(Seq *s, int t, int op, int amount) {
             for (int l = 0; l < SEQ_LANES; l++) {
                 if (tr->drum_lock & (1 << l)) continue;
                 for (int i = 0; i < len; i++) {
-                    if (!tr->drum.vel[l][i]) continue;
+                    if (!tr->drum.vel[l][i] || !col_free(tr, i)) continue;
                     int score = tr->drum.vel[l][i] * 4 + (i % 4 == 0 ? 1000 : i % 2 == 0 ? 500 : 0) + pick(s, 64);
                     if (score < best) { best = score; bl = l; bi = i; }
                 }
@@ -337,12 +352,12 @@ int gen_drum_transform(Seq *s, int t, int op, int amount) {
             for (int l = 0; l < SEQ_LANES; l++) {
                 if (tr->drum_lock & (1 << l)) continue;
                 int any = 0, free = 0;
-                for (int i = 0; i < len; i++) { any |= tr->drum.vel[l][i] != 0; free |= tr->drum.vel[l][i] == 0; }
+                for (int i = 0; i < len; i++) { any |= tr->drum.vel[l][i] != 0; free |= tr->drum.vel[l][i] == 0 && col_free(tr, i); }
                 if (any && free) lanes[nl++] = l;
             }
             if (!nl) break;
             int l = lanes[pick(s, nl)], cand[SEQ_STEPS], nc = 0, sum = 0, n = 0;
-            for (int i = 0; i < len; i++) { if (!tr->drum.vel[l][i]) cand[nc++] = i; else { sum += tr->drum.vel[l][i]; n++; } }
+            for (int i = 0; i < len; i++) { if (!tr->drum.vel[l][i]) { if (col_free(tr, i)) cand[nc++] = i; } else { sum += tr->drum.vel[l][i]; n++; } }
             int i = cand[pick(s, nc)];
             tr->drum.vel[l][i] = (uint8_t)clampi(sum / n * 3 / 4, 1, 127);
             tr->drum.prob[l][i] = 100;
@@ -353,12 +368,13 @@ int gen_drum_transform(Seq *s, int t, int op, int amount) {
         for (int l = 0; l < SEQ_LANES; l++) {
             if (tr->drum_lock & (1 << l)) continue;
             for (int i = 0; i < len; i++)
-                if (tr->drum.vel[l][i]) tr->drum.vel[l][i] = (uint8_t)clampi(tr->drum.vel[l][i] + pick(s, 2 * amount + 1) - amount, 1, 127);
+                if (tr->drum.vel[l][i] && col_free(tr, i)) tr->drum.vel[l][i] = (uint8_t)clampi(tr->drum.vel[l][i] + pick(s, 2 * amount + 1) - amount, 1, 127);
         }
         return 0;
     case XF_CLEAR:
         for (int l = 0; l < SEQ_LANES; l++)
-            if (!(tr->drum_lock & (1 << l))) memset(tr->drum.vel[l], 0, sizeof tr->drum.vel[l]);
+            if (!(tr->drum_lock & (1 << l)))
+                for (int i = 0; i < SEQ_STEPS; i++) if (col_free(tr, i)) tr->drum.vel[l][i] = 0;
         return 0;
     default:
         return -1;

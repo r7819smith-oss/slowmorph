@@ -506,11 +506,13 @@ static void style_shape(Seq *s, int t, int shape, const int8_t *prog) {
 }
 
 /* Blank: an empty page. Bases match seq_init (C2, C3, C4, C5 an octave down). */
-static void style_blank(Seq *s) {
+static int style_blank(Seq *s) {
     static const uint8_t base[SEQ_TRACKS] = {24, 36, 48, 60};
+    int kept = 0;
     s->style = STYLE_BLANK;
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
+        if (tr->locked) { kept++; continue; }   /* a locked track is kept as it is */
         tr->len = SEQ_DEFAULT_LEN;
         tr->gen.base = base[t];
         tr->gen.span = 2;
@@ -521,12 +523,14 @@ static void style_blank(Seq *s) {
         tr->has_anchor = 0;
         memset(tr->drum.vel, 0, sizeof tr->drum.vel);   /* a drum track stays one, with empty lanes */
         tr->drum_lock = 0;
+        tr->drum_step_lock = 0;
         tr->chain_len = 0;
         tr->chain_pos = 0;
         tr->mute = 0;
         tr->solo = 0;
         tr->drum_mute = tr->drum_solo = 0;
     }
+    return kept;
 }
 
 /* Playback colour per style and track (chord, swell bars, swell depth, rest
@@ -538,10 +542,10 @@ static const TrackColour STYLE_COLOUR[STYLE_COUNT][SEQ_TRACKS] = {
 
 int style_apply(Seq *s, int st, int keep_manual) {
     st = st < 0 || st >= STYLE_COUNT ? 0 : st;
-    if (st == STYLE_BLANK) { style_blank(s); return 0; }
+    if (st == STYLE_BLANK) return style_blank(s);
     int keep[SEQ_TRACKS] = {0}, kept = 0;
     for (int t = 0; t < SEQ_TRACKS; t++) {
-        keep[t] = keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0;
+        keep[t] = s->track[t].locked || (keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0);
         kept += keep[t];
     }
     s->style = st;
@@ -582,6 +586,7 @@ int style_apply(Seq *s, int st, int keep_manual) {
         if (s->track[t].type == TRACK_DRUMS) {   /* a drum track gets a kit pattern in the style */
             s->track[t].drum_busy = 50;
             s->track[t].drum_lock = 0;
+            s->track[t].drum_step_lock = 0;
             gen_drum_roll(s, t);
             if (s->track[t].evo.pull) gen_set_anchor(s, t);
         }
@@ -613,7 +618,7 @@ static int chance(Seq *s, int pct) { return (int)(seq_rand(s) % 100) < pct; }
 void gen_apply(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     const GenSettings *g = &tr->gen;
-    if (g->type == GEN_NONE || g->type >= GEN_COUNT) return;
+    if (tr->locked || g->type == GEN_NONE || g->type >= GEN_COUNT) return;
 
     uint8_t pool[64];
     int n = gen_pool(s, t, pool), len = tr->len;
@@ -941,6 +946,7 @@ void gen_apply(Seq *s, int t) {
 }
 
 void gen_roll(Seq *s, int t) {
+    if (s->track[t].locked) return;   /* a locked track is left alone */
     if (s->track[t].type == TRACK_DRUMS) { gen_drum_roll(s, t); return; }
     GenSettings *g = &s->track[t].gen;
     if (g->type == GEN_CELLULAR) g->p[1] = (uint8_t)((g->p[1] + 1) % 64);
@@ -1008,6 +1014,7 @@ static void keep_density(Seq *s, int t) {
 void gen_evolve_bar(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     const EvolveSettings *e = &tr->evo;
+    if (tr->locked) return;
     if (tr->type == TRACK_DRUMS) { gen_drum_evolve(s, t); return; }
 
     /* Pull first, so this bar's new changes are heard before they can be undone. */
@@ -1125,6 +1132,7 @@ const char *gen_xform_name(int op) {
 
 void gen_transform(Seq *s, int t, int op, int amount) {
     SeqTrack *tr = &s->track[t];
+    if (tr->locked) return;
     if (tr->type == TRACK_DRUMS) { gen_drum_transform(s, t, op, amount); return; }
     int pos[SEQ_STEPS], np = unlocked(tr, pos);
     if (np == 0) return;

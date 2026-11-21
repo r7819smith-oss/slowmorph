@@ -39,6 +39,28 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   (`MUTED`, `OFF, SOLO`, `OFF, NOT SOLO`). **Mute is saved, solo is not**
   (decision made without asking): solo is a temporary listen, and a saved
   solo would make tracks seem broken the next time seq4h starts.
+- **Track box X / Y / Select, track locks, ALL STEPS** (Roy, 2026-11-21:
+  "a missed opportunity to assign something to X and Y" on the track label;
+  he also wanted to lock steps or a whole track from generating, and a
+  select-all to change velocity, gate, probability across a track). On the
+  GRID's track label: **X** rolls that track when released; held for 500 ms
+  it undoes the last roll instead (`label_x_*` in `src/ui.c`). **Y** toggles
+  the track lock `SeqTrack.locked` (orange L badge, saved as `tl T 1`).
+  `gen_roll`, `gen_apply`, `gen_evolve_bar`, `gen_transform` and the drum
+  versions return early for a locked track, and `style_apply` keeps a locked
+  track (NEW FROM STYLE and BLANK). Slot loads, chains and hand edits still
+  work on it (decision made without asking: those are your own patterns,
+  not generation). **Select** opens the ALL STEPS page (`P_ALL`): VELOCITY,
+  GATE, HOLD, OFFSET, PROBABILITY, STEP LOCKS (drums: VELOCITY, PROBABILITY,
+  STEP LOCKS over every hit). Left/right is relative (`seq_all_adjust`,
+  clamped), A sets every step to the average (`seq_all_set`), STEP LOCKS A
+  locks all or clears all (`seq_all_lock_toggle`). It acts on locked steps
+  too. **Drum step locks**: Y on the GRID on a drum track now locks the step
+  for every lane (`SeqTrack.drum_step_lock`, a bit per step, saved as
+  `dl T MASK`); drum roll, evolve, morph and transforms skip those steps, and
+  REVERSE/SHIFT/ROTATE move hits only round the unlocked steps. Rotate and
+  transpose on the track box were offered but not built (Roy can ask).
+  Tests: `tests/test_lock.c`.
 - **M opens a main menu** for session-wide settings (Roy, 2026-11-19; a
   music-style choice will go there, added by the pattern engine work). Under
   Knulli M is joy 11. Knulli also uses M for its hotkeys (M + another
@@ -822,6 +844,29 @@ plus MIDI OUTPUT, BLANK, DRONE, generators, evolve, slots and autosave. Each
 test has a PASS/FAIL box. Use it in place of A-E for this build, and copy
 the results into the table below.
 
+**D5. Track box, track lock and ALL STEPS (2026-11-21 build)**
+
+1. [ ] On the GRID press left from step 1 so the cursor is on **T2**. The
+   bottom lines now list X ROLL, Y LOCK TRACK and SELECT ALL STEPS.
+2. [ ] Tap **X**: T2 gets a new pattern (header says T2 ROLLED). Tap X
+   again for another. Now **hold X** for a second: it goes back to the one
+   before. (A MANUAL track says NO GENERATOR instead.)
+3. [ ] Press **Y**: an orange **L** appears on T2 and the line says LOCK ON.
+   Tap X: the header says T2 IS LOCKED and nothing changes. Play for a few
+   bars with evolve on: T2 never changes while the other tracks evolve.
+4. [ ] With T2 locked, M > NEW FROM STYLE (A twice): every track changes
+   except T2. Press Y on T2 again to unlock it.
+5. [ ] On the T1 label press **Select**: the ALL STEPS page opens. On
+   VELOCITY press left a few times: every note on T1 gets quieter (the range
+   moves down). Press **A**: every step is set to the average. Try GATE and
+   PROBABILITY the same way and listen on the FM1. **B** goes back to the T1 label.
+6. [ ] On ALL STEPS go to STEP LOCKS and press A: every step on the grid
+   shows a yellow lock square. Press A again: they all go.
+7. [ ] On the drum track, on the GRID press **Y** on a step with hits: a
+   yellow square appears on it and in the drum grid a yellow bar shows above
+   that step. Roll the drum track (X on its label): that step's hits stay.
+8. [ ] Quit and restart: the track lock and the drum step lock are still there.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -865,6 +910,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
 | Drum lane mute/solo (D4) | not tested yet |
 | PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
+| Track box X/Y/Select, locks, ALL STEPS (D5) | not tested yet |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)

@@ -102,7 +102,8 @@ const char *style_name(int style);
  * tracks fit it. Returns how many tracks were kept.
  * STYLE_BLANK clears all four tracks (keep_manual is ignored): MANUAL, 16
  * steps, every step off, evolution off, no anchor, chaining off, unmuted.
- * Tempo, swing, scale, root, MIDI channels and stored slots stay as they are. */
+ * Tempo, swing, scale, root, MIDI channels and stored slots stay as they are.
+ * A locked track (SeqTrack.locked) is always kept, with BLANK too. */
 int         style_apply(Seq *s, int style, int keep_manual);
 /* Short generator name for the grid ("MANUAL", "EUCLID", "CA", ...), <= 6 chars. */
 const char *gen_short_name(int type);

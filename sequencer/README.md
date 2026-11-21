@@ -141,7 +141,7 @@ which track you are on. Keyboard keys are in brackets.
 | D-pad [arrows] | move the cursor (up/down = track, left/right = step) |
 | A [Z] | step on / off |
 | X [C] | edit this step (opens the STEP page) |
-| Y [V] | lock / unlock this step |
+| Y [V] | lock / unlock this step (generators, evolution and transforms leave a locked step alone; on a drum track it locks every lane's hit on that step) |
 | Select [Tab] | open the **piano roll** (note track) or the **drum grid** (drum track); press and let go on its own, so Select + Start still quits |
 | Left from step 1 | move the cursor onto the track label (T1-T4) |
 
@@ -155,8 +155,26 @@ With the cursor on a **track label**:
 |---|---|
 | A [Z] | mute / unmute the track |
 | B [X] | solo / unsolo the track (several tracks can be soloed) |
+| X [C] | roll (generate) this track, as A on GENERATE does. Hold X for half a second instead to undo the last roll |
+| Y [V] | lock / unlock the whole track |
+| Select [Tab] | open **ALL STEPS** for this track (below) |
 | Up / down | next / previous track |
 | Right | back to step 1 |
+
+A **locked track** shows an orange **L** badge. Roll, evolution, the
+GENERATE page transforms and M > NEW FROM STYLE (BLANK too) leave it exactly
+as it is; you can still edit it by hand, load slots into it and chain it.
+The lock is saved with the pattern.
+
+**ALL STEPS** (Select on a track label) changes one setting on every step
+of the track at once. Rows: VELOCITY, GATE, HOLD, OFFSET, PROBABILITY and
+STEP LOCKS (a drum track has VELOCITY, PROBABILITY and STEP LOCKS, and they
+change every hit of every lane). Each row shows the range over the notes
+that play, e.g. `60 TO 110`. Left/right moves every step's value up or down
+together (hold Y for big steps; values stop at their limits). A gives every
+step the average. On STEP LOCKS, A locks every step, or clears all step
+locks if any step is locked. ALL STEPS is a hand edit, so locked steps
+change too. B or Select goes back to the track label.
 
 Muted tracks turn grey and show an **M** badge; soloed tracks show a yellow
 **S** badge, and while anything is soloed the other tracks are dimmed and
