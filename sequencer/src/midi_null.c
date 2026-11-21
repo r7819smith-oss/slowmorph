@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { Midi base; int verbose; } NullMidi;
+typedef struct { Midi base; int verbose; int fed; } NullMidi;
 
 static void null_send(Midi *m, const uint8_t *msg, int len) {
     NullMidi *n = (NullMidi *)m;
@@ -37,6 +37,28 @@ static void null_choose(Midi *m, const char *match) {
         if (!*match || strstr(names[i], match)) { snprintf(m->desc, sizeof m->desc, "%.63s", names[i]); break; }
 }
 
+/* Testing only: with SEQ4H_TEST_IN="B0 4A 64 90 3C 64 ..." set, the null
+ * output pretends to have a MIDI input that receives those bytes (hex) once,
+ * when listening starts, so MIDI IN and LEARN can be checked without hardware. */
+static int null_listen(Midi *m, int on) {
+    NullMidi *n = (NullMidi *)m;
+    if (!on) { n->fed = 0; snprintf(m->in_desc, sizeof m->in_desc, "NOT LISTENING"); return 0; }
+    snprintf(m->in_desc, sizeof m->in_desc, "TEST INPUT (SEQ4H_TEST_IN)");
+    return 1;
+}
+
+static int null_recv(Midi *m, uint8_t *buf, int max) {
+    NullMidi *n = (NullMidi *)m;
+    const char *e = getenv("SEQ4H_TEST_IN");
+    if (n->fed || !e) return 0;
+    n->fed = 1;
+    int k = 0;
+    unsigned v;
+    int off;
+    while (k < max && sscanf(e, " %x%n", &v, &off) == 1) { buf[k++] = (uint8_t)v; e += off; }
+    return k;
+}
+
 static void null_close(Midi *m) { free(m); }
 
 Midi *midi_null_open(int verbose) {
@@ -51,6 +73,8 @@ Midi *midi_null_open(int verbose) {
         n->base.choose = null_choose;
         null_choose(&n->base, "");
     }
+    if (getenv("SEQ4H_TEST_IN")) { n->base.listen = null_listen; n->base.recv = null_recv; }
+    snprintf(n->base.in_desc, sizeof n->base.in_desc, "%s", getenv("SEQ4H_TEST_IN") ? "NOT LISTENING" : "NO MIDI OUTPUT, SO NO INPUT");
     return &n->base;
 }
 

@@ -597,6 +597,37 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     parallel thread. Add a per-device voice default there if wanted.
   - Tests: `tests/test_device.c`; harness persist checks for a device kept
     per output and brought back at the next start; screenshots `device-*`.
+- **Modulation (M > MODULATION, 2026-11-21, Roy's spec).** 4 LFOs and 16 CC
+  destinations, a MIDI IN monitor and CC learn; three pages (LFO, CC DEST,
+  MIDI IN) on one menu row, L1/R1 between them. See *Modulation and MIDI
+  input* below for the model, the Felucca findings and the limits.
+  Decisions made without asking:
+  - **LOW and HIGH only** (no separate base/depth knobs): the CC moves
+    between them; HIGH - LOW is the depth, MOVE RANGE shifts both. Every
+    wave starts at LOW. OFF (destination or ALL MOD) just stops sending, so
+    the parameter stays where it was (no jump back to a base value).
+  - **Start/stop:** LFOs keep moving while stopped (the clock does too);
+    WHEN STOPPED > PAUSES per LFO. Start restarts **synced** LFOs at their
+    START PHASE so they line up with bar 1; FREE ones carry on. Synced
+    phase is counted in engine ticks, so it never drifts from the bars.
+  - **Traffic:** a CC only goes out when its value changes, at most every
+    20 ms per destination (rounded up to whole ticks), at most 4 CCs per
+    tick in all, round robin. CC 120-127 can't be chosen; 0/32/6/38/96-101
+    show AVOID.
+  - **Input** opens only while MIDI IN listens or a LEARN waits, and is
+    closed otherwise; nothing received is ever sent on. LEARN ignores a CC
+    that an ON destination sends itself (a device echoing MIDI back) and
+    CC 120-127. A learned channel becomes that track (T1-T4) when a track
+    uses it, else a fixed channel.
+  - **SEND ONCE** for Felucca's own MIDI LEARN (the FM1 can't tell us a
+    knob's CC, so we tell it ours).
+  - New defaults: ALL MOD on, every destination off (so existing sessions
+    sound the same), destinations 1-4 pre-set to CUTOFF on T1 (40-90), PAN
+    on T2, DELAY on T3, REVERB on T4.
+  - Velocity is not a destination (it is a note value); SWELL already does
+    slow velocity changes.
+  - Fixed on the way: M from M > DEVICE + CLOCK now closes the menu (it
+    used to reopen the menu over the DEVICE page).
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -638,6 +669,9 @@ Works and tested on desktop Linux:
 
 ## Next steps (suggested order)
 
+0. Run `tests/hardware-sheet-mod.md` (10 tests: modulation, MIDI IN, learn,
+   teaching Felucca with SEND ONCE). Tests 6-8 settle what Felucca really
+   sends back over USB.
 1. Run the short sheet for PR 29 (`tests/hardware-sheet-pr29.md`: per-track
    NEW FROM STYLE, the new styles, the sparser ambient kit, roll locks), then
    add to the results table.
@@ -1224,6 +1258,23 @@ the results into the table below.
    of Select: the piano roll must NOT open. Select alone still opens it, and
    Select + Start still quits.
 
+**D9. Modulation (2026-11-21)**
+
+The full sheet with expected results is `tests/hardware-sheet-mod.md`.
+Short form:
+
+1. [ ] M > MODULATION opens LFO; R1 goes to CC DEST and MIDI IN.
+2. [ ] CC DEST 1 ON (CUTOFF on T1, 40-90): T1's filter sweeps slowly and
+   never fully closes or opens.
+3. [ ] LOW, HIGH and MOVE RANGE change how far and where it sweeps.
+4. [ ] PAUSED, WHEN STOPPED and ALL MOD OFF stop the movement; synced
+   LFOs follow BPM changes, FREE ones don't.
+5. [ ] MIDI IN: what the FM1 sends for keys, SELECT in MODW mode, and its
+   knobs (expected: notes, CC 1, nothing).
+6. [ ] LEARN CC takes CC 1 from the SELECT encoder.
+7. [ ] SEND ONCE teaches Felucca's own LEARN (GLO + D4) a free CC.
+8. [ ] Settings survive a restart and come back with a song.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1295,6 +1346,7 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Track box X/Y/Select, locks, ALL STEPS, stick and Select shortcuts (D6) | not tested yet |
 | Device presets, clock and Start/Stop (D7) | Roy, 2026-11-21: the presets work; on the Blackbox 2 he had to build his own map for its 909 kit, which is now the BLACKBOX preset |
 | Rename to Genvolve (D8) | not tested yet |
+| Modulation, MIDI IN and learn (D9, `tests/hardware-sheet-mod.md`) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 
@@ -1326,6 +1378,86 @@ does: Knulli's `rg35xx-plush-sdk` aarch64 toolchain, the kernel source and
 Put the `.ko` files in `/userdata/roms/ports/seq4h/modules/`; `SEQ4H.sh` loads
 them. The `vermagic` must match `uname -r` on the device. This is not
 automated yet; it is the next job if check B shows the driver is absent.
+## Modulation and MIDI input (built 2026-11-21, not tested on hardware)
+
+### How MIDI went before this
+
+Output only. `src/midi_alsa.c` opened one output: an ALSA sequencer port
+(`snd_seq`, when the kernel has it) or, on Knulli's H700 kernel, a raw MIDI
+device `hw:C,D,S` opened non-blocking for output only. The timing thread
+sends everything (notes, clock, Start/Stop) through `Seq.send` under the
+player lock. Nothing was ever read back.
+
+### What was added
+
+- `Midi.listen` / `Midi.recv` (`src/midi.h`): open the **input of the same
+  device** the output is connected to: the raw MIDI input subdevice on the
+  same card (same `hw:C,D,S` first), or a sequencer input port connected
+  from the device's readable port. Non-blocking, read by the UI thread each
+  frame under the player lock, only while wanted; closed on unplug, port
+  change and quit. `genvolve --midi list` now also lists inputs.
+- `src/mod.c`: the LFO engine, run from `seq_tick` on every tick (playing
+  or not), a byte parser (running status, real time inside messages,
+  SysEx skipped), the monitor and learn. Pattern lines `mo`, `lf`, `md`.
+- Testing without hardware: `SEQ4H_TEST_IN="90 3C 64 ..."` gives the null
+  output a pretend input (screenshots `mod-in-*`); `tools/midicheck.py
+  --cc-gap-ms 20 --cc-range CC:LO-HI` checks modulation CCs in a capture
+  (harness `render-modulation-64-bars`).
+
+### Can the USB link carry MIDI back?
+
+- **Handheld side: probably yes.** The kernel's USB MIDI driver
+  (snd-usb-audio) creates an input substream for every IN jack the device
+  describes, on the same card as the output. Whether Roy's Knulli build
+  shows one is untested: `genvolve --midi list` (SSH) or the MIDI IN page's
+  top line tell. A splitter that separates power from data passes the data
+  lines through, so it should not matter.
+- **FM1 side: yes in Felucca's descriptor.** Felucca's USB descriptor
+  (`tests/usb_desc_v10.h`) has a bulk IN endpoint (0x81) for MIDI, and its
+  console counts `midi_tx_pkts`, so the FM1 does send USB MIDI.
+
+### What Felucca sends (from github.com/hugelton/Felucca source, not tested)
+
+- **Notes** from its own keys (`seq.c`, `midi_out_event` 0x90/0x80 on the
+  selected track's channel), **channel pressure** from key touch
+  (`seq.c` 0xD0), and **CC 1** when the SELECT encoder is in **MODW** mode
+  (MENU > SELECT MODW, `ui_input.c` `sel_play`).
+- **Nothing for its sound knobs.** No other `midi_out_event` call exists:
+  turning a parameter knob changes the sound but sends no CC. So "turn an
+  FM1 knob and let the handheld find its CC" **cannot work on Felucca**.
+  LEARN on CC DEST learns an *incoming controller message* only (CC 1 from
+  the SELECT encoder, or another controller's knob routed in).
+- **Felucca's own MIDI LEARN** (1.5, `midi_learn.c`): hold GLO + D4, turn
+  an FM1 knob (that picks its parameter on the selected track), and the
+  **next CC that arrives** on any channel MIDI IN hears is mapped to it,
+  up to 16 CCs, kept in its settings. CC 0, 32, 11, 96, 97 and 120-127 are
+  never learned. So the working route is the other way round: pick a free
+  CC on CC DEST and **SEND ONCE** while Felucca waits. Turn ALL MOD off
+  first, or Felucca learns whichever modulation CC comes first.
+- **Felucca's fixed CC map** (`midi_control.c` `MIDI_CC_MAP`, always on,
+  0-127 over the parameter's range, 64 = middle of a bipolar one): 5
+  GLIDE, 7 LEVEL, 10 PAN, 71 RESONANCE, 72 RELEASE, 73 ATTACK, 74 CUTOFF,
+  75 DECAY, 91 REVERB, 93 CHORUS, 94 DELAY; CC 74/71 are the engine's own
+  brightness/resonance and some engines ignore them. CCs go to the track the
+  channel plays (MIDI IN CH1-4: channel n = track n). A learned CC no longer
+  reaches this map. If Felucca's AUTOMATION is armed and playing, incoming
+  CCs are recorded as knob moves.
+- Other FM-1 firmware (stock, FM1 Open, Jangada) may send knob moves as
+  CCs, but they may be generic or relative encoder messages rather than the
+  parameter's CC: check on MIDI IN before relying on LEARN.
+- Feedback: Genvolve never echoes input. Felucca has no MIDI thru that we
+  know of. A device set to pass MIDI through would send our
+  own CCs back: MIDI IN marks those `(OUR OWN CC: ECHO?)` and LEARN ignores
+  them.
+
+### Not built
+
+- Velocity modulation (not a CC; SWELL covers slow velocity changes).
+- Per-destination smoothing/slew, LFO-to-LFO modulation, 14-bit CCs, NRPN.
+- Blackbox 2 and Digitone CC names (only Felucca's map and General MIDI are
+  shown; their CC numbers come from their manuals, entered by hand or learned
+  from their own MIDI out once checked on MIDI IN).
+
 ## Bluetooth MIDI and power (researched 2026-11-19, not tested)
 
 Problem: over direct USB-C the handheld powers the FM1, which also charges
@@ -1705,8 +1837,10 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP (FELUCCA, GM and BLACKBOX presets, Felucca sound table), audition, drum
   kit generator, drum evolution, morph and transforms
 - `tests/test_drum.c`: drum track tests
+- `src/mod.c`, `mod.h`: M > MODULATION: LFOs, CC destinations, the MIDI input parser, monitor and learn; `tests/test_mod.c`
+- `tests/hardware-sheet-mod.md`: 10 on-device tests for the modulation module
 - `src/player.c`: timing thread and lock
-- `src/midi_alsa.c`, `midi_null.c`: MIDI output backends
+- `src/midi_alsa.c`, `midi_null.c`: MIDI output backends, and MIDI input (raw MIDI of the output's card, or a sequencer port) for M > MODULATION
 - `src/ui.c`: SDL2 interface and built-in 5x7 font
 - `src/midi_capture.c`: capture-to-file and tee MIDI backends
 - `tools/render.c`: offline renderer (`seq4h-render`)

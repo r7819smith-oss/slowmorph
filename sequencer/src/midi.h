@@ -20,8 +20,18 @@ typedef struct Midi {
      * the first port whose name contains match ("" = first port of any kind).
      * Connects at once if the port is there, else poll() keeps trying. */
     void (*choose)(struct Midi *self, const char *match);
+    /* Optional, with the player lock held: listen (on = 1) or stop listening
+     * (0) for MIDI coming back from the device the output is connected to.
+     * Returns 1 while an input is open; in_desc says which, or why not. Input
+     * is only opened on request (M > MODULATION > MIDI IN, or a LEARN), and
+     * nothing received is ever sent out again. */
+    int (*listen)(struct Midi *self, int on);
+    /* Optional, with the player lock held, never blocks: copies received bytes
+     * into buf and returns how many (0 = none). */
+    int (*recv)(struct Midi *self, uint8_t *buf, int max);
     void (*close)(struct Midi *self);
     char desc[128];
+    char in_desc[128];
     char want[MIDI_PORT_NAME];   /* the port asked for; "" = the first one found */
 } Midi;
 

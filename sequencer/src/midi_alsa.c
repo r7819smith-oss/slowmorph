@@ -24,6 +24,11 @@ typedef struct {
     /* raw MIDI */
     snd_rawmidi_t *raw;
     int dropped;            /* raw bytes dropped because the output was full */
+    char out_id[32];        /* "hw:C,D,S" of the raw output */
+    /* input (only while listening) */
+    snd_rawmidi_t *rin;     /* raw MIDI input of the output's card */
+    snd_seq_t *sin;         /* ...or a sequencer input connected from the device's port */
+    int sin_port;
     int logged;             /* last connection state written to the log: 0 unknown, 1 up, 2 waiting */
 } AlsaMidi;
 
@@ -125,7 +130,7 @@ static void seq_send(AlsaMidi *a, const uint8_t *msg) {
 
 /* Walk every raw MIDI output subdevice: calls fn(ctx, "hw:C,D,S", "card name: subdevice name").
  * Stops and returns 1 when fn returns non-zero. */
-static int raw_each(int (*fn)(void *, const char *, const char *), void *ctx) {
+static int raw_each_dir(snd_rawmidi_stream_t stream, int (*fn)(void *, const char *, const char *), void *ctx) {
     int card = -1;
     while (snd_card_next(&card) >= 0 && card >= 0) {
         char hw[32];
@@ -140,9 +145,9 @@ static int raw_each(int (*fn)(void *, const char *, const char *), void *ctx) {
             snd_rawmidi_info_t *ri;
             snd_rawmidi_info_alloca(&ri);
             snd_rawmidi_info_set_device(ri, dev);
-            snd_rawmidi_info_set_stream(ri, SND_RAWMIDI_STREAM_OUTPUT);
+            snd_rawmidi_info_set_stream(ri, stream);
             snd_rawmidi_info_set_subdevice(ri, 0);
-            if (snd_ctl_rawmidi_info(ctl, ri) < 0) continue;   /* input only */
+            if (snd_ctl_rawmidi_info(ctl, ri) < 0) continue;   /* not this direction */
             int subs = snd_rawmidi_info_get_subdevices_count(ri);
             for (int s = 0; s < subs; s++) {
                 snd_rawmidi_info_set_subdevice(ri, s);
@@ -157,6 +162,10 @@ static int raw_each(int (*fn)(void *, const char *, const char *), void *ctx) {
         snd_ctl_close(ctl);
     }
     return 0;
+}
+
+static int raw_each(int (*fn)(void *, const char *, const char *), void *ctx) {
+    return raw_each_dir(SND_RAWMIDI_STREAM_OUTPUT, fn, ctx);
 }
 
 static int raw_print(void *ctx, const char *id, const char *name) {
@@ -177,6 +186,7 @@ static int raw_try(void *ctx, const char *id, const char *name) {
     char desc[128];
     snprintf(desc, sizeof desc, "%s (raw)", name);
     set_desc(a, desc);
+    snprintf(a->out_id, sizeof a->out_id, "%s", id);
     return 1;
 }
 
@@ -207,6 +217,122 @@ static void raw_send(AlsaMidi *a, const uint8_t *msg, int len) {
 
 static int connected(AlsaMidi *a) { return a->raw || (a->seq && a->dc >= 0); }
 
+/* ---------- input (M > MODULATION > MIDI IN and LEARN) ---------- */
+
+static void in_close(AlsaMidi *a, const char *why) {
+    if (a->rin) snd_rawmidi_close(a->rin);
+    if (a->sin) snd_seq_close(a->sin);
+    a->rin = NULL;
+    a->sin = NULL;
+    snprintf(a->base.in_desc, sizeof a->base.in_desc, "%s", why);
+}
+
+/* The sound card the output is on, or -1. */
+static int out_card(AlsaMidi *a) {
+    int c = -1;
+    if (a->raw && sscanf(a->out_id, "hw:%d", &c) == 1) return c;
+    if (a->seq && a->dc >= 0) {
+        snd_seq_client_info_t *ci;
+        snd_seq_client_info_alloca(&ci);
+        if (snd_seq_get_any_client_info(a->seq, a->dc, ci) >= 0) return snd_seq_client_info_get_card(ci);
+    }
+    return -1;
+}
+
+typedef struct { AlsaMidi *a; int card; const char *only; int seen; } InTry;
+
+static int in_try(void *ctx, const char *id, const char *name) {
+    InTry *t = ctx;
+    int c = -1;
+    if (sscanf(id, "hw:%d", &c) != 1 || c != t->card) return 0;
+    t->seen++;
+    if (t->only && strcmp(id, t->only)) return 0;
+    if (snd_rawmidi_open(&t->a->rin, NULL, id, SND_RAWMIDI_NONBLOCK) < 0) { t->a->rin = NULL; return 0; }
+    snprintf(t->a->base.in_desc, sizeof t->a->base.in_desc, "%s (raw)", name);
+    return 1;
+}
+
+/* A sequencer input connected from a readable port of the output's client. */
+static int seq_in_open(AlsaMidi *a) {
+    if (snd_seq_open(&a->sin, "default", SND_SEQ_OPEN_INPUT, SND_SEQ_NONBLOCK) < 0) { a->sin = NULL; return 0; }
+    snd_seq_set_client_name(a->sin, "seq4h-in");
+    a->sin_port = snd_seq_create_simple_port(a->sin, "in", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
+                                             SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+    snd_seq_port_info_t *pi;
+    snd_seq_port_info_alloca(&pi);
+    snd_seq_port_info_set_client(pi, a->dc);
+    snd_seq_port_info_set_port(pi, -1);
+    int best = -1;
+    char name[128] = "";
+    while (a->sin_port >= 0 && snd_seq_query_next_port(a->sin, pi) >= 0) {
+        unsigned need = SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ;
+        if ((snd_seq_port_info_get_capability(pi) & need) != need) continue;
+        int p = snd_seq_port_info_get_port(pi);
+        if (best < 0 || p == a->dp) { best = p; snprintf(name, sizeof name, "%s", snd_seq_port_info_get_name(pi)); }
+    }
+    if (best < 0 || snd_seq_connect_from(a->sin, a->sin_port, a->dc, best) < 0) {
+        snd_seq_close(a->sin);
+        a->sin = NULL;
+        return 0;
+    }
+    snprintf(a->base.in_desc, sizeof a->base.in_desc, "%d:%d %s", a->dc, best, name);
+    return 1;
+}
+
+static int alsa_listen(Midi *m, int on) {
+    AlsaMidi *a = (AlsaMidi *)m;
+    if (!on) { in_close(a, "NOT LISTENING"); return 0; }
+    if (a->rin || a->sin) return 1;
+    if (!connected(a)) { snprintf(a->base.in_desc, sizeof a->base.in_desc, "NO DEVICE CONNECTED"); return 0; }
+    if (a->seq && a->dc >= 0 && seq_in_open(a)) return 1;
+    int card = out_card(a);
+    InTry t = {a, card, a->raw ? a->out_id : NULL, 0};
+    if (card >= 0 && (raw_each_dir(SND_RAWMIDI_STREAM_INPUT, in_try, &t) || (t.only = NULL, t.seen = 0, raw_each_dir(SND_RAWMIDI_STREAM_INPUT, in_try, &t))))
+        return 1;
+    snprintf(a->base.in_desc, sizeof a->base.in_desc, card < 0 ? "CANNOT TELL WHICH CARD THE OUTPUT IS ON"
+             : t.seen ? "THE DEVICE'S INPUT IS BUSY" : "THE DEVICE HAS NO MIDI INPUT PORT");
+    return 0;
+}
+
+static int seq_in_read(AlsaMidi *a, uint8_t *buf, int max) {
+    int k = 0;
+    snd_seq_event_t *ev;
+    while (k + 3 <= max && snd_seq_event_input(a->sin, &ev) >= 0 && ev) {
+        uint8_t ch = ev->data.note.channel & 15;
+        switch (ev->type) {
+        case SND_SEQ_EVENT_NOTEON: buf[k++] = 0x90 | ch; buf[k++] = ev->data.note.note & 127; buf[k++] = ev->data.note.velocity & 127; break;
+        case SND_SEQ_EVENT_NOTEOFF: buf[k++] = 0x80 | ch; buf[k++] = ev->data.note.note & 127; buf[k++] = ev->data.note.velocity & 127; break;
+        case SND_SEQ_EVENT_KEYPRESS: buf[k++] = 0xA0 | ch; buf[k++] = ev->data.note.note & 127; buf[k++] = ev->data.note.velocity & 127; break;
+        case SND_SEQ_EVENT_CONTROLLER:
+            ch = ev->data.control.channel & 15;
+            buf[k++] = 0xB0 | ch; buf[k++] = ev->data.control.param & 127; buf[k++] = ev->data.control.value & 127; break;
+        case SND_SEQ_EVENT_PGMCHANGE: buf[k++] = 0xC0 | (ev->data.control.channel & 15); buf[k++] = ev->data.control.value & 127; break;
+        case SND_SEQ_EVENT_CHANPRESS: buf[k++] = 0xD0 | (ev->data.control.channel & 15); buf[k++] = ev->data.control.value & 127; break;
+        case SND_SEQ_EVENT_PITCHBEND: {
+            int v = ev->data.control.value + 8192;
+            buf[k++] = 0xE0 | (ev->data.control.channel & 15); buf[k++] = v & 127; buf[k++] = (v >> 7) & 127; break;
+        }
+        case SND_SEQ_EVENT_CLOCK: buf[k++] = 0xF8; break;
+        case SND_SEQ_EVENT_START: buf[k++] = 0xFA; break;
+        case SND_SEQ_EVENT_CONTINUE: buf[k++] = 0xFB; break;
+        case SND_SEQ_EVENT_STOP: buf[k++] = 0xFC; break;
+        case SND_SEQ_EVENT_SENSING: buf[k++] = 0xFE; break;
+        default: break;
+        }
+    }
+    return k;
+}
+
+static int alsa_recv(Midi *m, uint8_t *buf, int max) {
+    AlsaMidi *a = (AlsaMidi *)m;
+    if (a->sin) return seq_in_read(a, buf, max);
+    if (!a->rin) return 0;
+    ssize_t n = snd_rawmidi_read(a->rin, buf, (size_t)max);
+    if (n == -EAGAIN || n == 0) return 0;
+    if (n < 0) { in_close(a, "INPUT LOST (UNPLUGGED?)"); return 0; }
+    return (int)n;
+}
+
 static void alsa_send(Midi *m, const uint8_t *msg, int len) {
     AlsaMidi *a = (AlsaMidi *)m;
     if (len <= 0) return;
@@ -217,6 +343,7 @@ static void alsa_send(Midi *m, const uint8_t *msg, int len) {
 static int alsa_poll(Midi *m) {
     AlsaMidi *a = (AlsaMidi *)m;
     if (a->seq && a->dc >= 0 && !seq_dest_alive(a)) a->dc = -1;
+    if (!connected(a) && (a->rin || a->sin)) in_close(a, "INPUT LOST (UNPLUGGED?)");
     if (!connected(a)) {
         if (!(a->seq && seq_connect(a)) && !raw_connect(a)) {
             snprintf(a->base.desc, sizeof a->base.desc, "WAITING FOR %s", a->match[0] ? a->match : "DEVICE");
@@ -253,6 +380,7 @@ static void alsa_choose(Midi *m, const char *match) {
             alsa_send(m, off, 3);
             alsa_send(m, snd, 3);
         }
+        in_close(a, "NOT LISTENING");
         if (a->seq && a->dc >= 0) snd_seq_disconnect_to(a->seq, a->port, a->dc, a->dp);
         a->dc = -1;
         raw_drop(a);
@@ -267,6 +395,7 @@ static void alsa_choose(Midi *m, const char *match) {
 static void alsa_close(Midi *m) {
     AlsaMidi *a = (AlsaMidi *)m;
     if (a->dropped) fprintf(stderr, "seq4h: %d raw MIDI messages dropped (output full)\n", a->dropped);
+    in_close(a, "");
     raw_drop(a);
     if (a->seq) snd_seq_close(a->seq);
     free(a);
@@ -282,7 +411,10 @@ Midi *midi_alsa_open(const char *match, char *err, size_t errlen) {
     a->base.poll = alsa_poll;
     a->base.ports = alsa_ports;
     a->base.choose = alsa_choose;
+    a->base.listen = alsa_listen;
+    a->base.recv = alsa_recv;
     a->base.close = alsa_close;
+    snprintf(a->base.in_desc, sizeof a->base.in_desc, "NOT LISTENING");
 
     if (snd_seq_open(&a->seq, "default", SND_SEQ_OPEN_OUTPUT, 0) >= 0) {
         snd_seq_set_client_name(a->seq, "Genvolve");
@@ -309,4 +441,6 @@ void midi_alsa_list(void) {
         printf("(no ALSA sequencer: snd-seq is not loaded or not built)\n");
     }
     raw_each(raw_print, NULL);
+    printf("inputs:\n");
+    raw_each_dir(SND_RAWMIDI_STREAM_INPUT, raw_print, NULL);
 }

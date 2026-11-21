@@ -228,7 +228,39 @@ def analyse(msgs, a):
 
     if a.demo:
         demo_checks(r, notes_on, t0, msgs[-1][0], step_us, swing_us)
+    if a.cc_gap_ms:
+        cc_checks(r, msgs, a)
     return r
+
+
+def cc_checks(r, msgs, a):
+    """Modulation CCs (0-119, M > MODULATION): each controller on each channel
+    never repeats its last value and is at least --cc-gap-ms apart; with
+    --cc-range CC:LO-HI, that CC stays within LO..HI and reaches both."""
+    last = {}
+    repeats, close, n = [], [], 0
+    for t, d in msgs:
+        if d[0] & 0xF0 != 0xB0 or len(d) < 3 or d[1] >= 120:
+            continue
+        n += 1
+        key = (d[0] & 15, d[1])
+        if key in last:
+            pt, pv = last[key]
+            if pv == d[2]:
+                repeats.append(f"ch{key[0] + 1} cc{key[1]}={d[2]} at {t / 1000:.1f} ms")
+            if t - pt < a.cc_gap_ms * 1000 - 1:
+                close.append(f"ch{key[0] + 1} cc{key[1]} {(t - pt) / 1000:.1f} ms apart")
+        last[key] = (t, d[2])
+    r.info["modulation CCs"] = n
+    r.check("modulation CCs were sent", n > 0, f"{n} CCs")
+    r.check("a CC never repeats its last value", not repeats, "; ".join(repeats[:3]))
+    r.check(f"each CC at least {a.cc_gap_ms:g} ms after the last on its channel", not close, "; ".join(close[:3]))
+    for spec in a.cc_range or []:
+        cc, rng = spec.split(":")
+        lo, hi = (int(x) for x in rng.split("-"))
+        vals = [d[2] for _, d in msgs if d[0] & 0xF0 == 0xB0 and len(d) >= 3 and d[1] == int(cc)]
+        r.check(f"CC {cc} stays within {lo}-{hi} and reaches both", vals and min(vals) == lo and max(vals) == hi,
+                f"{min(vals) if vals else '-'}..{max(vals) if vals else '-'}")
 
 
 def check_pairing_mono(r, msgs, timed, gates):
@@ -327,6 +359,8 @@ def main():
     ap.add_argument("--duration", type=float, default=0, help="run length in seconds, to check the clock count")
     ap.add_argument("--no-clock", action="store_true", help="the run used --no-clock")
     ap.add_argument("--demo", action="store_true", help="also check the built-in demo pattern")
+    ap.add_argument("--cc-gap-ms", type=float, default=0, help="check modulation CCs: no repeats, at least this far apart")
+    ap.add_argument("--cc-range", action="append", help="with --cc-gap-ms: CC:LO-HI the CC must stay within and reach")
     ap.add_argument("--json", help="also write the report as JSON to this file")
     a = ap.parse_args()
 

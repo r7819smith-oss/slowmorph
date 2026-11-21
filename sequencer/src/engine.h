@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "mod.h"
+
 #define SEQ_TRACKS 4
 #define SEQ_STEPS 32               /* longest pattern */
 #define SEQ_DEFAULT_LEN 16         /* new tracks start one bar long */
@@ -166,6 +168,7 @@ typedef struct {
     uint8_t lane_note[SEQ_LANES];                 /* DRUM MAP: MIDI note of each lane, shared by every drum track */
     char lane_name[SEQ_LANES][SEQ_LANE_NAME + 1];
     int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
+    Mod mod;                                      /* M > MODULATION: LFOs sending CCs (mod.h) */
     SeqSend send;
     void *ctx;
 } Seq;
@@ -187,7 +190,9 @@ void seq_reconnected(Seq *s);
  * on while playing sends Start at the next bar line, so the receiver joins in
  * on beat 1. */
 void seq_set_sync(Seq *s, int clock, int transport);
-void seq_tick(Seq *s);                 /* advance one tick (1/96 beat) */
+void seq_tick(Seq *s);
+/* M > MODULATION SEND ONCE: send destination d's CC now, on its channels. */
+int  seq_mod_send_once(Seq *s, int d);                 /* advance one tick (1/96 beat) */
 int  seq_playhead(const Seq *s, int t);/* step being played on track t, or -1 */
 /* Velocity a note of velocity `vel` is sent with on track t at tick `now`,
  * after the track's swell (unchanged when the swell is off). */

@@ -5,6 +5,7 @@
 #include "drum.h"
 #include "gen.h"
 #include "input.h"
+#include "mod.h"
 #include "song.h"
 #include "usbinfo.h"
 
@@ -83,10 +84,11 @@ static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uin
  * values for the current track: up/down picks a row, left/right changes it. */
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
                P_MENU = P_TABS, P_SLOTS, P_SONGS, P_DRUMMAP, P_MIDI, P_DEVICE,   /* PATTERN SAVE, SONG SAVE, DRUM MAP, MIDI and DEVICE open from the main menu */
+               P_LFO, P_DEST, P_MIDIIN,                                /* M > MODULATION: its three pages, L1/R1 between them */
                P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
                P_ALLSTEPS,                                           /* Select on the GRID's track box: ALL STEPS */
                P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "DEVICE", "ROLL", "DRUMS", "ALL STEPS"};
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "DEVICE", "LFO", "CC DEST", "MIDI IN", "ROLL", "DRUMS", "ALL STEPS"};
 #define MAX_PORTS 8   /* M > MIDI lists this many output ports */
 #define MAX_USB 8     /* ...and this many USB devices */
 #define MAP_ROWS (SEQ_LANES + 1)   /* DRUM MAP: the 8 lanes, then RESET TO GM */
@@ -172,6 +174,14 @@ typedef struct {
     UsbDev usb[MAX_USB];      /* USB devices, refreshed every second */
     int nusb;
     char usb_sig[512];        /* the USB list last written to the log */
+    /* M > MODULATION */
+    int lfo_sel, dest_sel;    /* LFO and CC DEST pages: the LFO and destination shown */
+    int learn;                /* destination waiting for a CC to learn, -1 = none */
+    int listen_on;            /* MIDI IN page: listening (on as the page opens) */
+    int in_open;              /* the MIDI input is open */
+    Uint32 next_listen;       /* next try to open it */
+    char in_desc[128];        /* the input, or why there is none */
+    MidiMon mon;              /* what came in */
 } Ui;
 
 /* Generate page rows. */
@@ -497,9 +507,9 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 14
+#define MENU_ROWS 15
 enum { MENU_RESUME, MENU_STYLE, MENU_T1, MENU_T4 = MENU_T1 + SEQ_TRACKS - 1, MENU_NEW, MENU_SLOTS, MENU_SONGS, MENU_DRUMMAP,
-       MENU_MIDI, MENU_DEVICE, MENU_CODES, MENU_QUIT };
+       MENU_MIDI, MENU_DEVICE, MENU_MOD, MENU_CODES, MENU_QUIT };
 
 /* The T1-T4 rows start as each track's own style and part. */
 static void plan_from_tracks(const Seq *s, Ui *u) {
@@ -565,6 +575,13 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
     else if (row == MENU_DRUMMAP) { snprintf(label, 24, "DRUM MAP"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_MIDI) { snprintf(label, 24, "MIDI OUTPUT"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_DEVICE) { snprintf(label, 24, "DEVICE + CLOCK"); snprintf(val, 24, "%s", device_name(device_match(s))); }
+    else if (row == MENU_MOD) {
+        int on = 0;
+        for (int d = 0; d < MOD_DESTS; d++) on += s->mod.dest[d].on;
+        snprintf(label, 24, "MODULATION");
+        if (!s->mod.on) snprintf(val, 24, "ALL OFF");
+        else snprintf(val, 24, "%d CC%s ON", on, on == 1 ? "" : "S");
+    }
     else if (row == MENU_CODES) { snprintf(label, 24, "BUTTON CODES"); snprintf(val, 24, "%s", u->show_input ? "ON" : "OFF"); }
     else if (row == MENU_QUIT) snprintf(label, 24, "SAVE AND QUIT");
 }
@@ -645,17 +662,23 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->dev_pick = d < DEV_COUNT ? d : 0;
         u->dev_confirm = 0;
     }
+    else if (row == MENU_MOD) { u->page = P_LFO; u->learn = -1; }
     else if (row == MENU_CODES) toggle_codes(u);
     else if (row == MENU_QUIT) u->quit = 1;
 }
 
 #define DEVICE_ROWS 4
 enum { DR_DEVICE, DR_CLOCK, DR_TRANSPORT, DR_OUTPUT };
+/* M > MODULATION pages. */
+enum { LR_LFO, LR_STATE, LR_WAVE, LR_TIMING, LR_RATE, LR_PHASE, LR_STOPPED, LR_ALL, LFO_ROWS };
+enum { DW_DEST, DW_STATE, DW_LFO, DW_TO, DW_CC, DW_LOW, DW_HIGH, DW_MOVE, DW_INV, DW_LEARN, DW_SEND, DEST_ROWS };
+enum { IR_LISTEN, IR_CLEAR, IN_ROWS };
 
 static int page_rows(const Ui *u, int page) {
     if (page == P_ALLSTEPS) return all_rows(&u->p->seq, u);
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
-         : page == P_SLOTS ? SEQ_SLOTS : page == P_SONGS ? SEQ_SONGS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : page == P_DEVICE ? DEVICE_ROWS : GEN_ROWS;
+         : page == P_SLOTS ? SEQ_SLOTS : page == P_SONGS ? SEQ_SONGS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : page == P_DEVICE ? DEVICE_ROWS
+         : page == P_LFO ? LFO_ROWS : page == P_DEST ? DEST_ROWS : page == P_MIDIIN ? IN_ROWS : GEN_ROWS;
 }
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
@@ -1444,6 +1467,206 @@ static void scan_midi(Ui *u) {
     }
 }
 
+/* ---- M > MODULATION: LFO, CC DEST and MIDI IN pages ---- */
+
+static void track_channels(const Seq *s, uint8_t ch[SEQ_TRACKS]) {
+    for (int t = 0; t < SEQ_TRACKS; t++) ch[t] = s->track[t].channel;
+}
+
+/* Name of a CC for the device in use: Felucca's own map, else General MIDI. */
+static const char *cc_name(const Seq *s, int cc) {
+    const char *n = device_match(s) == DEV_FELUCCA ? mod_felucca_cc(cc) : mod_gm_cc(cc);
+    return n ? n : mod_cc_reserved(cc) ? "AVOID" : "";
+}
+
+static void lfo_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    const ModLfo *l = &s->mod.lfo[u->lfo_sel];
+    val[0] = 0;
+    switch (row) {
+    case LR_LFO: snprintf(label, 24, "LFO"); snprintf(val, 24, "%d OF %d", u->lfo_sel + 1, MOD_LFOS); break;
+    case LR_STATE: snprintf(label, 24, "STATE"); snprintf(val, 24, "%s", l->hold ? "PAUSED" : "RUNNING"); break;
+    case LR_WAVE: snprintf(label, 24, "WAVE"); snprintf(val, 24, "%s", mod_wave_name(l->wave)); break;
+    case LR_TIMING: snprintf(label, 24, "TIMING"); snprintf(val, 24, "%s", l->sync ? "SYNC TO BPM" : "FREE (SECS)"); break;
+    case LR_RATE: snprintf(label, 24, "CYCLE"); mod_rate_name(l->sync, l->rate, val, 24); break;
+    case LR_PHASE: snprintf(label, 24, "START PHASE"); snprintf(val, 24, "%d%%", l->phase); break;
+    case LR_STOPPED: snprintf(label, 24, "WHEN STOPPED"); snprintf(val, 24, "%s", l->stop_hold ? "PAUSES" : "KEEPS MOVING"); break;
+    default: snprintf(label, 24, "ALL MOD"); snprintf(val, 24, "%s", s->mod.on ? "ON" : "OFF (SILENT)"); break;
+    }
+}
+
+static void lfo_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    int *row = &u->row[P_LFO], big = u->held[B_Y];
+    ModLfo *l = &s->mod.lfo[u->lfo_sel];
+    int d = dx ? dx : b == B_A ? 1 : 0;
+    if (dy) { *row = wrap(*row + dy, LFO_ROWS); return; }
+    if (b == B_B) { u->page = P_MENU; return; }
+    if (b == B_L2 || b == B_R2) { u->lfo_sel = wrap(u->lfo_sel + (b == B_R2 ? 1 : -1), MOD_LFOS); return; }
+    if (!d) return;
+    switch (*row) {
+    case LR_LFO: u->lfo_sel = wrap(u->lfo_sel + d, MOD_LFOS); break;
+    case LR_STATE: l->hold ^= 1; say(u, l->hold ? "LFO PAUSED: ITS CCS STAY WHERE THEY ARE" : "LFO RUNNING"); break;
+    case LR_WAVE: l->wave = (uint8_t)wrap(l->wave + d, WAVE_COUNT); break;
+    case LR_TIMING: {   /* keep about the same cycle length when switching */
+        double sec = l->sync ? mod_sync_ticks(l->rate) * 60.0 / (s->bpm * SEQ_PPQN) : mod_free_tenths(l->rate) / 10.0;
+        l->sync ^= 1;
+        int best = 0;
+        double bd = 1e9;
+        for (int k = 0; k < mod_rate_count(l->sync); k++) {
+            double c = l->sync ? mod_sync_ticks(k) * 60.0 / (s->bpm * SEQ_PPQN) : mod_free_tenths(k) / 10.0;
+            double e = c > sec ? c / sec : sec / c;
+            if (e < bd) { bd = e; best = k; }
+        }
+        l->rate = (uint8_t)best;
+        if (l->sync) l->count = 0;
+        break;
+    }
+    case LR_RATE: l->rate = (uint8_t)clampi(l->rate + d * (big ? 4 : 1), 0, mod_rate_count(l->sync) - 1); break;
+    case LR_PHASE: l->phase = (uint8_t)wrap(l->phase + d * (big ? 25 : 5), 100); break;
+    case LR_STOPPED: l->stop_hold ^= 1; break;
+    default:
+        s->mod.on ^= 1;
+        for (int k = 0; k < MOD_DESTS; k++) mod_touch(&s->mod, k);
+        say(u, s->mod.on ? "MODULATION ON" : "MODULATION OFF: NO CCS ARE SENT");
+        break;
+    }
+}
+
+static void dest_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
+    const ModDest *x = &s->mod.dest[u->dest_sel];
+    val[0] = 0;
+    switch (row) {
+    case DW_DEST: snprintf(label, 24, "DEST"); snprintf(val, 24, "%d %s", u->dest_sel + 1, x->on ? "ON" : "OFF"); break;
+    case DW_STATE: snprintf(label, 24, "STATE"); snprintf(val, 24, "%s", x->on ? "ON" : "OFF"); break;
+    case DW_LFO: snprintf(label, 24, "LFO"); snprintf(val, 24, "%d %.10s", x->lfo + 1, mod_wave_name(s->mod.lfo[x->lfo].wave)); break;
+    case DW_TO: {
+        char t[16];
+        snprintf(label, 24, "SEND TO");
+        mod_to_name(x->to, t, sizeof t);
+        if (x->to < TO_ALL) snprintf(val, 24, "%.6s (CH %d)", t, s->track[x->to].channel + 1);
+        else snprintf(val, 24, "%s", t);
+        break;
+    }
+    case DW_CC: snprintf(label, 24, "CC"); snprintf(val, 24, "%d %.8s", x->cc, cc_name(s, x->cc)); break;
+    case DW_LOW: snprintf(label, 24, "LOW"); snprintf(val, 24, "%d", x->lo); break;
+    case DW_HIGH: snprintf(label, 24, "HIGH"); snprintf(val, 24, "%d", x->hi); break;
+    case DW_MOVE: snprintf(label, 24, "MOVE RANGE"); snprintf(val, 24, "MID %d", (x->lo + x->hi + 1) / 2); break;
+    case DW_INV: snprintf(label, 24, "INVERT"); snprintf(val, 24, "%s", x->inv ? "YES" : "NO"); break;
+    case DW_LEARN: snprintf(label, 24, "LEARN CC"); snprintf(val, 24, "%s", u->learn == u->dest_sel ? "LISTENING.." : "A: LISTEN"); break;
+    default: snprintf(label, 24, "SEND ONCE"); snprintf(val, 24, "A: SEND CC"); break;
+    }
+}
+
+static void dest_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    int *row = &u->row[P_DEST], big = u->held[B_Y], dn = u->dest_sel;
+    ModDest *x = &s->mod.dest[dn];
+    int d = dx ? dx * (big ? 10 : 1) : 0;
+    if (dy) { *row = wrap(*row + dy, DEST_ROWS); return; }
+    if (b == B_B) {
+        if (u->learn >= 0) { u->learn = -1; say(u, "LEARN CANCELLED"); return; }
+        u->page = P_MENU;
+        return;
+    }
+    if (b == B_L2 || b == B_R2) { u->dest_sel = wrap(dn + (b == B_R2 ? 1 : -1), MOD_DESTS); u->learn = -1; return; }
+    if (*row == DW_LEARN && b == B_A) {
+        u->learn = u->learn == dn ? -1 : dn;
+        say(u, u->learn >= 0 ? "LEARN: MOVE A CONTROL THAT SENDS A CC (B CANCELS)" : "LEARN CANCELLED");
+        return;
+    }
+    if (*row == DW_SEND && b == B_A) {
+        int n = seq_mod_send_once(s, dn);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "SENT CC %d = %d (%d CHANNEL%s)", x->cc, mod_value(&s->mod, dn), n, n == 1 ? "" : "S");
+        say(u, u->msg_buf);
+        return;
+    }
+    if (b == B_A && (*row == DW_DEST || *row == DW_STATE || *row == DW_INV)) d = 1;
+    if (!d) return;
+    switch (*row) {
+    case DW_DEST: if (b == B_A) x->on ^= 1; else { u->dest_sel = wrap(dn + dx, MOD_DESTS); u->learn = -1; } break;
+    case DW_STATE: x->on ^= 1; break;
+    case DW_LFO: x->lfo = (uint8_t)wrap(x->lfo + dx, MOD_LFOS); break;
+    case DW_TO: x->to = (uint8_t)wrap(x->to + dx, TO_COUNT); break;
+    case DW_CC: x->cc = (uint8_t)wrap(x->cc + d, 120); break;
+    case DW_LOW: mod_set_lo(&s->mod, dn, x->lo + d); break;
+    case DW_HIGH: mod_set_hi(&s->mod, dn, x->hi + d); break;
+    case DW_MOVE: mod_shift(&s->mod, dn, d); break;
+    case DW_INV: x->inv ^= 1; break;
+    default: break;
+    }
+    mod_touch(&s->mod, dn);
+    if (*row == DW_DEST && b == B_A) say(u, x->on ? "DESTINATION ON" : "DESTINATION OFF: ITS CC STAYS WHERE IT IS");
+}
+
+static void midiin_row_text(const Ui *u, int row, char *label, char *val) {
+    if (row == IR_LISTEN) { snprintf(label, 24, "LISTEN"); snprintf(val, 24, "%s", u->listen_on ? (u->in_open ? "ON" : "ON (NO INPUT)") : "OFF"); }
+    else { snprintf(label, 24, "CLEAR LIST"); snprintf(val, 24, "A: CLEAR"); }
+}
+
+static void midiin_press(Ui *u, Btn b, int dx, int dy) {
+    int *row = &u->row[P_MIDIIN];
+    if (dy) *row = wrap(*row + dy, IN_ROWS);
+    else if (b == B_B) u->page = P_MENU;
+    else if (*row == IR_LISTEN && (b == B_A || dx)) { u->listen_on ^= 1; say(u, u->listen_on ? "LISTENING" : "NOT LISTENING"); }
+    else if (*row == IR_CLEAR && b == B_A) mon_clear(&u->mon);
+}
+
+/* Every frame: open the MIDI input while the MIDI IN page listens or a LEARN
+ * waits, close it otherwise; log what comes in and hand a CC to LEARN.
+ * Nothing received is sent anywhere. */
+static void service_input(Ui *u, Uint32 now) {
+    Player *p = u->p;
+    int want = (u->page == P_MIDIIN && u->listen_on) || u->learn >= 0;
+    player_lock(p);
+    Midi *m = p->midi;
+    if (!m || !m->listen || !m->recv) {
+        u->in_open = 0;
+        snprintf(u->in_desc, sizeof u->in_desc, "%s", m && m->in_desc[0] ? m->in_desc : "THIS OUTPUT HAS NO MIDI INPUT");
+        player_unlock(p);
+        return;
+    }
+    if (want && !u->in_open && (Sint32)(now - u->next_listen) >= 0) {
+        u->in_open = m->listen(m, 1);
+        u->next_listen = now + 1000;
+        fprintf(stderr, "seq4h: MIDI input %s: %s\n", u->in_open ? "open" : "not open", m->in_desc);
+    } else if (!want && u->in_open) {
+        m->listen(m, 0);
+        u->in_open = 0;
+        fprintf(stderr, "seq4h: MIDI input closed\n");
+    }
+    if (u->in_open) {
+        uint8_t buf[512], msg[3];
+        int n = m->recv(m, buf, (int)sizeof buf);
+        Seq *s = &p->seq;
+        uint8_t ch[SEQ_TRACKS];
+        track_channels(s, ch);
+        u->mon.bytes += (uint32_t)n;
+        for (int i = 0; i < n; i++) {
+            int len = midi_parse_byte(&u->mon.parse, buf[i], msg);
+            if (!len) continue;
+            int cc = len == 3 && (msg[0] & 0xF0) == 0xB0;
+            int echo = cc && mod_find(&s->mod, msg[0] & 15, msg[1], ch, -1) >= 0;
+            mon_add(&u->mon, msg, len, echo);
+            if (u->learn < 0 || len < 2 || msg[0] >= 0xF0) continue;
+            if (echo) {
+                snprintf(u->msg_buf, sizeof u->msg_buf, "IGNORED CC %d: WE SEND IT OURSELVES (ECHO)", msg[1]);
+                say(u, u->msg_buf);
+            } else if (cc && msg[1] >= 120) {
+                say(u, "IGNORED A CHANNEL MODE MESSAGE (CC 120-127)");
+            } else if (mod_learn(&s->mod, u->learn, msg, len, ch)) {
+                snprintf(u->msg_buf, sizeof u->msg_buf, "DEST %d LEARNED CC %d ON CH %d", u->learn + 1, msg[1], (msg[0] & 15) + 1);
+                say(u, u->msg_buf);
+                fprintf(stderr, "seq4h: %s\n", u->msg_buf);
+                u->learn = -1;
+                if (!u->save_due) u->save_due = now + 2000;
+            } else {
+                say(u, "HEARD A NOTE OR OTHER MESSAGE, NOT A CC: STILL LISTENING");
+            }
+        }
+        if (strncmp(m->in_desc, "INPUT LOST", 10) == 0) u->in_open = 0;
+    }
+    snprintf(u->in_desc, sizeof u->in_desc, "%s", m->in_desc);
+    player_unlock(p);
+}
+
 /* The stick, up (d = 1) or down (-1): velocity of what is under the cursor
  * on the GRID, piano roll and drum grid; on list pages the selected row's
  * value, as right / left. */
@@ -1561,7 +1784,8 @@ static void press(Ui *u, Btn b) {
     int dx = (b == B_RIGHT) - (b == B_LEFT), dy = (b == B_DOWN) - (b == B_UP);
     player_lock(p);
     Seq *s = &p->seq;
-    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI;
+    int modp = u->page == P_LFO || u->page == P_DEST || u->page == P_MIDIIN;
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI || u->page == P_DEVICE || modp;
     int was_midi = u->page == P_MIDI;
     int sub = u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALLSTEPS;   /* opened from the GRID */
     int from = in_menu ? u->menu_from : sub ? P_GRID : u->page;   /* where L1/R1 count from */
@@ -1569,6 +1793,7 @@ static void press(Ui *u, Btn b) {
     else if (b == B_START) { s->playing ? seq_stop(s) : seq_start(s); }
     else if (b == B_MENU) {
         u->naming = u->slot_more = u->slot_confirm = u->map_confirm = u->dev_confirm = 0;
+        u->learn = -1;
         if (in_menu) u->page = u->menu_from;
         else { u->menu_from = u->page; u->page = P_MENU; if (!u->plan_init) plan_from_tracks(s, u); }
     }
@@ -1581,6 +1806,13 @@ static void press(Ui *u, Btn b) {
     else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
     else if (u->page == P_MIDI && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) midi_press(u, b, dy);
     else if (u->page == P_DEVICE && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) device_press(s, u, b, dx, dy);
+    else if (modp && (b == B_L || b == B_R || b == B_PAGE)) {   /* L1/R1: LFO, CC DEST, MIDI IN */
+        u->page = P_LFO + wrap(u->page - P_LFO + (b == B_L ? -1 : 1), 3);
+        if (u->page == P_DEST && u->dest_sel != u->learn) u->learn = -1;
+    }
+    else if (u->page == P_LFO) lfo_press(s, u, b, dx, dy);
+    else if (u->page == P_DEST) dest_press(s, u, b, dx, dy);
+    else if (u->page == P_MIDIIN) midiin_press(u, b, dx, dy);
     else if (u->page == P_SLOTS && (b == B_L2 || b == B_R2)) {
         u->track = wrap(u->track + (b == B_R2 ? 1 : -1), SEQ_TRACKS);
         u->slot_more = u->slot_confirm = 0;
@@ -2305,6 +2537,144 @@ static void draw_songs_side(SDL_Renderer *r, const Ui *u) {
     text(r, 20, H - 20, 1, DIM, "B BACK TO MENU  M CLOSE MENU  START PLAY/STOP");
 }
 
+/* A 0..1 wave, w x h, with the current position marked. */
+static void draw_wave(SDL_Renderer *r, int x, int y, int w, int h, const ModLfo *l, Col c) {
+    rect(r, x - 2, y - 2, w + 4, h + 4, (Col){24, 26, 36});
+    uint16_t r0 = 16000, r1 = 52000;   /* random waves: an example shape */
+    for (int i = 0; i < w; i++) {
+        double p = (double)i / w;
+        double v = l->wave == WAVE_SH ? (p < 0.25 ? 0.3 : p < 0.5 ? 0.8 : p < 0.75 ? 0.15 : 0.6)
+                 : l->wave == WAVE_SMOOTH ? mod_wave_at(WAVE_SMOOTH, p * 2, p < 0.5 ? r0 : r1, p < 0.5 ? r1 : 26000)
+                 : mod_wave_at(l->wave, p + l->phase / 100.0, 0, 0);
+        int yy = y + h - 1 - (int)(v * (h - 1));
+        rect(r, x + i, yy, 1, 2, c);
+    }
+    int vy = y + h - 1 - (int)(l->out * (h - 1));
+    rect(r, x + w + 6, vy - 3, 8, 6, YELLOW);
+}
+
+static void draw_lfo_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    char buf[64];
+    const ModLfo *l = &s->mod.lfo[u->lfo_sel];
+    snprintf(buf, sizeof buf, "LFO %d", u->lfo_sel + 1);
+    text(r, 392, 62, 2, YELLOW, buf);
+    draw_wave(r, 392, 88, 200, 60, l, l->hold ? DIM : (Col){90, 220, 120});
+    double sec = l->sync ? mod_sync_ticks(l->rate) * 60.0 / (s->bpm * SEQ_PPQN) : mod_free_tenths(l->rate) / 10.0;
+    if (sec < 1) snprintf(buf, sizeof buf, "ONE CYCLE %.2f S (%.1f HZ)", sec, 1 / sec);
+    else if (sec < 120) snprintf(buf, sizeof buf, "ONE CYCLE %.1f S%s", sec, l->sync ? " AT THIS BPM" : "");
+    else snprintf(buf, sizeof buf, "ONE CYCLE %.1f MIN%s", sec / 60, l->sync ? " AT THIS BPM" : "");
+    text(r, 392, 158, 1, WHITE, buf);
+    text(r, 392, 170, 1, DIM, l->sync ? "SYNC: RESTARTS AT START PHASE ON PLAY" : "FREE: IGNORES START AND THE BPM");
+    /* all four, live */
+    for (int k = 0; k < MOD_LFOS; k++) {
+        const ModLfo *o = &s->mod.lfo[k];
+        int y = 190 + k * 16, w = (int)(o->out * 150);
+        snprintf(buf, sizeof buf, "%d", k + 1);
+        text(r, 392, y, 1, k == u->lfo_sel ? YELLOW : DIM, buf);
+        rect(r, 404, y, 150, 8, (Col){30, 32, 44});
+        rect(r, 404, y, w, 8, o->hold ? DIM : (Col){90, 220, 120});
+        text(r, 560, y, 1, DIM, o->hold ? "PAUSED" : mod_wave_name(o->wave));
+    }
+    int len = snprintf(buf, sizeof buf, "USED BY DEST");
+    int any = 0;
+    for (int d = 0; d < MOD_DESTS && len < 56; d++)
+        if (s->mod.dest[d].lfo == u->lfo_sel && s->mod.dest[d].on) { len += snprintf(buf + len, sizeof buf - (size_t)len, " %d", d + 1); any = 1; }
+    if (!any) snprintf(buf, sizeof buf, "NO DESTINATION THAT IS ON USES IT");
+    text(r, 392, 262, 1, WHITE, buf);
+    int y = 284;
+    if (!s->mod.on) { text(r, 392, y, 1, YELLOW, "ALL MOD IS OFF: NOTHING IS SENT."); y += 16; }
+    y = wrapped(r, 392, y, 41, 4, DIM, "PAUSED: THE LFO STOPS WHERE IT IS, SO ITS CCS STAY PUT. WHEN STOPPED PAUSES IT WHILE THE SEQUENCER IS STOPPED.");
+    wrapped(r, 392, y + 8, 41, 3, DIM, "SET WHERE EACH CC GOES ON CC DEST (R1).");
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG)  A ON/OFF  L2/R2 OTHER LFO");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 LFO / CC DEST / MIDI IN  B BACK TO MENU  M CLOSE  START PLAY/STOP");
+}
+
+static void draw_dest_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    char buf[96], t[16];
+    int dn = u->dest_sel, row = u->row[P_DEST];
+    const ModDest *x = &s->mod.dest[dn];
+    uint8_t ch[SEQ_TRACKS], c[SEQ_TRACKS];
+    track_channels(s, ch);
+    int n = mod_channels(&s->mod, dn, ch, c), v = mod_value(&s->mod, dn);
+    snprintf(buf, sizeof buf, "CC DEST %d", dn + 1);
+    text(r, 392, 62, 2, YELLOW, buf);
+    /* 0..127 bar: the range LOW..HIGH, and the value it sends now */
+    int bx = 392, by = 90, bw = 232;
+    rect(r, bx, by, bw, 14, (Col){30, 32, 44});
+    rect(r, bx + x->lo * bw / 128, by, (x->hi - x->lo + 1) * bw / 128 + 1, 14, x->on && s->mod.on ? (Col){60, 120, 80} : (Col){60, 62, 74});
+    rect(r, bx + v * bw / 128, by - 3, 3, 20, x->on && s->mod.on ? YELLOW : DIM);
+    text(r, bx, by + 18, 1, DIM, "0");
+    text(r, bx + bw - 18, by + 18, 1, DIM, "127");
+    snprintf(buf, sizeof buf, "NOW %d", v);
+    text(r, bx + 96, by + 18, 1, x->on && s->mod.on ? YELLOW : DIM, buf);
+    snprintf(buf, sizeof buf, "MOVES %d TO %d: %d OF 127 (MID %d)", x->lo, x->hi, x->hi - x->lo, (x->lo + x->hi + 1) / 2);
+    text(r, 392, 126, 1, WHITE, buf);
+    mod_to_name(x->to, t, sizeof t);
+    int len = snprintf(buf, sizeof buf, "CC %d ON CH", x->cc);
+    for (int k = 0; k < n; k++) len += snprintf(buf + len, sizeof buf - (size_t)len, "%s%d", k ? "," : " ", c[k] + 1);
+    text(r, 392, 140, 1, WHITE, buf);
+    const char *nm = cc_name(s, x->cc);
+    snprintf(buf, sizeof buf, "%s: %s", device_match(s) == DEV_FELUCCA ? "FELUCCA" : "GENERAL MIDI", nm[0] ? nm : "NO FIXED MEANING");
+    text(r, 392, 152, 1, DIM, buf);
+    const ModLfo *l = &s->mod.lfo[x->lfo];
+    mod_rate_name(l->sync, l->rate, t, sizeof t);
+    snprintf(buf, sizeof buf, "LFO %d: %s, %s%s", x->lfo + 1, mod_wave_name(l->wave), t, l->hold ? ", PAUSED" : "");
+    text(r, 392, 164, 1, DIM, buf);
+    int y = 182;
+    if (!s->mod.on) { text(r, 392, y, 1, YELLOW, "ALL MOD IS OFF (LFO PAGE)"); y += 12; }
+    for (int k = 0; k < n; k++) {
+        int o = mod_find(&s->mod, c[k], x->cc, ch, dn);
+        if (o >= 0 && x->on) { snprintf(buf, sizeof buf, "DEST %d ALSO SENDS CC %d ON CH %d", o + 1, x->cc, c[k] + 1); text(r, 392, y, 1, YELLOW, buf); y += 12; break; }
+    }
+    if (mod_cc_reserved(x->cc)) { text(r, 392, y, 1, YELLOW, "THIS CC HAS A SPECIAL MEANING: AVOID"); y += 12; }
+    y += 6;
+    const char *help =
+        row == DW_LOW || row == DW_HIGH || row == DW_MOVE ?
+            "THE CC MOVES BETWEEN LOW AND HIGH AND NEVER OUTSIDE THEM. HIGH - LOW IS THE DEPTH. MOVE RANGE SHIFTS BOTH, KEEPING THE DEPTH. LOW = HIGH HOLDS ONE VALUE." :
+        row == DW_TO ?
+            "T1-T4: THAT TRACK'S CHANNEL (FOLLOWS IT). T1-T4 (ALL): EVERY TRACK'S CHANNEL. CH 1-16: A FIXED CHANNEL. FELUCCA: CH 1-4 = ITS TRACKS 1-4." :
+        row == DW_LEARN ?
+            (u->in_open || u->learn >= 0 ? "LEARN TAKES THE NEXT CC THAT ARRIVES FROM THE DEVICE, AND ITS CHANNEL. FELUCCA DOES NOT SEND ITS KNOBS: IT SENDS CC 1 ONLY WHEN SELECT IS IN MODW MODE. SEE MIDI IN."
+                                         : "LEARN TAKES THE NEXT CC THAT ARRIVES FROM THE DEVICE (CHECK ON MIDI IN THAT ANYTHING ARRIVES). IT CANNOT FIND THE CC OF AN FM1 KNOB: FELUCCA DOES NOT SEND KNOB MOVES.") :
+        row == DW_SEND ?
+            "SENDS THIS CC ONCE, NOW (EVEN WITH ALL MOD OFF). TO TEACH FELUCCA: SET ALL MOD OFF, HOLD GLO + D4 (LEARN), TURN THE FM1 KNOB, PRESS A HERE, THEN GLO + D4 AGAIN AND ALL MOD ON." :
+        row == DW_STATE || row == DW_DEST ?
+            "OFF: NOTHING MORE IS SENT, SO THE PARAMETER STAYS WHERE IT WAS. ON: IT SENDS ONLY WHEN THE VALUE CHANGES, AT MOST EVERY 20 MS." :
+        row == DW_INV ? "INVERT: HIGH WHEN THE LFO IS LOW. TWO DESTS ON ONE LFO, ONE INVERTED, MOVE IN OPPOSITE WAYS." :
+            "VELOCITY IS NOT A CC: USE SWELL ON GENERATE FOR SLOW VELOCITY CHANGES.";
+    if (u->learn == dn) { text(r, 392, y, 1, YELLOW, u->in_open ? "LISTENING: MOVE A CONTROL" : "NO MIDI INPUT:"); y += 12;
+                          if (!u->in_open) y = wrapped(r, 392, y, 41, 2, YELLOW, u->in_desc); }
+    wrapped(r, 392, y, 41, 7, DIM, help);
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = 10)  A ON/OFF, LEARN, SEND  L2/R2 OTHER DEST");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 LFO / CC DEST / MIDI IN  B BACK (OR CANCEL LEARN)  M CLOSE  START PLAY/STOP");
+}
+
+static void draw_midiin_side(SDL_Renderer *r, const Ui *u) {
+    char buf[96], line[48];
+    text(r, 392, 62, 2, YELLOW, "MIDI IN");
+    wrapped(r, 392, 84, 41, 2, u->in_open ? (Col){90, 220, 120} : YELLOW, u->in_open ? u->in_desc : u->listen_on ? u->in_desc : "NOT LISTENING (A ON LISTEN)");
+    snprintf(buf, sizeof buf, "NOTES %u  CC %u  CLOCK %u  OTHER %u", (unsigned)u->mon.notes, (unsigned)u->mon.ccs, (unsigned)u->mon.clocks, (unsigned)u->mon.other);
+    text(r, 392, 110, 1, WHITE, buf);
+    int y = 128;
+    if (!u->mon.nlog) { text(r, 392, y, 1, DIM, u->in_open ? "NOTHING YET: PLAY A KEY ON THE DEVICE" : "-"); }
+    for (int k = 0; k < u->mon.nlog && k < MON_LINES; k++) {
+        uint8_t msg[3];
+        int echo, len = mon_get(&u->mon, k, msg, &echo);
+        mon_text(msg, len, line, sizeof line);
+        snprintf(buf, sizeof buf, "%s%s", line, echo ? "  (OUR OWN CC: ECHO?)" : "");
+        text(r, 392, y + 12 * k, 1, k == 0 ? WHITE : DIM, buf);
+    }
+    /* left side, under the two rows: what this page tells you */
+    wrapped(r, 22, 140, 56, 11, DIM,
+            "SHOWS WHAT THE DEVICE SENDS BACK OVER USB. NOTHING HERE IS SENT ON. "
+            "FELUCCA (FROM ITS SOURCE, UNTESTED): ITS KEYS SEND NOTES, KEY TOUCH SENDS PRESSURE, AND "
+            "THE SELECT ENCODER IN MODW MODE SENDS CC 1. TURNING ITS SOUND KNOBS SENDS NOTHING, "
+            "SO LEARN CANNOT FIND A KNOB'S CC. USE CC DEST > SEND ONCE WITH FELUCCA'S OWN LEARN INSTEAD. "
+            "CLOCK COUNTING UP MEANS THE DEVICE SENDS OR ECHOES CLOCK.");
+    text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  A LISTEN ON/OFF, CLEAR  LISTENS ONLY WHILE THIS PAGE IS OPEN OR A LEARN WAITS");
+    text(r, 20, H - 20, 1, DIM, "L1/R1 LFO / CC DEST / MIDI IN  B BACK TO MENU  M CLOSE  START PLAY/STOP");
+}
+
 static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *midi_desc) {
     const Seq s = *sp;
     char label[24], val[24];
@@ -2324,6 +2694,9 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         else if (u->page == P_MIDI) { midi_row_text(u, row, midi_desc, label, val); head = row == 0; }
         else if (u->page == P_ALLSTEPS) all_row_text(&s, u, row, label, val);
         else if (u->page == P_DEVICE) device_row_text(&s, u, row, label, val);
+        else if (u->page == P_LFO) { lfo_row_text(&s, u, row, label, val); head = row == LR_LFO; }
+        else if (u->page == P_DEST) { dest_row_text(&s, u, row, label, val); head = row == DW_DEST; }
+        else if (u->page == P_MIDIIN) midiin_row_text(u, row, label, val);
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
@@ -2336,6 +2709,9 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
     if (u->page == P_DRUMMAP) { draw_map_side(r, &s, u); return; }
     if (u->page == P_MIDI) { draw_midi_side(r, u, midi_desc); return; }
     if (u->page == P_DEVICE) { draw_device_side(r, &s, u); return; }
+    if (u->page == P_LFO) { draw_lfo_side(r, &s, u); return; }
+    if (u->page == P_DEST) { draw_dest_side(r, &s, u); return; }
+    if (u->page == P_MIDIIN) { draw_midiin_side(r, u); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
     else {
         text(r, 392, 62, 2, YELLOW, "MAIN MENU");
@@ -2655,7 +3031,7 @@ int ui_run(Player *p, const UiOptions *opt) {
     InputMap defaults;
     if (!opt->input) input_defaults(&defaults);
     Dev devs[MAX_DEVS] = {0};   /* opened as SDL_JOYDEVICEADDED arrives, which includes devices present at start */
-    Ui u = {.p = p, .roll_len = 100, .undo_track = -1, .xf_amt = 1, .snap = 1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
+    Ui u = {.p = p, .roll_len = 100, .learn = -1, .listen_on = 1, .undo_track = -1, .xf_amt = 1, .snap = 1, .map = opt->input ? opt->input : &defaults, .show_input = opt->show_input,
            .midi_up = -1, .midi_file = opt->midi_file, .song_dir = opt->song_dir, .cur_song = -1, .conf = opt->midi_conf};
     if (opt->keys) {
         static char tmp[4096];
@@ -2683,6 +3059,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         }
         Uint32 now = SDL_GetTicks();
         label_x_hold(&u, now);
+        service_input(&u, now);
         for (int b = 0; b < B_COUNT; b++)
             if (u.held[b] && repeats((Btn)b) && now >= u.next_rep[b]) {
                 u.next_rep[b] = now + 80;

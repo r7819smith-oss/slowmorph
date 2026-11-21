@@ -63,6 +63,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
     s->send = send;
     s->ctx = ctx;
     seq_drum_map_gm(s);
+    mod_init(&s->mod);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         tr->len = SEQ_DEFAULT_LEN;
@@ -110,6 +111,7 @@ void seq_start(Seq *s) {
     s->tick = 0;
     s->idle_tick = 0;
     s->playing = 1;
+    mod_restart(&s->mod);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         s->track[t].rest_left = 0;
         memset(s->track[t].played, 0, sizeof s->track[t].played);
@@ -248,8 +250,29 @@ static void audition_tick(Seq *s) {
     if (s->aud_left && --s->aud_left == 0) emit3(s, 0x80 | s->aud_ch, (uint8_t)s->aud_note, 0);
 }
 
+static void mod_send(void *ctx, const uint8_t *msg, int len) {
+    Seq *s = ctx;
+    s->send(s->ctx, msg, len);
+}
+
+/* MIDI channel of each track, for the modulation destinations. */
+static void track_channels(const Seq *s, uint8_t ch[SEQ_TRACKS]) {
+    for (int t = 0; t < SEQ_TRACKS; t++) ch[t] = s->track[t].channel;
+}
+
+int seq_mod_send_once(Seq *s, int d) {
+    uint8_t ch[SEQ_TRACKS];
+    track_channels(s, ch);
+    return mod_send_once(&s->mod, d, ch, mod_send, s);
+}
+
 void seq_tick(Seq *s) {
     audition_tick(s);
+    {   /* modulation runs whether or not the sequencer plays (like the clock) */
+        uint8_t ch[SEQ_TRACKS];
+        track_channels(s, ch);
+        mod_tick(&s->mod, s->bpm, s->playing, ch, s->send ? mod_send : NULL, s);
+    }
     if (!s->playing) {
         /* Keep sending clock while stopped, so the FM1 locks to the tempo
          * before Start (and shows it). Start then restarts the count. */
@@ -783,6 +806,7 @@ static void load_hit(SeqDrums *d, int l, int i, int v, int p) {
 void seq_save(const Seq *s, FILE *f) {
     char pre[32];
     fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\ntransport %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->transport_out, s->scale, s->root, s->style);
+    mod_save(&s->mod, f);   /* M > MODULATION; older versions skip these lines */
     fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
         char nm[SEQ_LANE_NAME + 1];
@@ -896,6 +920,7 @@ int seq_load(Seq *s, FILE *f) {
     int map_lines = 0, map_version = 1;
     if (!fgets(line, sizeof line, f) || strncmp(line, "seq4h ", 6) != 0) return -1;
     while (fgets(line, sizeof line, f)) {
+        if (mod_load_line(&s->mod, line)) continue;
         if (line[0] == 'd') {   /* drum lines */
             if (sscanf(line, "dmv %d", &a) == 1) map_version = a;
             else if (sscanf(line, "dl %d %u", &a, &u) == 2) {

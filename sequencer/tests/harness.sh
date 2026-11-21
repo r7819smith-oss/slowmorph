@@ -89,6 +89,12 @@ render)
     # shuffle, and an ambient kit that re-rolls every 2 bars.
     ./seq4h-render --pattern tests/fixtures/drums.pat --bars 128 --out "$OUT/midi/render-drums.cap"
     check render-drums-128-bars "$OUT/midi/render-drums.cap" --bpm 124 --poly --offset 3 --expect-channels 1,2,4 --tolerance-ms 0.01
+    # Modulation (M > MODULATION) on top of the evolving pattern: notes keep
+    # their timing; each CC changes value every time it is sent, at most every
+    # 20 ms, and stays within its LOW-HIGH range.
+    ./seq4h-render --pattern tests/fixtures/mod.pat --bars 64 --out "$OUT/midi/render-mod.cap"
+    check render-modulation-64-bars "$OUT/midi/render-mod.cap" --bpm 140 --swing 6 --expect-channels 1-4 --tolerance-ms 0.01 \
+        --cc-gap-ms 20 --cc-range 74:40-90 --cc-range 10:32-96 --cc-range 91:20-80
     "$PY" tests/test_midicheck.py "$OUT/midi/render-demo.cap"
     result "midicheck catches broken MIDI (wrong channel, hung note, late note, slow clock...)" $?
     note ""
@@ -139,6 +145,9 @@ screenshots)
         midi-*) usb="$OUT/usb/midi"; ports="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" ;;
         esac
         if [ -n "$ports" ]; then export SEQ4H_TEST_PORTS="$ports"; else unset SEQ4H_TEST_PORTS; fi
+        # mod-in-*: the null output pretends a device sent these bytes back
+        # (a note, CC 1 twice, clock, pressure; then a CC 21 on channel 2).
+        case $name in mod-in-*) export SEQ4H_TEST_IN="90 3C 64 80 3C 00 B0 01 40 B0 01 41 F8 F8 F8 D0 30 B1 15 40" ;; *) unset SEQ4H_TEST_IN ;; esac
         songs=
         case $name in song-*) songs="$OUT/songs/$name"; rm -rf "$songs"; mkdir -p "$songs" ;; esac
         SEQ4H_USB_DIR="$usb" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy SEQ4H_POWER_SUPPLY_DIR="$OUT/power/${name%%-*}" SEQ4H_BATTERY_PERCENT_FILE=/nonexistent ./seq4h --midi none --demo \
@@ -240,11 +249,20 @@ device-digitone|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right
 device-blackbox-used|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Left,z,z
 device-clock-off|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
 device-transport-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down
+menu-modulation|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+mod-lfo|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+mod-lfo-free|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,Right,Down
+mod-dest|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w
+mod-dest-on|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down
+mod-dest-range|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down,Down,Right,Right,Right
+mod-in-monitor|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
+mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 EOF
-    unset SEQ4H_TEST_PORTS
+    unset SEQ4H_TEST_PORTS SEQ4H_TEST_IN
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
         --differ grid-demo grid-cursor-moved --differ grid-demo grid-step-toggled \
         --differ grid-demo grid-step-locked --differ grid-demo grid-mixed --differ menu-hiphop menu-mixed --differ grid-demo grid-hiphop --differ grid-hiphop grid-dnb --differ roll-page roll-locked --differ grid-demo step-page \
+        --differ mod-lfo mod-lfo-free --differ mod-dest mod-dest-on --differ mod-dest-on mod-dest-range --differ mod-dest mod-in-learned \
         --differ device-page device-digitone --differ device-page device-blackbox-used \
         --differ device-page device-clock-off --differ device-page device-transport-row \
         --differ step-page step-note-up --differ step-page step-offset \
