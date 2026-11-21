@@ -883,7 +883,7 @@ hear instead, and send `seq4h.log`.
 5. [ ] Mute a lane, press **Select** to go back to the grid: that lane's
    thin bars are dim in the drum track's row. Quit and restart: the lane
    is still muted. A lane solo is not kept (like track solo).
-**D5. Polyphonic tracks (build after PR 29, 2026-11-21)**
+**D5. Polyphonic tracks (build after PR 31, 2026-11-21)**
 
 1. [ ] **FM1 track to POLY.** On the FM1 pick the track seq4h track 2 plays
    (FM1 track 2), open EDIT, turn to the **VOICE** page and set the first
@@ -965,7 +965,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Drum lane mute/solo (D4) | not tested yet |
 | PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
 | Hub | not tested yet |
-| Polyphonic tracks (PR 29) | not tested yet; checklist D5 |
+| Polyphonic tracks (PR 31) | not tested yet; checklist D5 |
 
 ### Appendix: advanced checks (SSH)
 
