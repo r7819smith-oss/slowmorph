@@ -282,11 +282,9 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     (`draw_offset` uses 0 as the step's own offset). Per-lane lock
     (`drum_lock`), not per step.
   - DRUM MAP: `Seq.lane_note` / `lane_name`, one map for all drum tracks,
-    GM defaults (36 38 42 46 39 37 45 49). Felucca's DRUM engine is "an
-    8-lane kit on the General MIDI key map"; its exact lane notes are not
-    published, so they stay GM until Roy checks on the FM1 (checklist D3).
-    M > DRUM MAP: left/right changes a note and plays it, A plays it, Y
-    renames, RESET TO GM. `seq_audition` plays a note now and sends its
+    GM defaults at first (36 38 42 46 39 37 45 49); now the FELUCCA preset
+    (see the next entry). M > DRUM MAP: left/right changes a note and plays
+    it, A plays it. `seq_audition` plays a note now and sends its
     note-off half a beat later from `seq_tick`, playing or stopped; the roll
     and drum grid also use it when a note or hit is placed while stopped.
   - Generator: DRUM KIT (`gen_drum_roll`, `src/drum.c`): per-style lane
@@ -317,6 +315,43 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     `--poly`) and screenshots `roll-page`, `roll-edited`, `roll-track2`,
     `track-type-drums`, `grid-drums`, `step-drums`, `drums-page`,
     `drums-edited`, `drums-label`, `drum-map`, `drum-map-rename`.
+- **Fixes from Roy's test of build #127** (2026-11-21: stepping between
+  steps while editing, the length of new notes, and drums "mapping to the
+  wrong sounds and limited in the midi notes").
+  - Step navigation: new buttons `prev` / `next` (`B_PREV`, `B_NEXT`),
+    default on the analog stick's x axis (`axis 0-` / `axis 0+`, pad LEFTX,
+    keyboard `,` / `.`). They move the step on every editing page (grid,
+    STEP, TRACK, GENERATE, piano roll, drum grid), wrapping at the track
+    length. On the STEP page holding X + left/right does the same from any
+    row, so it works even if the stick's axis number turns out different
+    (BUTTON CODES shows it). R1 from the piano roll or drum grid goes to
+    STEP, and B there goes back to where you came from (`Ui.step_back`).
+  - Piano roll: Y + left/right also sets `Ui.roll_len` (start 1.00 step),
+    and A on an empty step writes a note that long (gate, then HOLD). Shown
+    as NEW NOTES: LEN on the info line. Not saved.
+  - Felucca's drum map, from its firmware source
+    (github.com/hugelton/Felucca, `eng_drum.c`): the DRUM engine designs its
+    8 lanes on KICK 36, SNARE 38, CLAP 39, HAT CL 42, HAT OP 46, TOM 45,
+    RIM 37, BELL 56 (`DRUM_LANE_NOTE`), and plays every note 35..81 as one
+    of 11 sounds, pitched by some semitones (`DRUM_GM`); notes outside play
+    as their octave of 36..47. seq4h's default had 7 of the 8 already, with
+    CRASH 49 (a cymbal) instead of BELL 56. The new default is the FELUCCA
+    preset; GM stays as a second preset. `DRUM_GM` is copied into
+    `src/drum.c` (`seq_felucca_sound`, `seq_felucca_next_sound`).
+  - So "wrong sounds" with the right notes most likely means the FM1 track
+    on that channel is not on the DRUM engine (Felucca's MIDI IN CH1-4:
+    channel n plays FM1 track n). DRUM MAP now says which channel the drums
+    play on and that this FM1 track must use DRUM.
+  - DRUM MAP page: rows show note, Felucca sound and semitones; hold Y +
+    left/right jumps to the next Felucca sound; last row PRESET
+    (FELUCCA/GM, A twice applies, "(IN USE)" when it matches); rename moved
+    from Y to X (Y is now the hold modifier).
+  - Save: a `dmv 2` line before the `dm` lines. A file with `dm` lines, no
+    `dmv` and the untouched old GM map (saved by build #127) is moved to
+    FELUCCA on load; a changed map is kept. Older builds skip `dmv`.
+  - Tests: `test_drum` (`test_map`, `test_map_next`, `test_map_migrate`);
+    screenshots `drum-map-next-sound`, `drum-map-preset`, `step-next-x`,
+    `step-next-stick`, `roll-new-length`.
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -373,8 +408,7 @@ Works and tested on desktop Linux:
    - Program Change on pattern load (Felucca loads a track's sound by preset
      number)
    - a song mode on top of slot chains
-   - FELUCCA and JANGADA presets on M > DRUM MAP, once checklist D3 has
-     found which notes their drum lanes answer to
+   - a JANGADA preset on M > DRUM MAP (FELUCCA and GM are built)
 
 ## USB MIDI on the RG40XX-V
 
@@ -705,55 +739,43 @@ The newest run is at the bottom; each seq4h run starts with a
    the grid move to different places. Turn on EVO OFFSET (and EVOLVE every
    2 bars): the groove drifts slowly. TRANSFORM ON GRID puts it back.
 
-**D3. Piano roll, drum grid and drum notes (2026-11-21 build)**
+**D3. Piano roll, drum grid and drum notes (build after PR 25, 2026-11-21)**
 
-1. [ ] On the grid, put the cursor on track 2 and press **Select** on its
-   own. The piano roll opens: note names down the left, notes as bars.
-   Move with the d-pad and press **A** on an empty spot: the note moves
-   there and you hear it once. Hold **Y** and press right twice: the bar
-   gets longer. Hold **X** and press up: it gets brighter (louder). Press
-   **Select** again: back on the grid, with the change there.
-2. [ ] Select + Start still quits (and Select alone does not open the roll
-   first).
-3. [ ] Pick the FM1 track you want for drums and set it to Felucca's
-   **DRUM** engine. In seq4h go to the **TRACK** page, pick the same track
-   (TRACK row, or L2/R2), go down to **TYPE** and press right: it reads
-   **DRUMS (8 LANES)**.
-4. [ ] **Which notes do Felucca's drum lanes answer to?** Press **M**, go
-   down to **DRUM MAP**, press **A**. The right side should say the notes
-   play on your drum track and channel. On each of the 8 lanes press **A**
-   and listen. If a lane plays the wrong sound or nothing, press
-   left/right (each press plays the new note) until it plays the right
-   sound. Write down the 8 notes below, even if they were already right:
+1. [ ] **Drums on the right FM1 track.** On the FM1, pick the track you want
+   for drums and set it to Felucca's **DRUM** engine. Remember its number:
+   FM1 track 1 listens on MIDI channel 1, track 2 on channel 2, and so on.
+   In seq4h go to the **TRACK** page, pick a track, set **TYPE** to
+   **DRUMS** and **MIDI CHANNEL** to that FM1 track's number.
+2. [ ] **Drum map.** Press **M**, go down to **DRUM MAP**, press **A**. The
+   right side says "PLAYS ON Tn, MIDI CHANNEL c" and "FM1 TRACK c MUST USE
+   THE DRUM ENGINE": check c is your FM1 drum track. Go down to the last
+   row, **PRESET**: it should read FELUCCA (IN USE). If not, press **A**
+   twice. Now press **A** on each lane: KICK, SNARE, HAT CL, HAT OP, CLAP,
+   RIM, TOM, BELL should each play that sound.
+3. [ ] **Choosing other sounds.** On a lane, hold **Y** and press right a
+   few times: it jumps to the next Felucca sound each time (rim, snare,
+   clap, hats, tom, cymbal, bell, clave, conga) and plays it. Plain
+   left/right moves one note (the same sound higher or lower, shown as +2,
+   -4 ...). **X** renames the lane.
+4. [ ] **Piano roll, new note length.** On the grid, put the cursor on a
+   note track and press **Select** on its own. Hold **Y** and press right
+   until the yellow **NEW NOTES: LEN** reads 2.00. Press **A** on a few empty
+   spots: each new note is 2 steps long. Select goes back to the grid.
+5. [ ] **Moving between steps while editing.** On the grid press **X** to
+   open the STEP page. Push the **analog stick** left/right: the step number
+   changes and the row you were on stays picked. Then hold **X** and press
+   left/right on the d-pad: the same. (If the stick does nothing, open M >
+   BUTTON CODES, move the stick, and tell me what it shows.) From the piano
+   roll, **R1** goes to STEP and **B** comes back to the piano roll.
+6. [ ] Select + Start still quits.
+7. [ ] On the drum track press **Select**: the drum grid opens. Go to
+   **GENERATE**, press **A** on the TRACK row to roll a kit, then Play:
+   kick, hats and the rest sound together on the FM1. In the drum grid A
+   adds and removes hits, hold X + up/down changes loudness, Y locks a lane.
+8. [ ] Quit and restart: the drum track, its hits and the DRUM MAP are kept.
 
-   | Lane | seq4h default | Felucca plays it on |
-   |---|---|---|
-   | KICK | 36 | |
-   | SNARE | 38 | |
-   | CL HAT | 42 | |
-   | OP HAT | 46 | |
-   | CLAP | 39 | |
-   | RIM | 37 | |
-   | TOM | 45 | |
-   | CRASH | 49 | |
-
-   Also note any other notes that make a sound (Felucca has 8 lanes, so a
-   lane seq4h lacks, a cowbell say, may sit on another note). Y renames a
-   lane if you want a different name. **RESET TO GM** puts all 8 back.
-5. [ ] Back on the grid (M, then B), on the drum track press **Select**:
-   the drum grid opens with 8 lanes. Go to **GENERATE**, press **A** on the
-   TRACK row to roll a kit, then back to the grid and Select again. Play:
-   kick, hats and the rest sound together on the FM1.
-6. [ ] In the drum grid: A adds and removes hits, hold X + up/down changes
-   a hit's loudness, hold X + left/right its chance (the white bar on top),
-   Y locks a lane (yellow marks). Roll again on GENERATE: the locked lane
-   stays as it was.
-7. [ ] Change BUSY on GENERATE (the row under GENERATOR, which reads DRUM
-   KIT) and roll: fewer or more hits. Try MUSIC STYLE TECHNO and roll: four
-   on the floor.
-8. [ ] Quit and restart: the track is still a drum track with its hits, and
-   the DRUM MAP keeps your notes and names. Set TYPE back to NOTES: the old
-   notes are back.
+If a sound is still wrong after step 2, write down the lane and what you
+hear instead, and send `seq4h.log`.
 
 **E. Long run and power**
 
@@ -794,8 +816,9 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Slots after quit | were lost: seq4h only saved on a clean quit; fixed by autosave (PR 14); slots name/load/copy/clear/restart all good on build #124 |
 | Hold bars, offset, shuffle, spread, EVO OFFSET, BLANK, DRONE, battery % | good on build #124 (2026-11-21) |
 | 30-minute run | good on build #124 (2026-11-21) |
-| Piano roll, drum grid (2026-11-21) | not tested yet |
-| Felucca drum lane notes | not checked yet (D3 step 4) |
+| Piano roll (build #127) | works; needed moving between steps while editing and a length for new notes (fixed in PR 25) |
+| Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
+| PR 25 build (D3) | not tested yet |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)
@@ -1199,7 +1222,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 
 - `src/engine.c`, `engine.h`: tracks, steps, tick processing, save/load
 - `src/gen.c`, `gen.h`: scales, generators, evolution
-- `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP, audition, drum
+- `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP (FELUCCA and GM presets, Felucca sound table), audition, drum
   kit generator, drum evolution, morph and transforms
 - `tests/test_drum.c`: drum track tests
 - `src/player.c`: timing thread and lock

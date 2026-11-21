@@ -176,7 +176,12 @@ drums-page|w,w,Down,Right,w,z,x,Tab
 drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
 drums-label|w,w,Down,Right,w,z,x,Tab,Left
 drum-map|m,Down,Down,Down,Down,z
-drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,v,Up
+drum-map-rename|m,Down,Down,Down,Down,z,Down,Right,Right,c,Up
+drum-map-next-sound|m,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
+drum-map-preset|m,Down,Down,Down,Down,z,Up,Right
+step-next-x|c,Down,Down,+c,Right,Right,-c
+step-next-stick|c,Down,Down,period,period,period
+roll-new-length|Tab,Right,+v,Right,Right,Right,-v,Up,Up,z
 midi-page|m,Down,Down,Down,Down,Down,z
 midi-cable-row|m,Down,Down,Down,Down,Down,z,Down
 midi-cable-chosen|m,Down,Down,Down,Down,Down,z,Down,z
@@ -204,6 +209,8 @@ EOF
         --differ track-page track-type-drums --differ grid-demo grid-drums --differ step-page step-drums \
         --differ grid-drums drums-page --differ drums-page drums-edited --differ drums-page drums-label \
         --differ grid-demo drum-map --differ drum-map drum-map-rename \
+        --differ drum-map drum-map-next-sound --differ drum-map drum-map-preset \
+        --differ step-page step-next-x --differ step-next-x step-next-stick --differ roll-page roll-new-length \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"

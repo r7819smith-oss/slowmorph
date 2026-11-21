@@ -128,6 +128,7 @@ which track you are on. Keyboard keys are in brackets.
 |---|---|
 | L1 / R1 [Q / W] | previous / next page |
 | L2 / R2 [1 / 2] | previous / next track |
+| Left stick left / right [, / .] | previous / next step (grid, STEP page, piano roll, drum grid) |
 | B [X] | back to the grid (on a grid track label: solo) |
 | M [M] | open / close the main menu |
 | Start [Space] | play / stop |
@@ -176,14 +177,19 @@ L2/R2 changes track (a drum track opens its drum grid).
 |---|---|
 | D-pad | move the cursor: left/right step, up/down pitch (scrolls at the edge) |
 | A [Z] | put the step's note on this pitch, or take it off if it is already there (heard once while stopped) |
-| hold Y [V] + left / right | shorter / longer: a quarter step at a time up to one step, then whole steps (that is HOLD) |
+| hold Y [V] + left / right | shorter / longer: a quarter step at a time up to one step, then whole steps (that is HOLD). This also sets the length new notes get |
 | hold Y + up / down | move the step's note up / down a scale degree (the cursor follows) |
 | hold X [C] + left / right | offset: 1 tick (1/24 step) earlier / later |
 | hold X + up / down | velocity up / down by 8 |
+| R1 or the STEP tab | edit the step on the STEP page; B there comes back to the piano roll |
+
+A on an empty step writes a note as long as the last length you set with
+Y + left/right (it starts at one step); the info line shows it as
+**NEW NOTES: LEN**. So set the length once, then write a run of notes.
 
 **Drum tracks and the drum grid.** On the TRACK page set **TYPE** to DRUMS
 and the track plays 8 lanes instead of one note per step: KICK, SNARE,
-CL HAT, OP HAT, CLAP, RIM, TOM and CRASH, each with its own hits, velocity
+HAT CL, HAT OP, CLAP, RIM, TOM and BELL, each with its own hits, velocity
 and chance, so a kick and a hat can play on the same step. Each lane sends
 its own MIDI note on the track's channel (the **DRUM MAP**, below) as a short
 one-shot. Switching TYPE back keeps both patterns, so nothing is lost.
@@ -223,7 +229,7 @@ change bigger.
 
 | Page | Rows | Also |
 |---|---|---|
-| STEP | step number, on/off, note (scale degree; hold Y = octave), velocity, gate, hold, offset, probability, lock | A = step on/off |
+| STEP | step number (hold X + left/right, or the stick, moves to the previous / next step from any row), on/off, note (scale degree; hold Y = octave), velocity, gate, hold, offset, probability, lock | A = step on/off |
 | TRACK | track, type (NOTES or DRUMS), MIDI channel, length, mute, shuffle, never on grid, BPM, swing, MIDI port (shown only) | |
 | GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
 
@@ -282,20 +288,30 @@ right side shows the selected slot's pattern. L2/R2 changes track.
 
 **Drum map page** (M > DRUM MAP, A): the MIDI note each drum lane plays,
 one map shared by every drum track and saved in `seq4h.pat` (lines `dm LANE
-NOTE NAME`). It starts as the General MIDI drum map, which Felucca's DRUM
-engine follows: KICK 36, SNARE 38, CL HAT 42, OP HAT 46, CLAP 39, RIM 37,
-TOM 45, CRASH 49 (seq4h names notes with middle C = C4 = 60, so 36 shows as
-C2). Felucca does not publish which 8 notes its lanes answer to, so check on
-the FM1 (NOTES.md checklist D3) and change any that are wrong. Notes play on
-the current track if it is a drum track, otherwise on the first drum track,
-otherwise on the current track; the right side says which.
+NOTE NAME`, after a `dmv 2` line). It starts as the **FELUCCA** preset, the
+notes Felucca's DRUM engine is built around (from its firmware source):
+KICK 36, SNARE 38, HAT CL 42, HAT OP 46, CLAP 39, RIM 37, TOM 45, BELL 56
+(seq4h names notes with middle C = C4 = 60, so 36 shows as C2). The **GM**
+preset is the same with a crash (49) instead of the bell. Each row shows
+the lane's note and what Felucca plays for it, for example `41 TOM -7` (a
+tom, 7 semitones down): Felucca plays every note from 35 to 81 as one of
+its 11 sounds (kick, rim, snare, clap, closed and open hat, tom, cymbal,
+bell, clave, conga), pitched up or down. Files saved by the first drum
+build with the old untouched GM map are moved to FELUCCA when loaded.
+
+Notes play on the current track if it is a drum track, otherwise on the
+first drum track, otherwise on the current track; the right side says which
+track and MIDI channel, and reminds you that the FM1 track on that channel
+must use its DRUM engine (with Felucca's MIDI IN on CH1-4, channel n plays
+FM1 track n). If the sounds are wrong, that is the first thing to check.
 
 | Input | Action |
 |---|---|
-| Up / down | pick a lane (the last row is RESET TO GM) |
-| Left / right | lane note down / up, and play it (hold Y: an octave) |
-| A [Z] | play the lane's note; on RESET TO GM press A twice to reset all 8 |
-| Y [V] | rename the lane (as slot names; an empty name gives the GM name back) |
+| Up / down | pick a lane (the last row is PRESET) |
+| Left / right | lane note down / up by 1, and play it |
+| hold Y [V] + left / right | jump to the next Felucca sound down / up (kick, rim, snare ... at its own pitch), and play it |
+| A [Z] | play the lane's note; on PRESET left/right picks FELUCCA or GM and A twice applies it to all 8 lanes |
+| X [C] | rename the lane (as slot names; an empty name gives the Felucca name back) |
 | B [X] | back to the main menu |
 
 **Renaming**: names are up to 8 characters (A-Z, 0-9, space and `-`) and
@@ -344,7 +360,7 @@ your unit (below).
 | L2 | joy 13 | l2 (previous track) |
 | R2 | joy 14 | r2 (next track) |
 | D-pad | hat 0 (up/right/down/left) | up/right/down/left |
-| Left stick | axes 0 (x) and 1 (y) | not used |
+| Left stick | axes 0 (x) and 1 (y) | x: prev / next (previous / next step); check the axis number on BUTTON CODES |
 
 L2 and R2 are plain on/off buttons, not analog trigger axes. Note Y comes
 before X. Anbernic's stock firmware numbers the same buttons 3 lower

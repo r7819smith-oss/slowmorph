@@ -7,7 +7,7 @@
 
 static const char *BTN_NAMES[B_COUNT] = {
     "up", "down", "left", "right", "a", "b", "x", "y", "l", "r", "l2", "r2", "select", "start", "menu",
-    "page", "roll", "undo", "lock", "quit",
+    "page", "roll", "undo", "lock", "quit", "prev", "next",
 };
 
 static const char *HAT_NAMES[4] = {"up", "right", "down", "left"};
@@ -51,6 +51,9 @@ void input_defaults(InputMap *m) {
     };
     for (size_t i = 0; i < sizeof JOY / sizeof JOY[0]; i++) m->joy[JOY[i].code] = JOY[i].b;
     m->hat[0] = B_UP; m->hat[1] = B_RIGHT; m->hat[2] = B_DOWN; m->hat[3] = B_LEFT;
+    /* the analog stick, left / right: previous / next step (axis 0 is the
+     * stick's left-right on SDL's usual numbering; check with BUTTON CODES) */
+    m->axis[0][0] = B_PREV; m->axis[0][1] = B_NEXT;
 
     /* SDL game controller names (used for pads SDL recognises, in auto or controller mode) */
     m->pad[SDL_CONTROLLER_BUTTON_DPAD_UP] = B_UP;
@@ -66,6 +69,8 @@ void input_defaults(InputMap *m) {
     m->pad[SDL_CONTROLLER_BUTTON_BACK] = B_SEL;
     m->pad[SDL_CONTROLLER_BUTTON_START] = B_START;
     m->pad[SDL_CONTROLLER_BUTTON_GUIDE] = B_MENU;
+    m->pad_axis[SDL_CONTROLLER_AXIS_LEFTX][0] = B_PREV;
+    m->pad_axis[SDL_CONTROLLER_AXIS_LEFTX][1] = B_NEXT;
     m->pad_axis[SDL_CONTROLLER_AXIS_TRIGGERLEFT][1] = B_L2;
     m->pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] = B_R2;
 
@@ -75,6 +80,7 @@ void input_defaults(InputMap *m) {
         {SDLK_z, B_A}, {SDLK_x, B_B}, {SDLK_c, B_X}, {SDLK_v, B_Y},
         {SDLK_q, B_L}, {SDLK_w, B_R}, {SDLK_1, B_L2}, {SDLK_2, B_R2}, {SDLK_TAB, B_SEL}, {SDLK_SPACE, B_START}, {SDLK_m, B_MENU},
         {SDLK_e, B_PAGE}, {SDLK_r, B_ROLL}, {SDLK_u, B_UNDO}, {SDLK_k, B_LOCK}, {SDLK_ESCAPE, B_QUIT},
+        {SDLK_COMMA, B_PREV}, {SDLK_PERIOD, B_NEXT},
     };
     for (size_t i = 0; i < sizeof KEYS / sizeof KEYS[0]; i++) set_key(m, KEYS[i].k, KEYS[i].b);
 }

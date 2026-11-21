@@ -6,13 +6,23 @@
 
 #include "engine.h"
 
-/* Lane notes and names start as the General MIDI drum map, which Felucca's
- * DRUM engine follows ("an 8-lane kit on the General MIDI key map"). Which 8
- * GM notes Felucca's lanes answer to is not published, so they can be changed
- * on M > DRUM MAP. */
-void seq_drum_map_gm(Seq *s);
+/* DRUM MAP presets. Lane notes and names start as FELUCCA: the 8 notes
+ * Felucca's DRUM engine designs its lanes on (its firmware, eng_drum.c), all
+ * in the General MIDI map. GM has a crash (49) instead of Felucca's bell (56).
+ * Any lane can be changed on M > DRUM MAP. */
+enum { DRUM_FELUCCA, DRUM_GM, DRUM_PRESETS };
+void seq_drum_map_preset(Seq *s, int preset);
+void seq_drum_map_gm(Seq *s);                          /* the default map (FELUCCA) */
+int  seq_drum_map_is(const Seq *s, int preset);        /* 1 if the map is exactly that preset */
+const char *seq_drum_preset_name(int preset);
+/* What Felucca's DRUM engine plays for a MIDI note ("KICK", "TOM", "CONGA" ...),
+ * and in *semis how many semitones from that sound's own pitch (may be NULL). */
+const char *seq_felucca_sound(int note, int *semis);
+/* The next note up (dir 1) or down (-1) that plays a different Felucca sound
+ * at its own pitch; `note` if there is none. */
+int  seq_felucca_next_sound(int note, int dir);
 void seq_lane_note(Seq *s, int lane, int delta);       /* change a lane's note, 0..127 */
-/* Name a lane: as slot names (A-Z, 0-9, space, '-'); "" gives the GM name back. */
+/* Name a lane: as slot names (A-Z, 0-9, space, '-'); "" gives the FELUCCA name back. */
 void seq_lane_set_name(Seq *s, int lane, const char *name);
 const char *seq_lane_gm_name(int lane);
 
