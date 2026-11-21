@@ -43,6 +43,10 @@ void seq_audition(Seq *s, int ch, int note, int vel);
 /* Generator for drum tracks: a kit pattern in the current style, with
  * drum_busy setting how many hits. Locked lanes are left alone. */
 void gen_drum_roll(Seq *s, int t);
+/* The same kit pattern for a NOTE track (a style's drum part): each step plays
+ * the most important lane that hits there (kick, snare, clap, hats, ...) as
+ * that lane's DRUM MAP note. Locked steps are left alone. */
+void gen_drum_notes(Seq *s, int t);
 /* One evolution bar on a drum track: RHYTHM moves a hit to a free step next
  * to it, VELOCITY and PROB nudge hits, ROTATE turns a lane by a step, REGEN
  * re-rolls; amount = chance per lane (per hit for VELOCITY and PROB). PITCH
