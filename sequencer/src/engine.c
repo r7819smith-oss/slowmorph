@@ -76,6 +76,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->style = STYLE_AMBIENT;
         tr->part = (uint8_t)t;
         tr->drum_busy = 50;
+        tr->rate = SEQ_RATE_16;
         for (int l = 0; l < SEQ_LANES; l++)
             for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
         for (int k = 0; k < SEQ_SLOTS; k++) tr->slot[k].drum = tr->drum;
@@ -114,6 +115,7 @@ void seq_start(Seq *s) {
     mod_restart(&s->mod);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         s->track[t].rest_left = 0;
+        s->track[t].origin = 0;
         memset(s->track[t].played, 0, sizeof s->track[t].played);
         if (live_offset(&s->track[t])) seq_reshuffle(s, t);
     }
@@ -188,7 +190,8 @@ static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
     if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) return;
 
     if (tr->poly) {
-        uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
+        uint32_t tps = (uint32_t)seq_track_tps(tr);
+        uint32_t gl = (uint32_t)st->gate * tps / 100 + (uint32_t)st->hold * tps;
         uint32_t off = now + (gl ? gl : 1);
         int vel = seq_swell_vel(s, t, now, st->vel);
         uint8_t nn[SEQ_POLY];
@@ -221,7 +224,8 @@ static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
     tr->last_note = st->note;
     tr->last_nvoice = tr->nvoice;
     memcpy(tr->last_voice, tr->voice, sizeof tr->voice);
-    uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
+    uint32_t tps = (uint32_t)seq_track_tps(tr);
+    uint32_t gl = (uint32_t)st->gate * tps / 100 + (uint32_t)st->hold * tps;
     tr->off_tick = now + (gl ? gl : 1);
 }
 
@@ -241,7 +245,8 @@ static void play_drums(Seq *s, int t, uint32_t now, int idx) {
         emit3(s, 0x90 | tr->channel, note, (uint8_t)seq_swell_vel(s, t, now, v));
         tr->drum_note[l] = note;
         tr->drum_down |= (uint8_t)(1 << l);
-        tr->drum_off[l] = now + SEQ_DRUM_GATE;
+        int tps = seq_track_tps(tr);
+        tr->drum_off[l] = now + (uint32_t)(SEQ_DRUM_GATE < tps * 3 / 4 ? SEQ_DRUM_GATE : tps * 3 / 4);
     }
 }
 
@@ -295,6 +300,7 @@ void seq_tick(Seq *s) {
             if (tr->rest_left) tr->rest_left--;
             else if (tr->rest && (int)(seq_rand(s) % 100) < tr->rest) tr->rest_left = (uint8_t)(1 + seq_rand(s) % 4);
         }
+        if (s->realign && bar % (uint32_t)s->realign == 0) seq_realign_now(s);
         for (int t = 0; t < SEQ_TRACKS; t++) {
             uint8_t e = s->track[t].evo.every;
             if (e && bar % e == 0) gen_evolve_bar(s, t);
@@ -311,23 +317,30 @@ void seq_tick(Seq *s) {
         int drums = tr->type == TRACK_DRUMS;
         if (!seq_track_audible(s, t) || tr->rest_left) continue;   /* a rest lets held notes ring out */
 
-        /* A step plays at its grid time + swing + its own offset. Swing follows
-         * the shared 1/16 grid, not the track's own step number, so an
-         * odd-length track stays in the same groove as the others. Swing +
-         * offset is -11..23 ticks, so a step due now is either this 1/16's
+        /* A step plays at its grid time + swing + its own offset. A track's
+         * steps last its STEP RATE (tps ticks) and count from its origin (0,
+         * or the bar line of the last REALIGN). Swing follows the shared grid
+         * (1/16s, or 1/32s and 1/8s for those rates, scaled), not the track's
+         * own step number, so an odd-length track stays in the same groove as
+         * the others; triplet and slower rates are not swung. Swing + offset
+         * stays within a step either way, so a step due now is either this
          * step (on time or late) or the next one (early). If both are due on
          * the same tick, the next step's note cuts the first one off. */
-        uint32_t gstep = now / SEQ_TICKS_PER_STEP;
-        int phase = (int)(now % SEQ_TICKS_PER_STEP);
+        int tps = seq_track_tps(tr);
+        uint32_t rel = now - tr->origin;
+        uint32_t gstep = rel / (uint32_t)tps;
+        int phase = (int)(rel % (uint32_t)tps);
+        int swing = tps == 12 || tps == 24 || tps == 48 ? s->swing * tps / 24 : 0;
         for (int ahead = 0; ahead < 2; ahead++) {
             uint32_t g = gstep + (uint32_t)ahead;
             int idx = (int)(g % tr->len);
             const SeqStep *st = &tr->step[idx];
             if (!(drums ? seq_drum_column(tr, idx) : st->on) || tr->played[idx] == g + 1) continue;
             int live = live_offset(tr);
-            int when = ((g & 1) ? s->swing : 0) + (live ? tr->jit[idx] : drums ? 0 : st->nudge);   /* drum steps have no OFFSET */
-            int due = ahead == 0 ? (when == phase || (when < 0 && now == 0))   /* an early first step plays at Start */
-                                 : (when < 0 && when + SEQ_TICKS_PER_STEP == phase);
+            int when = ((g & 1) ? swing : 0) + (live ? tr->jit[idx] : drums ? 0 : st->nudge);   /* drum steps have no OFFSET */
+            when = clampi(when, 1 - tps, tps - 1);
+            int due = ahead == 0 ? (when == phase || (when < 0 && rel == 0))   /* an early first step plays at Start */
+                                 : (when < 0 && when + tps == phase);
             if (!due) continue;
             tr->played[idx] = g + 1;
             if (live) tr->jit[idx] = draw_offset(s, tr, st);   /* where it lands next time round */
@@ -341,7 +354,9 @@ void seq_tick(Seq *s) {
 int seq_playhead(const Seq *s, int t) {
     if (!s->playing) return -1;
     uint32_t last = s->tick ? s->tick - 1 : 0;
-    return (int)((last / SEQ_TICKS_PER_STEP) % s->track[t].len);
+    const SeqTrack *tr = &s->track[t];
+    if ((int32_t)(last - tr->origin) < 0) last = tr->origin;
+    return (int)(((last - tr->origin) / (uint32_t)seq_track_tps(tr)) % tr->len);
 }
 
 int seq_swell_vel(const Seq *s, int t, uint32_t now, int vel) {
@@ -645,6 +660,44 @@ void seq_track_len(Seq *s, int t, int d) {
     tr->len = (uint8_t)clampi(tr->len + d, 1, SEQ_STEPS);
 }
 
+static const int RATE_TICKS[SEQ_RATES] = {12, 16, 24, 32, 48, 96, 192, 384};
+static const char *RATE_NAME[SEQ_RATES] = {"1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4", "1/2", "1 BAR"};
+int seq_rate_ticks(int rate) { return RATE_TICKS[clampi(rate, 0, SEQ_RATES - 1)]; }
+const char *seq_rate_name(int rate) { return RATE_NAME[clampi(rate, 0, SEQ_RATES - 1)]; }
+int seq_track_tps(const SeqTrack *tr) { return seq_rate_ticks(tr->rate); }
+
+void seq_track_rate(Seq *s, int t, int d) {
+    SeqTrack *tr = &s->track[t];
+    int r = clampi(tr->rate + d, 0, SEQ_RATES - 1);
+    if (r == tr->rate) return;
+    tr->rate = (uint8_t)r;
+    /* The step number now comes from the new rate; forget which steps have
+     * played, so none is skipped as "already played" under the old count. */
+    memset(tr->played, 0, sizeof tr->played);
+    (void)s;
+}
+
+static const int REALIGN_BARS[8] = {0, 1, 2, 4, 8, 16, 32, 64};
+void seq_adjust_realign(Seq *s, int d) {
+    int i = 0;
+    while (i < 7 && REALIGN_BARS[i] < s->realign) i++;
+    s->realign = REALIGN_BARS[clampi(i + d, 0, 7)];
+}
+
+/* Every track that is not starting its step 1 on this tick starts it now. A
+ * track already there is left alone, so a pattern that fits the bar never
+ * notices. */
+void seq_realign_now(Seq *s) {
+    uint32_t now = s->tick;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        SeqTrack *tr = &s->track[t];
+        uint32_t rel = now - tr->origin, tps = (uint32_t)seq_track_tps(tr);
+        if (rel % tps == 0 && (rel / tps) % tr->len == 0) continue;
+        tr->origin = now;
+        memset(tr->played, 0, sizeof tr->played);
+    }
+}
+
 void seq_track_channel(Seq *s, int t, int d) {
     SeqTrack *tr = &s->track[t];
     release(s, tr);
@@ -807,6 +860,7 @@ void seq_save(const Seq *s, FILE *f) {
     char pre[32];
     fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\ntransport %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->transport_out, s->scale, s->root, s->style);
     mod_save(&s->mod, f);   /* M > MODULATION; older versions skip these lines */
+    if (s->realign) fprintf(f, "realign %d\n", s->realign);   /* REALIGN; older versions skip it */
     fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
         char nm[SEQ_LANE_NAME + 1];
@@ -823,6 +877,9 @@ void seq_save(const Seq *s, FILE *f) {
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
         if (tr->poly) fprintf(f, "vo %d %d\n", t, tr->poly);   /* VOICES POLY; older versions skip it */
+        if (tr->rate != SEQ_RATE_16) fprintf(f, "rt %d %d\n", t, tr->rate);              /* STEP RATE; older versions skip it */
+        for (int l = 0; l < SEQ_LANES; l++)                                               /* Euclidean drum lanes; older versions skip it */
+            if (tr->euc_hits[l]) fprintf(f, "eu %d %d %d %d\n", t, l, tr->euc_hits[l], tr->euc_rot[l]);
         if (tr->locked) fprintf(f, "tl %d 1\n", t);                                     /* track lock; older versions skip it */
         if (tr->drum_step_lock) fprintf(f, "dl %d %u\n", t, (unsigned)tr->drum_step_lock);   /* drum step locks, bit per step */
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
@@ -947,6 +1004,20 @@ int seq_load(Seq *s, FILE *f) {
             s->track[a].type = b == TRACK_DRUMS ? TRACK_DRUMS : TRACK_NOTES;
             s->track[a].drum_lock = (uint8_t)c;
             s->track[a].drum_busy = (uint8_t)clampi(d, 0, 100);
+        }
+        else if (sscanf(line, "rt %d %d", &a, &b) == 2) {
+            if (a >= 0 && a < SEQ_TRACKS) s->track[a].rate = (uint8_t)clampi(b, 0, SEQ_RATES - 1);
+        }
+        else if (sscanf(line, "eu %d %d %d %d", &a, &b, &c, &d) == 4) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_LANES) {
+                s->track[a].euc_hits[b] = (uint8_t)clampi(c, 0, SEQ_STEPS);
+                s->track[a].euc_rot[b] = (uint8_t)clampi(d, 0, SEQ_STEPS - 1);
+            }
+        }
+        else if (sscanf(line, "realign %d", &a) == 1) {   /* the nearest setting at or above it */
+            int i = 0;
+            while (i < 7 && REALIGN_BARS[i] < a) i++;
+            s->realign = REALIGN_BARS[i];
         }
         else if (sscanf(line, "tl %d %d", &a, &b) == 2) {
             if (a >= 0 && a < SEQ_TRACKS) s->track[a].locked = b != 0;

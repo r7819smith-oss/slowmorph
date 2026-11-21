@@ -628,6 +628,33 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     slow velocity changes.
   - Fixed on the way: M from M > DEVICE + CLOCK now closes the menu (it
     used to reopen the menu over the DEVICE page).
+- **Polymeter and Euclidean rhythms (2026-11-21, Roy's list item 8).**
+  Per-track LENGTH already gave polymeter at 1/16; this adds the rest:
+  - **STEP RATE** (TRACK page, second-last row): how long the track's steps
+    are: 1/32, 1/16T, 1/16 (default), 1/8T, 1/8, 1/4, 1/2, 1 BAR. Gate,
+    hold and the playhead follow it; OFFSET stays in ticks.
+    Swing applies to 1/32, 1/16 and 1/8 (scaled), not to triplets or slower.
+    Evolve, chains, rests and swells still count whole bars. Saved as an
+    `rt T RATE` line. It is a track setting, like the channel, so slots and
+    chains don't change it.
+  - **REALIGN ALL** (TRACK page, last row; one setting for all tracks): every
+    1-64 bars, on the bar line, each track that is not on its step 1 jumps
+    back to it, so odd lengths and rates meet again (a track already there is
+    left alone, so a 16-step track never notices). **A** on the row does it
+    now. Saved as `realign N`.
+  - **Euclidean drum lanes** (GENERATE on a drum track, under BUSY: EUCLID
+    LANE, HITS, ROTATE): a lane with HITS gets that many hits spread evenly
+    over the track, written straight away and kept on every kit roll; the
+    velocities and chances come from the style's kit for that lane, so the
+    ambient kit stays soft and chancy. HITS OFF hands the lane back to the
+    kit at the next roll. Lane locks and step locks are respected. Saved as
+    `eu T LANE HITS ROT`.
+  - **EUCLID transform** (GENERATE > TRANSFORM): the same notes in the same
+    order spread evenly over the unlocked steps; BY turns the result. On a
+    drum track each lane separately. The EUCLID generator (HITS, ROTATE) was
+    already there for note tracks.
+  - Not built: a per-track clock *multiplier* beyond 1/32, and odd rates
+    such as 1/16 dotted (5/4 of a step does not divide a bar evenly).
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -1275,6 +1302,18 @@ Short form:
 7. [ ] SEND ONCE teaches Felucca's own LEARN (GLO + D4) a free CC.
 8. [ ] Settings survive a restart and come back with a song.
 
+**D10. Polymeter and Euclidean rhythms (2026-11-21)**
+
+Full sheet with expected results: `tests/hardware-sheet-rhythm.md` (part 1).
+
+1. [ ] TRACK > STEP RATE 1/8 and 1/2 on T1: slower steps, longer holds, in time.
+2. [ ] T2 at 1/16T, length 12: triplets against the others, not swung.
+3. [ ] REALIGN ALL every 4 bars brings drifting tracks back to step 1; A does it now.
+4. [ ] GENERATE on a drum track: EUCLID LANE KICK, HITS 5, ROTATE: heard at
+   once and kept through kit rolls.
+5. [ ] TRANSFORM EUCLID spreads notes (and drum hits) evenly; BY turns them.
+6. [ ] All of it survives a restart.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1347,6 +1386,7 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Device presets, clock and Start/Stop (D7) | Roy, 2026-11-21: the presets work; on the Blackbox 2 he had to build his own map for its 909 kit, which is now the BLACKBOX preset |
 | Rename to Genvolve (D8) | not tested yet |
 | Modulation, MIDI IN and learn (D9, `tests/hardware-sheet-mod.md`) | not tested yet |
+| Polymeter and Euclidean rhythms (D10, `tests/hardware-sheet-rhythm.md` part 1) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 

@@ -147,7 +147,20 @@ typedef struct {
      * FROM STYLE leave the whole track alone. Hand edits, slots and chains
      * still work. */
     uint8_t locked;
+    /* STEP RATE (polymeter): how long one of the track's steps lasts, as an
+     * index into seq_rate_ticks (SEQ_RATE_16 = a 1/16, the default). With
+     * different lengths and rates the tracks drift against each other and
+     * meet again later; REALIGN (Seq.realign) brings them back together. */
+    uint8_t rate;
+    uint32_t origin;            /* tick the track's step 1 last started from (0, or a REALIGN bar line; not saved) */
+    /* Euclidean drum lanes: a lane with euc_hits > 0 gets that many hits spread
+     * evenly over the track's length (turned by euc_rot steps) whenever the
+     * drum kit rolls, instead of the kit's own pattern. */
+    uint8_t euc_hits[SEQ_LANES];
+    uint8_t euc_rot[SEQ_LANES];
 } SeqTrack;
+
+enum { SEQ_RATE_32, SEQ_RATE_16T, SEQ_RATE_16, SEQ_RATE_8T, SEQ_RATE_8, SEQ_RATE_4, SEQ_RATE_2, SEQ_RATE_BAR, SEQ_RATES };
 
 typedef void (*SeqSend)(void *ctx, const uint8_t *msg, int len);
 
@@ -168,6 +181,7 @@ typedef struct {
     uint8_t lane_note[SEQ_LANES];                 /* DRUM MAP: MIDI note of each lane, shared by every drum track */
     char lane_name[SEQ_LANES][SEQ_LANE_NAME + 1];
     int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
+    int realign;        /* REALIGN: every this many bars, tracks that are not on their step 1 jump back to it (0 = never) */
     Mod mod;                                      /* M > MODULATION: LFOs sending CCs (mod.h) */
     SeqSend send;
     void *ctx;
@@ -256,6 +270,16 @@ int  seq_all_range(const Seq *s, int t, int what, int *lo, int *hi, int *avg);
 int  seq_all_lock_toggle(Seq *s, int t);
 int  seq_locked_steps(const Seq *s, int t);   /* locked steps within the track's length */
 void seq_track_len(Seq *s, int t, int delta);
+/* STEP RATE: engine ticks per step for a rate (12 for 1/32 ... 384 for a bar),
+ * its name ("1/16", "1/8T", "1 BAR"), and a track's own. */
+int  seq_rate_ticks(int rate);
+const char *seq_rate_name(int rate);
+int  seq_track_tps(const SeqTrack *tr);
+void seq_track_rate(Seq *s, int t, int delta);      /* the track keeps playing from where its new step count falls */
+/* REALIGN: 0 (off), 1, 2, 4, 8, 16, 32 or 64 bars; delta steps through those. */
+void seq_adjust_realign(Seq *s, int delta);
+/* Bring every track back to its step 1 now (at the next tick). */
+void seq_realign_now(Seq *s);
 void seq_track_channel(Seq *s, int t, int delta);
 void seq_adjust_bpm(Seq *s, int delta);
 void seq_adjust_swing(Seq *s, int delta);

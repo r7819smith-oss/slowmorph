@@ -22,7 +22,7 @@ all: seq4h
 seq4h: $(SRC) $(wildcard src/*.h)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(MIDI_CFLAGS) -o $@ $(SRC) $(SDL_LIBS) $(MIDI_LIBS) -lpthread
 
-test: tests/test_engine tests/test_mod tests/test_gen tests/test_ambient tests/test_poly tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo tests/test_song tests/test_device
+test: tests/test_engine tests/test_mod tests/test_gen tests/test_ambient tests/test_poly tests/test_rhythm tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo tests/test_song tests/test_device
 	./tests/test_engine
 	./tests/test_mod
 	./tests/test_song
@@ -32,6 +32,7 @@ test: tests/test_engine tests/test_mod tests/test_gen tests/test_ambient tests/t
 	./tests/test_gen
 	./tests/test_ambient
 	./tests/test_poly
+	./tests/test_rhythm
 	./tests/test_input
 	./tests/test_battery
 	./tests/test_usbinfo
@@ -56,6 +57,9 @@ tests/test_ambient: tests/test_ambient.c src/engine.c src/gen.c src/drum.c src/m
 
 tests/test_poly: tests/test_poly.c src/engine.c src/gen.c src/drum.c src/mod.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_poly.c src/engine.c src/gen.c src/drum.c src/mod.c
+
+tests/test_rhythm: tests/test_rhythm.c src/engine.c src/gen.c src/drum.c src/mod.c $(wildcard src/*.h)
+	$(CC) $(CFLAGS) -o $@ tests/test_rhythm.c src/engine.c src/gen.c src/drum.c src/mod.c
 
 tests/test_device: tests/test_device.c src/device.c src/engine.c src/gen.c src/drum.c src/mod.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_device.c src/device.c src/engine.c src/gen.c src/drum.c src/mod.c
@@ -93,6 +97,9 @@ test-asan: tests/test_engine.c tests/test_song.c tests/test_mod.c src/song.c src
 	$(CC) -O1 -g -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all \
 	    -o tests/test_mod_asan tests/test_mod.c src/song.c src/engine.c src/gen.c src/drum.c src/mod.c
 	./tests/test_mod_asan
+	$(CC) -O1 -g -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all \
+	    -o tests/test_rhythm_asan tests/test_rhythm.c src/engine.c src/gen.c src/drum.c src/mod.c
+	./tests/test_rhythm_asan
 
 # The hardware-free harness: MIDI capture checks, screenshots, optional ALSA
 # loopback. Writes everything to out/. See tests/harness.sh.
@@ -103,7 +110,7 @@ screenshots: seq4h
 	./tests/harness.sh screenshots
 
 clean:
-	rm -f seq4h seq4h-render tests/test_engine tests/test_mod tests/test_mod_asan tests/test_engine_asan tests/test_drum_asan tests/test_song_asan tests/test_poly_asan tests/test_gen tests/test_ambient tests/test_poly tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo tests/test_song tests/test_device
+	rm -f seq4h seq4h-render tests/test_engine tests/test_mod tests/test_mod_asan tests/test_engine_asan tests/test_drum_asan tests/test_song_asan tests/test_poly_asan tests/test_rhythm tests/test_rhythm_asan tests/test_gen tests/test_ambient tests/test_poly tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo tests/test_song tests/test_device
 	rm -rf out
 
 .PHONY: all test test-asan check screenshots clean
