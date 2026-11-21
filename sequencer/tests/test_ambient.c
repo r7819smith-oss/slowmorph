@@ -72,7 +72,7 @@ static void test_drone(void) {
     CHECK(tr->step[0].hold == 15 && tr->step[16].hold == 15);
 
     /* locked steps are left alone */
-    tr->step[8] = (SeqStep){1, 50, 99, 30, 100, 1, 0, 0};
+    tr->step[8] = (SeqStep){1, 50, 99, 30, 100, 1, 0, 0, {0}};
     gen_apply(&s, 0);
     CHECK(tr->step[8].on && tr->step[8].note == 50 && tr->step[8].vel == 99 && tr->step[8].lock);
 }
@@ -204,7 +204,7 @@ static void run_bars(Seq *s, int bars) { for (int i = 0; i < bars * SEQ_PPQN * 4
 static void quarter_notes(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     tr->len = 16;
-    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){i % 4 == 0, 50, 100, 50, 100, 0, 0, 0};
+    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){i % 4 == 0, 50, 100, 50, 100, 0, 0, 0, {0}};
 }
 
 static void test_chord_playback(void) {

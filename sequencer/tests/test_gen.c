@@ -405,7 +405,7 @@ static void test_evolution(void) {
     seq_init(&s, NULL, NULL);
     seq_load_demo(&s);
     gen_set_anchor(&s, 0);
-    s.track[0].step[5] = (SeqStep){1, 40, 77, 33, 66, 1, 0, 0};
+    s.track[0].step[5] = (SeqStep){1, 40, 77, 33, 66, 1, 0, 0, {0}};
     s.track[0].evo = (EvolveSettings){1, 100, EVO_ALL, 100, 2, 8};
     gen_set_type(&s, 0, GEN_TURING);
     for (int bar = 0; bar < 50; bar++) {
@@ -542,10 +542,10 @@ static void test_slots_and_chain(void) {
     /* locks are kept through morphing */
     seq_init(&s, NULL, NULL);
     seq_slot_store(&s, 0, 0);
-    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1, 0, 0};
+    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1, 0, 0, {0}};
     uint8_t one[1] = {0};
     seq_chain_set(&s, 0, one, 1, 1, 100);
-    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1, 0, 0};
+    s.track[0].step[2] = (SeqStep){1, 70, 90, 50, 100, 1, 0, 0, {0}};
     for (uint32_t bar = 1; bar < 5; bar++) seq_chain_bar(&s, 0, bar);
     CHECK(s.track[0].step[2].note == 70 && s.track[0].step[2].lock);
 
@@ -693,9 +693,9 @@ static void test_nudge(void) {
     seq_init(&s, NULL, NULL);
     for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
     s.track[0].len = 16;
-    s.track[0].step[0] = (SeqStep){1, 60, 100, 50, 100, 0, 0, -3};
-    s.track[0].step[4] = (SeqStep){1, 62, 100, 50, 100, 0, 0, 5};
-    s.track[0].step[8] = (SeqStep){1, 64, 100, 50, 100, 0, 0, -7};
+    s.track[0].step[0] = (SeqStep){1, 60, 100, 50, 100, 0, 0, -3, {0}};
+    s.track[0].step[4] = (SeqStep){1, 62, 100, 50, 100, 0, 0, 5, {0}};
+    s.track[0].step[8] = (SeqStep){1, 64, 100, 50, 100, 0, 0, -7, {0}};
     run_ons(&s, &l, 2 * 384);
     CHECK(l.n == 7 && l.at[6] == 2 * 384 - 3);   /* bar 3's step 0, early */
     CHECK(l.at[0] == 0 && l.note[0] == 60);
@@ -709,8 +709,8 @@ static void test_nudge(void) {
     seq_init(&s, NULL, NULL);
     for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
     s.track[0].len = 16; s.swing = 6;
-    s.track[0].step[3] = (SeqStep){1, 60, 100, 50, 100, 0, 0, -11};
-    s.track[0].step[5] = (SeqStep){1, 62, 100, 50, 100, 0, 0, 11};   /* swing 6 + 11 = 17 late */
+    s.track[0].step[3] = (SeqStep){1, 60, 100, 50, 100, 0, 0, -11, {0}};
+    s.track[0].step[5] = (SeqStep){1, 62, 100, 50, 100, 0, 0, 11, {0}};   /* swing 6 + 11 = 17 late */
     run_ons(&s, &l, 384);
     CHECK(l.n == 2 && l.at[0] == 3 * 24 - 5 && l.at[1] == 5 * 24 + 17);
 
@@ -718,15 +718,15 @@ static void test_nudge(void) {
     seq_init(&s, NULL, NULL);
     for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
     s.track[0].len = 16; s.swing = 12;
-    s.track[0].step[1] = (SeqStep){1, 60, 100, 50, 100, 0, 0, 11};    /* 24 + 23 = 47 */
-    s.track[0].step[2] = (SeqStep){1, 62, 100, 50, 100, 0, 0, -1};    /* 48 - 1 = 47 */
+    s.track[0].step[1] = (SeqStep){1, 60, 100, 50, 100, 0, 0, 11, {0}};    /* 24 + 23 = 47 */
+    s.track[0].step[2] = (SeqStep){1, 62, 100, 50, 100, 0, 0, -1, {0}};    /* 48 - 1 = 47 */
     run_ons(&s, &l, 100);
     CHECK(l.n == 2 && l.at[0] == 47 && l.at[1] == 47 && l.note[1] == 62);
 
     /* gate counts from where the note really starts */
     seq_init(&s, NULL, NULL);
     for (int i = 0; i < SEQ_STEPS; i++) s.track[0].step[i].on = 0;
-    s.track[0].step[2] = (SeqStep){1, 60, 100, 50, 100, 0, 0, 4};
+    s.track[0].step[2] = (SeqStep){1, 60, 100, 50, 100, 0, 0, 4, {0}};
     run_ons(&s, &l, 2 * 24 + 4 + 12);   /* ticks 0..63: the note starts at 52 */
     CHECK(l.n == 1 && l.at[0] == 52 && s.track[0].sounding == 60);
     seq_tick(&s);   /* tick 64: 12 ticks (50% of a step) after the note started */
@@ -767,7 +767,7 @@ static void test_nudge(void) {
 static void hats(Seq *s) {
     seq_init(s, NULL, NULL);
     s->track[0].len = 16;
-    for (int i = 0; i < SEQ_STEPS; i++) s->track[0].step[i] = (SeqStep){i < 16, 60, 100, 20, 100, 0, 0, 0};
+    for (int i = 0; i < SEQ_STEPS; i++) s->track[0].step[i] = (SeqStep){i < 16, 60, 100, 20, 100, 0, 0, 0, {0}};
 }
 
 /* Run `bars` bars and check every 1/16 played exactly once, with its offset

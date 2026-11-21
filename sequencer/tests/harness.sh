@@ -68,6 +68,11 @@ render)
     check render-ambient-256-bars "$OUT/midi/render-ambient.cap" --bpm 72 --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     ./seq4h-render --style DRONE --bars 256 --out "$OUT/midi/render-drone.cap"
     check render-drone-256-bars "$OUT/midi/render-drone.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
+    # POLY tracks: a CHORDS progression re-rolled every 8 bars on T2, DRONE
+    # with its FIFTH ringing over the next notes on T1, written triads on T3:
+    # chords and overlaps on a channel (so --poly pairing), nothing hung.
+    ./seq4h-render --pattern tests/fixtures/poly.pat --bars 256 --out "$OUT/midi/render-poly.cap"
+    check render-poly-256-bars "$OUT/midi/render-poly.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     # The newer styles, each with a drum part on track 4 (notes from the DRUM MAP).
     for sb in "HIP HOP:88:6" "DRUM N BASS:172:0" "HOUSE:124:2" "TRIP HOP:80:3"; do   # name:bpm:swing
         st=${sb%%:*}; rest=${sb#*:}; bpm=${rest%%:*}; sw=${rest##*:}; f=$(echo "$st" | tr 'A-Z ' 'a-z-')
@@ -224,6 +229,12 @@ song-loaded|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,z,z
 song-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Right,Up
 song-named|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Right,Up,z
 song-panel|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,Tab
+track-voices-poly|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right
+step-chord|c,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right
+roll-chord|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,x,Tab,Up,Up,z,Up,Up,z,Right,Right,Right,Right,z,Up,Up,Up,z
+grid-chord|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,x,Tab,Up,Up,z,Up,Up,z,Right,Right,Right,Right,z,Up,Up,Up,z,x
+generate-chords|w,w,w,Down,Left
+roll-chords-gen|w,w,w,Down,Left,z,x,Tab
 device-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 device-digitone|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right
 device-blackbox-used|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Left,z,z
@@ -259,6 +270,8 @@ EOF
         --differ song-load-confirm song-loaded --differ song-saved song-rename --differ song-rename song-named \
         --differ song-saved song-panel \
         --differ step-page step-next-x --differ step-next-x step-next-stick --differ roll-page roll-new-length \
+        --differ track-page track-voices-poly --differ step-page step-chord --differ roll-page roll-chord \
+        --differ grid-demo grid-chord --differ generate-page generate-chords --differ roll-page roll-chords-gen \
         --differ grid-label-cursor grid-label-locked --differ grid-label-cursor grid-label-rolled \
         --differ grid-label-cursor all-steps --differ all-steps all-steps-vel --differ all-steps all-steps-locks \
         --differ grid-demo grid-after-all-steps --differ grid-drums grid-drums-step-locked \
