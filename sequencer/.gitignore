@@ -15,6 +15,7 @@ tests/test_usbinfo
 tests/test_ambient
 tests/test_drum
 tests/test_drum_asan
+tests/test_device
 tests/test_lock
 tests/test_song
 tests/test_song_asan

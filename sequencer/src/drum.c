@@ -15,16 +15,23 @@ static int range(Seq *s, int lo, int hi) { return lo + pick(s, hi - lo + 1); }
 /* Presets. FELUCCA: the notes Felucca's DRUM engine designs each of its 8
  * lanes on (firmware eng_drum.c DRUM_LANE_NOTE: KICK 36, SNARE 38, CLAP 39,
  * HAT CL 42, HAT OP 46, TOM 45, RIM 37, BELL 56), in seq4h's lane order.
- * GM: the General MIDI drum notes, with a crash (49) for the last lane. */
+ * GM: the General MIDI drum notes, with a crash (49) for the last lane.
+ * BLACKBOX: Roy's 909 kit on a Blackbox 2, checked on the unit 2026-11-21.
+ * Its 16 pads answer to notes 36-51: bottom row 36-43 (BD Clean, BD Tube,
+ * CH Clean, CH Color, CH Various, Clap, Crash, OH Clean), top row 44-51 (OH
+ * Color, Ride, Rim, SD Clean B, SD Color C, SD MPC, Tom Lo, Tom Mid). Lane
+ * names are the pads'. */
 static const uint8_t PRESET_NOTE[DRUM_PRESETS][SEQ_LANES] = {
     {36, 38, 42, 46, 39, 37, 45, 56},
     {36, 38, 42, 46, 39, 37, 45, 49},
+    {36, 47, 39, 44, 41, 46, 51, 42},
 };
 static const char *PRESET_LANE[DRUM_PRESETS][SEQ_LANES] = {
     {"KICK", "SNARE", "HAT CL", "HAT OP", "CLAP", "RIM", "TOM", "BELL"},
     {"KICK", "SNARE", "CL HAT", "OP HAT", "CLAP", "RIM", "TOM", "CRASH"},
+    {"BD 909", "SD 909", "CH 909", "OH 909", "CLAP 909", "RIM 909", "TOM MID", "CRASH"},
 };
-static const char *PRESET_NAME[DRUM_PRESETS] = {"FELUCCA", "GM"};
+static const char *PRESET_NAME[DRUM_PRESETS] = {"FELUCCA", "GM", "BLACKBOX"};
 
 const char *seq_lane_gm_name(int lane) { return PRESET_LANE[DRUM_FELUCCA][clampi(lane, 0, SEQ_LANES - 1)]; }
 const char *seq_drum_preset_name(int k) { return PRESET_NAME[clampi(k, 0, DRUM_PRESETS - 1)]; }

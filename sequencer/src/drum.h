@@ -9,8 +9,9 @@
 /* DRUM MAP presets. Lane notes and names start as FELUCCA: the 8 notes
  * Felucca's DRUM engine designs its lanes on (its firmware, eng_drum.c), all
  * in the General MIDI map. GM has a crash (49) instead of Felucca's bell (56).
+ * BLACKBOX: the pad notes of a 909 kit on a 1010music Blackbox 2 (tested).
  * Any lane can be changed on M > DRUM MAP. */
-enum { DRUM_FELUCCA, DRUM_GM, DRUM_PRESETS };
+enum { DRUM_FELUCCA, DRUM_GM, DRUM_BLACKBOX, DRUM_PRESETS };
 void seq_drum_map_preset(Seq *s, int preset);
 void seq_drum_map_gm(Seq *s);                          /* the default map (FELUCCA) */
 int  seq_drum_map_is(const Seq *s, int preset);        /* 1 if the map is exactly that preset */

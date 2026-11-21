@@ -123,13 +123,14 @@ void song_apply(Seq *s, const Seq *song) {
     seq_panic(s);
     SeqSend send = s->send;
     void *ctx = s->ctx;
-    int playing = s->playing, clock_out = s->clock_out, resync = s->resync;
+    int playing = s->playing, clock_out = s->clock_out, transport_out = s->transport_out, resync = s->resync;
     uint32_t tick = s->tick, idle = s->idle_tick, rng = s->rng;
     *s = *song;
     s->send = send;
     s->ctx = ctx;
     s->playing = playing;
     s->clock_out = clock_out;
+    s->transport_out = transport_out;
     s->resync = resync;
     s->tick = tick;
     s->idle_tick = idle;

@@ -44,7 +44,7 @@ int main(void) {
     seq_start(&s); run(&s, 96); seq_stop(&s); run(&s, 96);
     CHECK(l.starts == 1 && l.stops == 1 && l.clocks == 72);
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
-    s.clock_out = 0;
+    s.clock_out = s.transport_out = 0;
     run(&s, 96); seq_start(&s); run(&s, 96);
     CHECK(l.clocks == 0 && l.starts == 0);
 
