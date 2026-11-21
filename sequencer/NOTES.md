@@ -395,8 +395,8 @@ Works and tested on desktop Linux:
 
 ## Next steps (suggested order)
 
-1. Run the plain (no SSH) test checklist below on the RG40XX-V and add to
-   the results table. Still open: a hub, the FM1 audio fluttering, and
+1. Run the 20-test sheet for build #133 (`tests/hardware-sheet-133.md`)
+   on the RG40XX-V and add to the results table. Still open: a hub, the FM1 audio fluttering, and
    checklist D3 (piano roll, drum grid, Felucca's drum notes).
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
@@ -777,6 +777,13 @@ The newest run is at the bottom; each seq4h run starts with a
 If a sound is still wrong after step 2, write down the lane and what you
 hear instead, and send `seq4h.log`.
 
+**Full 20-test sheet for build #133** (2026-11-21, Roy asked for one sheet
+that checks everything): `tests/hardware-sheet-133.md`. Tests 1-7 are the
+PR 25 features (D3 above, with expected results), tests 8-20 recheck A-E
+plus MIDI OUTPUT, BLANK, DRONE, generators, evolve, slots and autosave. Each
+test has a PASS/FAIL box. Use it in place of A-E for this build, and copy
+the results into the table below.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -818,7 +825,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | 30-minute run | good on build #124 (2026-11-21) |
 | Piano roll (build #127) | works; needed moving between steps while editing and a length for new notes (fixed in PR 25) |
 | Drum grid (build #127) | plays, but wrong sounds and the note list was hard to remap; PR 25 uses Felucca's own map (from its firmware), shows each note's Felucca sound, and says which FM1 track must be on DRUM |
-| PR 25 build (D3) | not tested yet |
+| PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
 | Hub | not tested yet |
 
 ### Appendix: advanced checks (SSH)
@@ -1239,6 +1246,7 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/usbinfo.c`, `usbinfo.h`: USB devices from sysfs for M > MIDI and the log; `tests/test_usbinfo.c`
 - `knulli/seq4h.input`: RG40XX-V button map
 - `tests/harness.sh`, `tests/test_midicheck.py`, `tests/fixtures/`: harness
+- `tests/hardware-sheet-133.md`: 20 on-device tests (PASS/FAIL) for build #133
 - `knulli/SEQ4H.sh`: Ports launcher script
 - `knulli/SHOW-BUTTONS.sh`: Ports entry that starts seq4h with button codes shown
 - `knulli/USB-MIDI-CHECK.sh`: USB/MIDI diagnostic for the device
