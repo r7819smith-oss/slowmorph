@@ -20,6 +20,7 @@ typedef enum {
     GEN_DRONE,      /* one to four long held notes on a steady tone that moves rarely */
     GEN_DRIFT,      /* a few long notes, each a small step from the last, carried on across rolls */
     GEN_BELL,       /* sparse, soft, chance-played notes on the scale's most stable tones */
+    GEN_CHORDS,     /* a chord progression written as real chords (step chord notes); sets the track to POLY */
     GEN_COUNT
 } GenType;
 
@@ -39,6 +40,7 @@ typedef enum {
     XF_CLEAR,       /* switch every unlocked step off: a blank track to write on */
     XF_SPREAD,      /* give every unlocked note a different offset, none on the grid, up to `amount` ticks (0 = the most) */
     XF_GRID,        /* put every unlocked note back on the grid (offset 0) */
+    XF_CHORD,       /* write the CHORD row's chord into every unlocked note (OFF: single notes again); sets POLY */
     XF_COUNT
 } XformType;
 

@@ -68,6 +68,11 @@ render)
     check render-ambient-256-bars "$OUT/midi/render-ambient.cap" --bpm 72 --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     ./seq4h-render --style DRONE --bars 256 --out "$OUT/midi/render-drone.cap"
     check render-drone-256-bars "$OUT/midi/render-drone.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
+    # POLY tracks: a CHORDS progression re-rolled every 8 bars on T2, DRONE
+    # with its FIFTH ringing over the next notes on T1, written triads on T3:
+    # chords and overlaps on a channel (so --poly pairing), nothing hung.
+    ./seq4h-render --pattern tests/fixtures/poly.pat --bars 256 --out "$OUT/midi/render-poly.cap"
+    check render-poly-256-bars "$OUT/midi/render-poly.cap" --bpm 66 --poly --max-hold 31 --expect-channels 1-4 --tolerance-ms 0.01
     # Live shuffle (up to 11 ticks, NEVER ON GRID) on hats, and spread offsets
     # drifting with EVO OFFSET: every note on an engine tick, 2-11 ticks off
     # the grid, one note per channel at a time, nothing hung.
@@ -188,6 +193,12 @@ midi-page|m,Down,Down,Down,Down,Down,z
 midi-cable-row|m,Down,Down,Down,Down,Down,z,Down
 midi-cable-chosen|m,Down,Down,Down,Down,Down,z,Down,z
 midinone-page|m,Down,Down,Down,Down,Down,z
+track-voices-poly|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right
+step-chord|c,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right
+roll-chord|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,x,Tab,Up,Up,z,Up,Up,z,Right,Right,Right,Right,z,Up,Up,Up,z
+grid-chord|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,x,Tab,Up,Up,z,Up,Up,z,Right,Right,Right,Right,z,Up,Up,Up,z,x
+generate-chords|w,w,w,Down,Left
+roll-chords-gen|w,w,w,Down,Left,z,x,Tab
 EOF
     unset SEQ4H_TEST_PORTS
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -213,6 +224,8 @@ EOF
         --differ grid-demo drum-map --differ drum-map drum-map-rename \
         --differ drum-map drum-map-next-sound --differ drum-map drum-map-preset \
         --differ step-page step-next-x --differ step-next-x step-next-stick --differ roll-page roll-new-length \
+        --differ track-page track-voices-poly --differ step-page step-chord --differ roll-page roll-chord \
+        --differ grid-demo grid-chord --differ generate-page generate-chords --differ roll-page roll-chords-gen \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"

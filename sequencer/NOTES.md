@@ -164,9 +164,9 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     per track; a rest lasts 1-4 bars and is always followed by at least one
     played bar; rests let held notes ring out; the running rest is not saved
     and `seq_start` clears it.
-  - **Not verified on the FM1:** whether a Felucca track plays several notes
-    at once on its channel. If it is monophonic, a chord track will just
-    play its top note; turn CHORD off on that track.
+  - Whether a Felucca track plays several notes at once: yes, when that FM1
+    track's voice mode is POLY (EDIT > VOICE, `VCE`); see *Polyphonic
+    tracks* below. Not yet checked by ear.
   - Evolution every 16, 32 or 64 bars (`SEQ_MAX_EVERY`), and AMOUNT moves
     in 1% steps below 10%.
   - `STYLE_DRONE` (appended after BLANK): A dorian, 66 BPM, DRONE bass with
@@ -373,6 +373,75 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Tests: `test_drum` `test_lane_mute_solo` (mute, solo, solo on a muted
     lane, hit released on mute, saved mutes, unsaved solos, old `ty` line);
     screenshots `drums-lane-mute`, `drums-lane-solo`.
+- **Polyphonic tracks** (Roy, 2026-11-21: "the midi is set up for
+  monophonic, tracks should also be able to be polyphonic").
+  - **What Felucca accepts** (from its firmware source, github
+    hugelton/Felucca at ca1db43, `firmware/src/core.h`, `voice.c`,
+    `params.c`): each FM1 track has a voice mode `VCE` on EDIT > VOICE
+    (knob 1): POLY, MONO, LEG (legato) or UNI (unison). Only POLY plays
+    chords; MONO/LEG/UNI play one note. Presets marked mono load as LEG, so
+    check it per sound. In POLY a track has up to 8 voices (`NVOICE`), fewer
+    on some engines (FM6 6, VOICE 4, GRAIN 3, PHYS 3), and **all four tracks
+    share one budget of 8 sounding voices**. When it is full, Felucca takes
+    the oldest released voice, then extra UNISON voices, then the oldest held
+    note of a POLY track that is not its lowest note (the bass is kept). The
+    DRUM engine is always POLY (its lanes). MIDI IN plays every note it gets
+    on a track's channel through the same allocator. So two 4-note chord
+    tracks already fill the FM1; keep chords to 3 notes, or let pads ring on
+    one track only, when other tracks play too.
+  - **seq4h:** `SeqTrack.poly` (TRACK page, last row **VOICES**, so the
+    other rows and the harness key sequences stay put). MONO is the default
+    and plays exactly as before (one note at a time, the next cuts the last;
+    the CHORD row's colour chord still stacks, as before). POLY plays a
+    step's chord notes and lets every note ring for its own gate + hold over
+    later notes, in a per-track voice table (`pv_note`/`pv_off`, 8 =
+    `SEQ_POLY_VOICES`, matching Felucca): the same note again is
+    note-off then note-on, and when 8 are sounding the one due to end first
+    is released. Every release path (stop, mute/solo, VOICES change, channel
+    change, TYPE change, panic on replug, rests let notes ring) empties the
+    table, and a stop also sends CC123.
+  - **Chord notes per step:** `SeqStep.more[3]` = up to 3 notes besides the
+    step's own (4 in all, `SEQ_POLY`), stored as **scale degrees from the
+    step's note** (not MIDI notes). Decided without asking: this way a chord
+    moves with its note (NOTE row, piano roll Y + up/down, TRANSPOSE,
+    evolution pitch, scale snap, a new scale) and always stays in the scale;
+    INVERT turns chords over (offsets negated); CLEAR empties them; morph and
+    the anchor pull carry them. All chord notes play at the step's velocity
+    (CHORD-row notes stay at 80%). MONO keeps a step's chord notes but does
+    not send them. Taking a step's own note out in the piano roll hands that
+    role to its lowest chord note.
+  - **Editing:** piano roll on a POLY track: A adds the cursor's pitch to the
+    step's chord or takes it out (4 at most, "4 NOTES A STEP AT MOST"); MONO
+    keeps the old A (move the note). STEP page: new last row **CHORD** sets
+    a shape on the step (OFF/FIFTH/TRIAD/SUS2/SUS4/SEVENTH/OPEN, from
+    `gen_chord_notes`), shows "n NOTES" for a hand-made chord, and lists the
+    notes on the right. A chord edit on a MONO track switches it to POLY
+    (and says so). Grid and roll: POLY notes are drawn ringing past the next
+    note; white dots on a grid step = its chord notes; the info line shows
+    "C3+2".
+  - **Generators:** new `GEN_CHORDS` (appended after BELL): one chord every
+    4/8/16/32 steps, root moving by a fourth/fifth/third/step with chance
+    MOVE (smaller moves in 5-note scales), the inversion nearest the last
+    chord (voice leading, kept in the track's range), RHYTHM
+    HOLD/PULSE/STABS/SWAY; choosing it sets POLY. The other generators now
+    write single notes (they clear unlocked steps' chord notes; lock a step
+    to keep its chord). New transform **WRITE CHORD** (`XF_CHORD`, appended):
+    the CHORD row's chord becomes each sounding step's own chord notes and
+    the track goes POLY; with CHORD OFF it clears them. The CHORD row itself
+    is unchanged, so the AMBIENT and DRONE sets sound as before.
+  - **Save format** still `seq4h 1`: `vo T 1` for a POLY track, and
+    `x T I a b c` / `ax T I a b c` / `sx T K I a b c` (chord degrees of a
+    step, anchor step and slot step), written only when used, after their
+    step line. Older builds skip these lines (the track plays MONO single
+    notes); older files load as MONO with no chords.
+  - Tests: `tests/test_poly.c` (chord helpers, MONO vs POLY playback and
+    overlap, retrigger, the 8-voice cap, every release path, save/load
+    round trip and old files, CHORDS generator and voice leading, WRITE
+    CHORD/INVERT/CLEAR/morph, 1500 bars of the DRONE set all POLY with no
+    note-on twice and nothing left sounding). Harness: a 256-bar render of
+    `tests/fixtures/poly.pat` (`midicheck --poly`) and six screenshots
+    (`track-voices-poly`, `step-chord`, `roll-chord`, `grid-chord`,
+    `generate-chords`, `roll-chords-gen`).
 - **Channels:** tracks default to MIDI channels 1-4, which matches Felucca's
   default `MIDI IN: CH1-4` (channels 1-4 play tracks 1-4). `--channel N` puts
   all tracks on one channel (Felucca's SEL mode).
@@ -417,8 +486,8 @@ Works and tested on desktop Linux:
 ## Next steps (suggested order)
 
 1. Run the 20-test sheet for build #133 (`tests/hardware-sheet-133.md`)
-   on the RG40XX-V and add to the results table. Still open: a hub, the FM1 audio fluttering, and
-   checklist D3 (piano roll, drum grid, Felucca's drum notes).
+   on the RG40XX-V and add to the results table. Still open: a hub, the FM1 audio fluttering,
+   checklist D3 (piano roll, drum grid, Felucca's drum notes) and D5 (polyphonic tracks).
 2. If the Knulli kernel has no USB MIDI driver, build the modules (see below).
 3. Check button codes (M > BUTTON CODES, or SHOW-BUTTONS in Ports) and
    fullscreen on the device; adjust `seq4h.input`.
@@ -814,6 +883,36 @@ hear instead, and send `seq4h.log`.
 5. [ ] Mute a lane, press **Select** to go back to the grid: that lane's
    thin bars are dim in the drum track's row. Quit and restart: the lane
    is still muted. A lane solo is not kept (like track solo).
+**D5. Polyphonic tracks (build after PR 29, 2026-11-21)**
+
+1. [ ] **FM1 track to POLY.** On the FM1 pick the track seq4h track 2 plays
+   (FM1 track 2), open EDIT, turn to the **VOICE** page and set the first
+   knob, **VCE**, to **POLY**. Use a pad-like sound (ANALOG is fine).
+2. [ ] **A chord by hand.** In seq4h go to the **TRACK** page, track 2, last
+   row **VOICES**: press right, it reads POLY. B to the grid, put the cursor
+   on a T2 note, press **Select** (piano roll). Move up two rows and press
+   **A**, up two more and **A** again: the column now has three notes, and
+   you hear each one. Press Start: the FM1 plays the three notes together.
+3. [ ] **A chord from the STEP page.** On the grid press **X** on another T2
+   note, go to the last row **CHORD** and press right until it reads TRIAD
+   (then SEVENTH). The right side lists the notes; on play they sound
+   together. White dots on that grid step show its chord notes.
+4. [ ] **Notes ring on.** On a POLY step set **HOLD** to +4: it keeps
+   sounding while the next notes play (on MONO it would be cut off).
+5. [ ] **CHORDS generator.** GENERATE page, track 2, GENERATOR: press left
+   from MANUAL to reach **CHORDS**, then **A** to roll. You get held chords
+   that change every bar; try RHYTHM PULSE and STABS. The piano roll shows
+   the chords and you can change single notes.
+6. [ ] **MONO again.** TRACK page, VOICES back to MONO: only one note per
+   step plays and nothing is left hanging.
+7. [ ] **No hung notes.** While chords are ringing: Stop, mute T2 from the
+   grid label, and unplug/replug the FM1. Every time the sound stops (the
+   replug may leave one note until it is back, as before).
+8. [ ] Quit and restart: VOICES and the chords are kept.
+
+If the FM1 plays only one note of a chord, check step 1 (VCE) on that FM1
+track. If notes drop out when several tracks play chords, that is Felucca's
+shared 8 voices: use fewer chord notes or POLY on fewer tracks.
 
 **Full 20-test sheet for build #133** (2026-11-21, Roy asked for one sheet
 that checks everything): `tests/hardware-sheet-133.md`. Tests 1-7 are the
@@ -866,6 +965,7 @@ and send `seq4h.log` (and `usb-midi-check.log` if MIDI never connects: run
 | Drum lane mute/solo (D4) | not tested yet |
 | PR 25 build (D3) | not tested yet; the 20-test sheet `tests/hardware-sheet-133.md` covers it (tests 1-7) |
 | Hub | not tested yet |
+| Polyphonic tracks (PR 29) | not tested yet; checklist D5 |
 
 ### Appendix: advanced checks (SSH)
 

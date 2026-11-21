@@ -33,8 +33,16 @@ static void release_lane(Seq *s, SeqTrack *t, int l) {
     t->drum_down &= (uint8_t)~(1 << l);
 }
 
+static void release_pv(Seq *s, SeqTrack *t, int k) {
+    emit3(s, 0x80 | t->channel, t->pv_note[k], 0);
+    t->npv--;
+    t->pv_note[k] = t->pv_note[t->npv];
+    t->pv_off[k] = t->pv_off[t->npv];
+}
+
 static void release(Seq *s, SeqTrack *t) {
     for (int l = 0; t->drum_down && l < SEQ_LANES; l++) release_lane(s, t, l);
+    while (t->npv) release_pv(s, t, t->npv - 1);
     if (t->sounding >= 0) {
         emit3(s, 0x80 | t->channel, (uint8_t)t->sounding, 0);
         for (int k = 0; k < t->nvoice; k++) emit3(s, 0x80 | t->channel, t->voice[k], 0);
@@ -68,7 +76,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
             for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
         for (int k = 0; k < SEQ_SLOTS; k++) tr->slot[k].drum = tr->drum;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0, 0, 0};
+            tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0, 0, 0, {0}};
     }
 }
 
@@ -142,10 +150,47 @@ void seq_reconnected(Seq *s) {
     if (s->playing && s->clock_out) s->resync = 1;
 }
 
+void seq_track_release(Seq *s, int t) { release(s, &s->track[t]); }
+
+/* A POLY track's note: it rings until `off`, whatever the track plays next.
+ * The same note again restarts it; with every voice busy the one due to end
+ * first makes room. */
+static void poly_note(Seq *s, SeqTrack *tr, uint8_t note, int vel, uint32_t off) {
+    for (int k = 0; k < tr->npv; k++)
+        if (tr->pv_note[k] == note) { release_pv(s, tr, k); break; }
+    if (tr->npv >= SEQ_POLY_VOICES) {
+        int first = 0;
+        for (int k = 1; k < tr->npv; k++)
+            if ((int32_t)(tr->pv_off[k] - tr->pv_off[first]) < 0) first = k;
+        release_pv(s, tr, first);
+    }
+    emit3(s, 0x90 | tr->channel, note, (uint8_t)vel);
+    tr->pv_note[tr->npv] = note;
+    tr->pv_off[tr->npv] = off;
+    tr->npv++;
+}
+
 /* Send one step's note (and its chord notes); called at the tick the step is due. */
 static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
     SeqTrack *tr = &s->track[t];
     if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) return;
+
+    if (tr->poly) {
+        uint32_t gl = (uint32_t)st->gate * SEQ_TICKS_PER_STEP / 100 + (uint32_t)st->hold * SEQ_TICKS_PER_STEP;
+        uint32_t off = now + (gl ? gl : 1);
+        int vel = seq_swell_vel(s, t, now, st->vel);
+        uint8_t nn[SEQ_POLY];
+        int n = seq_step_notes(s, st, nn);
+        for (int k = 0; k < n; k++) poly_note(s, tr, nn[k], vel, off);
+        if (n == 1 && tr->chord) {   /* a single note gets the CHORD row's chord, a little softer */
+            uint8_t cn[SEQ_CHORD_MAX];
+            int nc = gen_chord_notes(s, st->note, tr->chord, cn);
+            int cv = vel * 4 / 5 < 1 ? 1 : vel * 4 / 5;
+            for (int k = 0; k < nc; k++) poly_note(s, tr, cn[k], cv, off);
+        }
+        tr->last_note = -1;   /* release() covers every POLY note */
+        return;
+    }
 
     release(s, tr);   /* retrigger */
     int vel = seq_swell_vel(s, t, now, st->vel);
@@ -226,6 +271,8 @@ void seq_tick(Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         SeqTrack *tr = &s->track[t];
         if (tr->sounding >= 0 && (int32_t)(now - tr->off_tick) >= 0) release(s, tr);
+        for (int k = tr->npv - 1; k >= 0; k--)
+            if ((int32_t)(now - tr->pv_off[k]) >= 0) release_pv(s, tr, k);
         for (int l = 0; tr->drum_down && l < SEQ_LANES; l++)
             if ((tr->drum_down & (1 << l)) && (int32_t)(now - tr->drum_off[l]) >= 0) release_lane(s, tr, l);
         int drums = tr->type == TRACK_DRUMS;
@@ -278,6 +325,116 @@ int seq_swell_vel(const Seq *s, int t, uint32_t now, int vel) {
 }
 
 void seq_step_toggle(Seq *s, int t, int i) { s->track[t].step[i].on ^= 1; }
+
+int seq_step_more_count(const SeqStep *st) {
+    int n = 0;
+    while (n < SEQ_POLY - 1 && st->more[n]) n++;
+    return n;
+}
+
+int seq_step_notes(const Seq *s, const SeqStep *st, uint8_t out[SEQ_POLY]) {
+    int n = 0;
+    out[n++] = st->note;
+    int m = seq_step_more_count(st);
+    if (!m) return n;
+    int d = gen_note_degree(s, st->note);
+    for (int k = 0; k < m; k++) {
+        int dd = d + st->more[k];
+        if (dd < 0) continue;
+        int note = gen_degree_note(s, dd), dup = 0;
+        for (int j = 0; j < n; j++) dup |= out[j] == note;
+        if (!dup) out[n++] = (uint8_t)note;
+    }
+    return n;
+}
+
+int seq_step_has_note(const Seq *s, const SeqStep *st, int note) {
+    if (!st->on) return 0;
+    uint8_t nn[SEQ_POLY];
+    int n = seq_step_notes(s, st, nn);
+    for (int k = 0; k < n; k++) if (nn[k] == note) return 1;
+    return 0;
+}
+
+/* Rewrite a step's chord notes from absolute notes, as degrees from its note. */
+static void set_more(const Seq *s, SeqStep *st, const uint8_t *notes, int n) {
+    int d = gen_note_degree(s, st->note), m = 0;
+    memset(st->more, 0, sizeof st->more);
+    for (int k = 0; k < n && m < SEQ_POLY - 1; k++) {
+        int off = gen_note_degree(s, notes[k]) - d;
+        if (!off || off < -SEQ_MORE_MAX || off > SEQ_MORE_MAX) continue;
+        int dup = 0;
+        for (int j = 0; j < m; j++) dup |= st->more[j] == off;
+        if (!dup) st->more[m++] = (int8_t)off;
+    }
+}
+
+int seq_step_add_note(Seq *s, int t, int i, int note) {
+    SeqStep *st = &s->track[t].step[i];
+    note = clampi(note, 0, 127);
+    if (!st->on) {
+        st->on = 1;
+        st->note = (uint8_t)note;
+        memset(st->more, 0, sizeof st->more);
+        return 0;
+    }
+    if (seq_step_has_note(s, st, note)) return 1;
+    uint8_t nn[SEQ_POLY];
+    int n = seq_step_notes(s, st, nn);
+    if (n >= SEQ_POLY) return -1;
+    int off = gen_note_degree(s, note) - gen_note_degree(s, st->note);
+    if (!off || off < -SEQ_MORE_MAX || off > SEQ_MORE_MAX) return -1;
+    nn[n++] = (uint8_t)note;
+    set_more(s, st, nn + 1, n - 1);
+    return 0;
+}
+
+int seq_step_remove_note(Seq *s, int t, int i, int note) {
+    SeqStep *st = &s->track[t].step[i];
+    if (!seq_step_has_note(s, st, note)) return -1;
+    uint8_t nn[SEQ_POLY], rest[SEQ_POLY];
+    int n = seq_step_notes(s, st, nn), r = 0;
+    for (int k = 0; k < n; k++) if (nn[k] != note) rest[r++] = nn[k];
+    if (!r) { st->on = 0; memset(st->more, 0, sizeof st->more); return 0; }
+    if (note == st->note) {   /* the lowest chord note takes over */
+        int lo = 0;
+        for (int k = 1; k < r; k++) if (rest[k] < rest[lo]) lo = k;
+        uint8_t tmp = rest[0]; rest[0] = rest[lo]; rest[lo] = tmp;
+        st->note = rest[0];
+    } else {
+        for (int k = 0; k < r; k++)   /* own note first */
+            if (rest[k] == st->note) { rest[k] = rest[0]; rest[0] = st->note; break; }
+    }
+    set_more(s, st, rest + 1, r - 1);
+    return 0;
+}
+
+void seq_step_set_chord(Seq *s, int t, int i, int chord) {
+    SeqStep *st = &s->track[t].step[i];
+    uint8_t cn[SEQ_CHORD_MAX];
+    int nc = gen_chord_notes(s, st->note, chord, cn);
+    set_more(s, st, cn, nc);
+    if (nc) st->on = 1;
+}
+
+int seq_step_chord_shape(const Seq *s, const SeqStep *st) {
+    int m = seq_step_more_count(st);
+    if (!m) return CHORD_OFF;
+    SeqStep tmp = *st;
+    for (int c = CHORD_OFF + 1; c < CHORD_COUNT; c++) {
+        uint8_t cn[SEQ_CHORD_MAX];
+        int nc = gen_chord_notes(s, st->note, c, cn);
+        set_more(s, &tmp, cn, nc);
+        if (!memcmp(tmp.more, st->more, sizeof tmp.more)) return c;
+    }
+    return -1;
+}
+
+void seq_track_poly(Seq *s, int t, int poly) {
+    SeqTrack *tr = &s->track[t];
+    release(s, tr);
+    tr->poly = poly != 0;
+}
 
 void seq_step_adjust(Seq *s, int t, int i, int dn, int dv, int dg, int dp) {
     SeqStep *st = &s->track[t].step[i];
@@ -524,6 +681,7 @@ void seq_save(const Seq *s, FILE *f) {
             fprintf(f, "ty %d %d %d %d %d\n", t, tr->type, tr->drum_lock, tr->drum_busy, tr->drum_mute);
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
+        if (tr->poly) fprintf(f, "vo %d %d\n", t, tr->poly);   /* VOICES POLY; older versions skip it */
         fprintf(f, "g %d %d %d %d %d %d %d %d\n", t, tr->gen.type, tr->gen.p[0], tr->gen.p[1], tr->gen.p[2],
                 tr->gen.p[3], tr->gen.base, tr->gen.span);
         fprintf(f, "e %d %d %d %d\n", t, tr->evo.every, tr->evo.amount, tr->evo.kinds);
@@ -544,6 +702,7 @@ void seq_save(const Seq *s, FILE *f) {
                 fprintf(f, "ss %d %d %d %d %d %d %d %d %d\n", t, k, i, st->on, st->note, st->vel, st->gate, st->prob, st->lock);
                 if (st->hold) fprintf(f, "sh %d %d %d %d\n", t, k, i, st->hold);
                 if (st->nudge) fprintf(f, "so %d %d %d %d\n", t, k, i, st->nudge);
+                if (st->more[0]) fprintf(f, "sx %d %d %d %d %d %d\n", t, k, i, st->more[0], st->more[1], st->more[2]);
             }
             snprintf(pre, sizeof pre, "dsh %d %d", t, k);
             save_hits(f, pre, &sl->drum);
@@ -558,12 +717,15 @@ void seq_save(const Seq *s, FILE *f) {
                 fprintf(f, "a %d %d %d %d %d %d %d\n", t, i, st->on, st->note, st->vel, st->gate, st->prob);
                 if (st->hold) fprintf(f, "ah %d %d %d\n", t, i, st->hold);
                 if (st->nudge) fprintf(f, "ao %d %d %d\n", t, i, st->nudge);
+                if (st->more[0]) fprintf(f, "ax %d %d %d %d %d\n", t, i, st->more[0], st->more[1], st->more[2]);
             }
         for (int i = 0; i < SEQ_STEPS; i++) {
             const SeqStep *st = &tr->step[i];
             fprintf(f, "s %d %d %d %d %d %d %d %d\n", t, i, st->on, st->note, st->vel, st->gate, st->prob, st->lock);
             if (st->hold) fprintf(f, "h %d %d %d\n", t, i, st->hold);
             if (st->nudge) fprintf(f, "o %d %d %d\n", t, i, st->nudge);   /* offset; older versions skip it */
+            /* chord notes, in scale degrees from the step's note; older versions skip it */
+            if (st->more[0]) fprintf(f, "x %d %d %d %d %d\n", t, i, st->more[0], st->more[1], st->more[2]);
         }
         snprintf(pre, sizeof pre, "dh %d", t);
         save_hits(f, pre, &tr->drum);
@@ -594,6 +756,18 @@ int seq_slots_used(const Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++)
         for (int k = 0; k < SEQ_SLOTS; k++) n += s->track[t].slot[k].used;
     return n;
+}
+
+/* Chord notes from a file: in range, the used ones first, no repeats. */
+static void load_more(SeqStep *st, int a, int b, int c) {
+    int v[3] = {a, b, c}, m = 0;
+    memset(st->more, 0, sizeof st->more);
+    for (int k = 0; k < 3; k++) {
+        if (!v[k] || v[k] < -SEQ_MORE_MAX || v[k] > SEQ_MORE_MAX) continue;
+        int dup = 0;
+        for (int j = 0; j < m; j++) dup |= st->more[j] == v[k];
+        if (!dup) st->more[m++] = (int8_t)v[k];
+    }
 }
 
 int seq_load(Seq *s, FILE *f) {
@@ -649,6 +823,17 @@ int seq_load(Seq *s, FILE *f) {
             if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
                 s->track[a].slot[b].step[c].nudge = (int8_t)clampi(d, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
         }
+        /* chord-note lines follow their step line too (it cleared them) */
+        else if (sscanf(line, "x %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) load_more(&s->track[a].step[b], c, d, e);
+        } else if (sscanf(line, "ax %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) load_more(&s->track[a].anchor[b], c, d, e);
+        } else if (sscanf(line, "sx %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g) == 6) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
+                load_more(&s->track[a].slot[b].step[c], d, e, g);
+        } else if (sscanf(line, "vo %d %d", &a, &b) == 2) {
+            if (a >= 0 && a < SEQ_TRACKS) s->track[a].poly = b != 0;
+        }
         else if (sscanf(line, "sn %d %d %15s", &a, &b, nm) == 3) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS) continue;
             for (char *q = nm; *q; q++) if (*q == '_') *q = ' ';
@@ -662,7 +847,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS || c < 0 || c >= SEQ_STEPS) continue;
             s->track[a].slot[b].step[c] = (SeqStep){(uint8_t)(d != 0), (uint8_t)clampi(e, 0, 127),
                                                     (uint8_t)clampi(g, 1, 127), (uint8_t)clampi(h, 5, 100),
-                                                    (uint8_t)clampi(k, 0, 100), (uint8_t)(n != 0), 0, 0};
+                                                    (uint8_t)clampi(k, 0, 100), (uint8_t)(n != 0), 0, 0, {0}};
         } else if (sscanf(line, "ch %d %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g, &h) == 7) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             SeqTrack *tr = &s->track[a];
@@ -694,7 +879,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
             s->track[a].anchor[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
                                               (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
-                                              (uint8_t)clampi(h, 0, 100), 0, 0, 0};
+                                              (uint8_t)clampi(h, 0, 100), 0, 0, 0, {0}};
             s->track[a].has_anchor = 1;
         } else if (sscanf(line, "e %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
@@ -722,7 +907,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
             s->track[a].step[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
                                             (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
-                                            (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0, 0};
+                                            (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0, 0, {0}};
         }
     }
     /* The first drum build (PR 23) defaulted to the GM map and wrote it to

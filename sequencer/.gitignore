@@ -13,5 +13,7 @@ __pycache__/
 tests/test_battery
 tests/test_usbinfo
 tests/test_ambient
+tests/test_poly
 tests/test_drum
 tests/test_drum_asan
+tests/test_poly_asan

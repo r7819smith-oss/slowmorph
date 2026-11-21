@@ -111,19 +111,7 @@ void seq_track_type(Seq *s, int t, int type) {
     SeqTrack *tr = &s->track[t];
     type = type == TRACK_DRUMS ? TRACK_DRUMS : TRACK_NOTES;
     if (tr->type == type) return;
-    /* stop whatever the old kind of track has sounding */
-    if (tr->sounding >= 0) {
-        uint8_t m[3] = {(uint8_t)(0x80 | tr->channel), (uint8_t)tr->sounding, 0};
-        if (s->send) s->send(s->ctx, m, 3);
-        for (int k = 0; k < tr->nvoice; k++) { m[1] = tr->voice[k]; if (s->send) s->send(s->ctx, m, 3); }
-        tr->sounding = -1;
-        tr->nvoice = 0;
-    }
-    for (int l = 0; l < SEQ_LANES; l++)
-        if (tr->drum_down & (1 << l)) {
-            uint8_t m[3] = {(uint8_t)(0x80 | tr->channel), tr->drum_note[l], 0};
-            if (s->send) s->send(s->ctx, m, 3);
-        }
+    seq_track_release(s, t);   /* stop whatever the old kind of track has sounding */
     tr->drum_down = 0;
     tr->type = (uint8_t)type;
     seq_reshuffle(s, t);   /* drum steps have no OFFSET of their own */
