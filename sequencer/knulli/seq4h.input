@@ -25,8 +25,13 @@ joy 14 r2         # R2: next track
 # BUTTON CODES shows another axis number for the stick, change the 0.
 axis 0- prev
 axis 0+ next
-# joy 12 is the stick press.
-# joy 12 undo     # example: stick press undoes the last roll
+# The stick, up / down: velocity on the grid, piano roll and drum grid, or the
+# picked row's value on list pages. Hold Select with it: tempo. If BUTTON
+# CODES shows another axis number for up/down, change the 1.
+axis 1- vup
+axis 1+ vdown
+# joy 12 is the stick press: quick roll of the current track.
+joy 12 roll
 
 # Anbernic's stock firmware numbers the buttons 3 lower. If your codes look
 # like that (check with BUTTON CODES), use these lines instead of the ones above:
@@ -49,7 +54,7 @@ hat down  down
 hat left  left
 hat right right
 
-# The left stick can drive the cursor too (axes 0 and 1):
+# The left stick can drive the cursor instead (axes 0 and 1):
 # axis 0- left
 # axis 0+ right
 # axis 1- up

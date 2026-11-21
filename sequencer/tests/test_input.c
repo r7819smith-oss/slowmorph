@@ -13,7 +13,8 @@ int main(void) {
     CHECK(m.mode == INPUT_AUTO);
     CHECK(m.joy[3] == B_A && m.joy[4] == B_B && m.joy[5] == B_Y && m.joy[6] == B_X);
     CHECK(m.joy[7] == B_L && m.joy[8] == B_R && m.joy[9] == B_SEL && m.joy[10] == B_START);
-    CHECK(m.joy[13] == B_L2 && m.joy[14] == B_R2 && m.joy[0] == B_NONE && m.joy[12] == B_NONE);
+    CHECK(m.joy[13] == B_L2 && m.joy[14] == B_R2 && m.joy[0] == B_NONE && m.joy[12] == B_ROLL);
+    CHECK(m.axis[1][0] == B_VUP && m.axis[1][1] == B_VDOWN && input_btn_from_name("vdown") == B_VDOWN);
     CHECK(m.hat[0] == B_UP && m.hat[3] == B_LEFT);
     CHECK(m.pad_axis[SDL_CONTROLLER_AXIS_TRIGGERRIGHT][1] == B_R2);
     CHECK(m.joy[11] == B_MENU && input_key(&m, SDLK_m) == B_MENU && input_btn_from_name("menu") == B_MENU);
