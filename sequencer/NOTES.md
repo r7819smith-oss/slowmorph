@@ -655,6 +655,29 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     slow velocity changes.
   - Fixed on the way: M from M > DEVICE + CLOCK now closes the menu (it
     used to reopen the menu over the DEVICE page).
+- **Live playing and recording (M > LIVE + RECORD, 2026-11-22 overnight,
+  Roy's list items 2-5 and 10).** Engine in `src/live.c` (state in
+  `Seq.live`), pages in `src/ui_live.c` (included by `ui.c`). Built in
+  steps; on-device tests in `tests/hardware-sheet-live.md`.
+  - **RECORD page:** COUNT-IN 0/1/2/4 bars sends MIDI clock but **no MIDI
+    Start until the count-in ends**, so a DAW, the Blackbox or the FM1
+    starts on bar 1 with us; the clock keeps its even spacing across the end
+    of the count-in. CLICK plays a short note each beat (louder on beat 1)
+    on the first drum track's closed hat (a lane named HAT with CL or CH,
+    else lane 4), or C7 on T1 with no drum track. SONG LENGTH 1-999 bars
+    stops on that bar line, counted from Start (after the count-in). STOP AT
+    BAR END makes Start-while-playing wait for the bar line (header ENDING);
+    a second press stops at once. SONG POSITION sends SPP 0 just before
+    Start (off by default, in case a device misreads it). START FROM MARK
+    puts a marked state back on every Start (every track's steps, drum
+    lanes, length, slot, chain position, generator state and the random
+    state), so evolving takes repeat exactly.
+  - These settings belong to the **session**, not the song: one `lv` line
+    in `seq4h.pat`; loading a song keeps them (`song_apply`). The mark
+    itself is not saved.
+  - Header: **IN n** (count-in beats to go), **ENDING**, and **BAR b.b**
+    (/ length) under the play state. The grid playhead hides during the
+    count-in.
 - **Polymeter and Euclidean rhythms (2026-11-21, Roy's list item 8).**
   Per-track LENGTH already gave polymeter at 1/16; this adds the rest:
   - **STEP RATE** (TRACK page, second-last row): how long the track's steps
@@ -725,6 +748,8 @@ Works and tested on desktop Linux:
 
 0. Run `tests/hardware-sheet-8tracks.md` (checklist D11, 10 tests: page 2
    of tracks, T5-T8 on a second instrument, saves and songs).
+0. Run `tests/hardware-sheet-live.md` (live playing and recording,
+   M > LIVE + RECORD).
 0. Run `tests/hardware-sheet-mod.md` (10 tests: modulation, MIDI IN, learn,
    teaching Felucca with SEND ONCE). Tests 6-8 settle what Felucca really
    sends back over USB.
@@ -1926,6 +1951,9 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/drum.c`, `drum.h`: drum tracks: editing, DRUM MAP (FELUCCA, GM and BLACKBOX presets, Felucca sound table), audition, drum
   kit generator, drum evolution, morph and transforms
 - `tests/test_drum.c`: drum track tests
+- `src/live.c`, `live.h`: M > LIVE + RECORD engine side (count-in, song length, stop at the bar, Song Position, start mark); `tests/test_live.c`
+- `src/ui_live.c`: the M > LIVE pages, included by `ui.c`
+- `tests/hardware-sheet-live.md`: on-device tests for M > LIVE + RECORD
 - `src/mod.c`, `mod.h`: M > MODULATION: LFOs, CC destinations, the MIDI input parser, monitor and learn; `tests/test_mod.c`
 - `tests/hardware-sheet-mod.md`: 10 on-device tests for the modulation module
 - `src/player.c`: timing thread and lock
