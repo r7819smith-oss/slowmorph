@@ -8,21 +8,25 @@
 /* Researched 2026-11-21, not all tested on hardware (see NOTES.md, "Device
  * presets"). Each track n plays on channel n on all four: Felucca and Jangada
  * play FM1 track n from channel n (MIDI IN CH1-4), the Digitone's TRACK 1-4
- * CHANNEL and the Blackbox's included projects use 1-4 too. */
+ * CHANNEL and the Blackbox's included projects use 1-4 too.
+ * T5-T8 are on channels 5-8 in every preset: the FM1 ignores them, so they
+ * are free for a second instrument on the same MIDI output (through a hub or
+ * the DIN cable), or for the Blackbox's or Digitone's other tracks. */
 static const DevPreset PRESETS[DEV_COUNT] = {
-    {"FELUCCA", {0, 1, 2, 3}, DRUM_FELUCCA, 1, 1, {"FELUCCA", "FM-1", "FM1"},
+    {"FELUCCA", {0, 1, 2, 3, 4, 5, 6, 7}, DRUM_FELUCCA, 1, 1, {"FELUCCA", "FM-1", "FM1"},
      {"FM1: MENU > MIDI > MIDI IN: CH1-4",
       "HOME > MIXER > CLOCK: SOURCE USB",
       "FM1 TRACK N PLAYS GENVOLVE CHANNEL N",
-      "A DRUM TRACK: ITS FM1 TRACK ON DRUM"}},
-    {"JANGADA", {0, 1, 2, 3}, DRUM_GM, 1, 1, {"JANGADA"},
+      "A DRUM TRACK: ITS FM1 TRACK ON DRUM",
+      "T5-T8 (CH 5-8): THE FM1 IGNORES THEM"}},
+    {"JANGADA", {0, 1, 2, 3, 4, 5, 6, 7}, DRUM_GM, 1, 1, {"JANGADA"},
      {"FM1 ON JANGADA (A FELUCCA FORK)",
       "GLO > GLOBAL CLK: USB",
       "TRACK 4 AS SYNTH PLAYS CHANNEL 4",
       "T4 SILENT ON DRUM? TRY CHANNEL 10",
       "  (TRACK > MIDI CHANNEL)",
       "DRUM NOTES NOT PUBLISHED: GM MAP"}},
-    {"DIGITONE", {0, 1, 2, 3}, DRUM_GM, 1, 0, {"DIGITONE"},
+    {"DIGITONE", {0, 1, 2, 3, 4, 5, 6, 7}, DRUM_GM, 1, 0, {"DIGITONE"},
      {"SETTINGS > MIDI CONFIG:",
       " PORT CONFIG > INPUT FROM: USB",
       "  (OR MIDI+USB), RECEIVE NOTES ON",
@@ -31,9 +35,9 @@ static const DevPreset PRESETS[DEV_COUNT] = {
       "START/STOP OFF: ITS OWN PATTERN",
       "  STAYS STOPPED. ON: IT PLAYS TOO",
       "NO DRUM ENGINE: USE NOTE TRACKS"}},
-    {"BLACKBOX 2", {0, 1, 2, 3}, DRUM_BLACKBOX, 1, 1, {"BLACKBOX", "1010"},
+    {"BLACKBOX 2", {0, 1, 2, 3, 4, 5, 6, 7}, DRUM_BLACKBOX, 1, 1, {"BLACKBOX", "1010"},
      {"USB INTO ITS PWR/DATA PORT",
-      "TRACK N: MIDI IN CHAN N",
+      "TRACK N: MIDI IN CHAN N (T1-T8)",
       "GLOB SETTINGS: CLOCK SOURCE USB",
       "DRUM MAP: 909 KIT PADS (PADS ARE",
       "  36-43 BOTTOM ROW, 44-51 TOP)",

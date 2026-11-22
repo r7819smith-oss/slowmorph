@@ -53,6 +53,11 @@ void gen_drum_notes(Seq *s, int t);
  * re-rolls; amount = chance per lane (per hit for VELOCITY and PROB). PITCH
  * and OFFSET do nothing on drums. Then the anchor pull, as on note tracks. */
 void gen_drum_evolve(Seq *s, int t);
+/* Write lane l's Euclidean pattern (SeqTrack.euc_hits / euc_rot) now, with
+ * the track's kit velocities and chances; euc_hits 0 leaves the lane as it is.
+ * Locked lanes and step-locked steps are left alone. The kit roll calls it for
+ * every Euclidean lane. */
+void gen_drum_euclid_lane(Seq *s, int t, int l);
 /* Each unlocked hit that differs from target becomes target's with chance pct. */
 void gen_drum_morph(Seq *s, int t, const SeqDrums *target, int pct);
 /* Transforms on drum lanes: REVERSE, SHIFT, THIN, FILL, HUMANIZE and CLEAR.

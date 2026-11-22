@@ -110,7 +110,7 @@ static const struct { const char *name; int n; Param p[4]; } GENS[GEN_COUNT] = {
     [GEN_CHAOS] = {"CHAOS", 3, {{"R", 0, 10, 8}, {"SEED", 0, 15, 3}, {"DENSITY", 1, 10, 7}}},
     [GEN_CELLULAR] = {"CELLULAR", 3, {{"RULE", 0, 11, 1}, {"GENS", 0, 63, 8}, {"SEED", 0, 1, 0}}},
     [GEN_WEIGHTED] = {"WEIGHTED", 3, {{"TENSION", 0, 7, 3}, {"DENSITY", 1, 10, 7}, {"REPEAT", 0, 10, 2}}},
-    [GEN_FOLLOW] = {"FOLLOW", 4, {{"SOURCE", 1, 4, 1}, {"RHYTHM", 0, 3, 0}, {"INTERVAL", 0, 14, 7}, {"PITCH", 0, 2, 0}}},
+    [GEN_FOLLOW] = {"FOLLOW", 4, {{"SOURCE", 1, SEQ_TRACKS, 1}, {"RHYTHM", 0, 3, 0}, {"INTERVAL", 0, 14, 7}, {"PITCH", 0, 2, 0}}},
     [GEN_ARP] = {"ARP", 4, {{"CHORD", 0, 5, 0}, {"ORDER", 0, 4, 0}, {"OCTAVES", 1, 4, 2}, {"RATE", 1, 4, 1}}},
     [GEN_TURING] = {"TURING", 4, {{"CHANGE", 0, 10, 2}, {"DENSITY", 0, 10, 6}, {"RANGE", 1, 8, 4}, {"LENGTH", 2, 32, 8}}},
     [GEN_MOTIF] = {"MOTIF", 4, {{"LENGTH", 2, 8, 4}, {"DEVELOP", 0, 10, 5}, {"DENSITY", 1, 10, 7}, {"LEAP", 1, 4, 2}}},
@@ -209,8 +209,8 @@ void gen_set_type(Seq *s, int t, int type) {
     g->type = (uint8_t)tidx(type);
     for (int k = 0; k < 4; k++) g->p[k] = k < GENS[g->type].n ? GENS[g->type].p[k].def : 0;
     style_defaults(s->track[t].style, g->type, g->p);
-    /* FOLLOW defaults to the track above (track 1 follows track 2). */
-    if (g->type == GEN_FOLLOW) g->p[0] = (uint8_t)(t == 0 ? 2 : t);
+    /* FOLLOW defaults to the track above (track 1 follows track 2, and T5 follows T6). */
+    if (g->type == GEN_FOLLOW) g->p[0] = (uint8_t)(t % SEQ_BANK == 0 ? t + 2 : t);
     if (g->type == GEN_TURING && g->state == 0) g->state = seq_rand(s) | 1;
     if (g->type == GEN_CHORDS && !s->track[t].poly) seq_track_poly(s, t, 1);   /* chords need POLY */
 }
@@ -301,7 +301,7 @@ typedef struct {
     uint8_t p[4];
 } TrackPreset;
 
-static const struct { int bpm, scale, root, swing; TrackPreset t[SEQ_TRACKS]; } STYLE_SET[STYLE_COUNT] = {
+static const struct { int bpm, scale, root, swing; TrackPreset t[STYLE_PARTS]; } STYLE_SET[STYLE_COUNT] = {
     /* Ambient: slow, polymetric lengths (16, 13, 11, 23) so the tracks rarely line up,
      * long gates, soft velocities, and evolution that wanders but is pulled home. */
     [STYLE_AMBIENT] = {72, 8, 2, 0, {
@@ -593,15 +593,15 @@ static void style_shape(Seq *s, int t, int shape, const int8_t *prog) {
 
 /* Blank: an empty page. Bases match seq_init (C2, C3, C4, C5 an octave down). */
 static void blank_track(Seq *s, int t) {
-    static const uint8_t base[SEQ_TRACKS] = {24, 36, 48, 60};
+    static const uint8_t base[SEQ_BANK] = {24, 36, 48, 60};   /* T5-T8 repeat T1-T4 */
     SeqTrack *tr = &s->track[t];
     tr->style = STYLE_BLANK;
-    tr->part = (uint8_t)t;
+    tr->part = (uint8_t)(t % STYLE_PARTS);
     tr->len = SEQ_DEFAULT_LEN;
-    tr->gen.base = base[t];
+    tr->gen.base = base[t % SEQ_BANK];
     tr->gen.span = 2;
     gen_set_type(s, t, GEN_NONE);
-    int note = gen_snap_note(s, base[t] + 12);
+    int note = gen_snap_note(s, base[t % SEQ_BANK] + 12);
     for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0, {0}};
     tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
     tr->has_anchor = 0;
@@ -618,7 +618,7 @@ static void blank_track(Seq *s, int t) {
 /* Playback colour per style and part (chord, swell bars, swell depth, rest
  * chance); styles left out here play plain. */
 typedef struct { uint8_t chord, swell, swell_depth, rest; } TrackColour;
-static const TrackColour STYLE_COLOUR[STYLE_COUNT][SEQ_TRACKS] = {
+static const TrackColour STYLE_COLOUR[STYLE_COUNT][STYLE_PARTS] = {
     [STYLE_DRONE] = {{CHORD_FIFTH, 16, 25, 0}, {CHORD_TRIAD, 8, 35, 0}, {CHORD_OFF, 4, 30, 10}, {CHORD_OFF, 0, 0, 15}},
     [STYLE_HIPHOP] = {{0, 0, 0, 0}, {CHORD_SEVENTH, 0, 0, 0}, {CHORD_OFF, 0, 0, 10}, {0, 0, 0, 0}},
     [STYLE_DNB] = {{0, 0, 0, 0}, {CHORD_TRIAD, 8, 40, 0}, {CHORD_FIFTH, 0, 0, 10}, {0, 0, 0, 0}},
@@ -632,7 +632,9 @@ int style_apply_tracks(Seq *s, int lead, const int style[SEQ_TRACKS], const int 
     for (int t = 0; t < SEQ_TRACKS; t++) {
         st[t] = style[t] == STYLE_KEEP || s->track[t].locked ? STYLE_KEEP : style_idx(style[t]);   /* a locked track is always kept */
         pt[t] = part_idx(part[t]);
-        kept += st[t] == STYLE_KEEP;
+        /* An empty T5-T8 left as it is doesn't count as kept, so a new style on
+         * T1-T4 still brings its tempo and key when the second page is unused. */
+        kept += st[t] == STYLE_KEEP && (t < SEQ_BANK || (s->track[t].type == TRACK_DRUMS ? seq_drum_hits(&s->track[t]) : gen_hits(s, t)));
         chords |= st[t] == STYLE_MELODIC || st[t] == STYLE_HIPHOP || st[t] == STYLE_HOUSE;
     }
     s->style = lead;
@@ -659,6 +661,8 @@ int style_apply_tracks(Seq *s, int lead, const int style[SEQ_TRACKS], const int 
             if (pr->setp & (1 << k))
                 tr->gen.p[k] = (uint8_t)(pr->p[k] < gen_param_min(pr->gen, k) ? gen_param_min(pr->gen, k) :
                                          pr->p[k] > gen_param_max(pr->gen, k) ? gen_param_max(pr->gen, k) : pr->p[k]);
+        if (pr->gen == GEN_FOLLOW && (pr->setp & 1))   /* a style's FOLLOW source is in the track's own page (T5-T8 follow T5-T8) */
+            tr->gen.p[0] = (uint8_t)(tr->gen.p[0] + (t / SEQ_BANK) * SEQ_BANK);
         tr->evo = (EvolveSettings){pr->every, pr->amount, pr->kinds, pr->pull, pr->min_hits, pr->max_hits};
         tr->chain_len = 0;
         tr->has_anchor = 0;
@@ -691,6 +695,7 @@ int style_apply(Seq *s, int st, int keep_manual) {
     st = style_idx(st);
     int style[SEQ_TRACKS], part[SEQ_TRACKS], kept = 0;
     for (int t = 0; t < SEQ_TRACKS; t++) {
+        if (t >= STYLE_PARTS) { style[t] = STYLE_KEEP; part[t] = t % STYLE_PARTS; continue; }   /* T5-T8: their own rows */
         int keep = s->track[t].locked || (st != STYLE_BLANK && keep_manual && s->track[t].gen.type == GEN_NONE && gen_hits(s, t) > 0);
         style[t] = keep ? STYLE_KEEP : st;
         part[t] = t;
@@ -1299,7 +1304,7 @@ int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX
 
 const char *gen_xform_name(int op) {
     static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR", "SPREAD", "ON GRID",
-                                      "WRITE CHORD"};
+                                      "WRITE CHORD", "EUCLID"};
     return op >= 0 && op < XF_COUNT ? N[op] : "?";
 }
 
@@ -1391,6 +1396,17 @@ void gen_transform(Seq *s, int t, int op, int amount) {
     case XF_GRID:
         for (int k = 0; k < np; k++) tr->step[pos[k]].nudge = 0;
         break;
+    case XF_EUCLID: {   /* the same notes, in the same order, on evenly spaced steps */
+        int n = 0, rot = ((amount % np) + np) % np;
+        for (int k = 0; k < np; k++) if (tr->step[pos[k]].on) tmp[n++] = tr->step[pos[k]];
+        if (!n) break;
+        for (int k = 0, m = 0; k < np; k++) {
+            int j = (k - rot + np) % np;
+            if ((j * n) % np < n) tr->step[pos[k]] = tmp[m++];
+            else tr->step[pos[k]].on = 0;
+        }
+        break;
+    }
     case XF_HUMANIZE:
         if (amount <= 0) break;
         for (int k = 0; k < np; k++) {

@@ -57,7 +57,7 @@ int main(void) {
         int offs = l.off[0] + l.off[1] + l.off[2] + l.off[3];
         seq_reconnected(&s);
         CHECK(l.off[0] + l.off[1] + l.off[2] + l.off[3] > offs);
-        CHECK(l.cc120 == 4 && l.cc123 == 4);
+        CHECK(l.cc120 == SEQ_TRACKS && l.cc123 == SEQ_TRACKS);   /* channels 1-8, one each */
         CHECK(s.playing && s.tick == 100 && l.starts == 1);
         run(&s, 383 - 100);
         CHECK(l.starts == 1);
@@ -67,7 +67,7 @@ int main(void) {
     /* reconnect while stopped: panic only, no Start */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;
     seq_reconnected(&s); run(&s, 400);
-    CHECK(l.cc120 == 4 && l.starts == 0 && s.resync == 0);
+    CHECK(l.cc120 == SEQ_TRACKS && l.starts == 0 && s.resync == 0);
 
     /* gate: 50% of 24 ticks => note off 12 ticks after on */
     memset(&l, 0, sizeof l); seq_init(&s, rec, &l); l.now = &s.tick;

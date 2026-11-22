@@ -44,7 +44,7 @@ static int midi_test(Midi *m) {
 }
 
 static void usage(void) {
-    puts("Genvolve, a generative four-track MIDI sequencer.\n"
+    puts("Genvolve, a generative eight-track MIDI sequencer.\n"
          "usage: genvolve [options]\n"
          "  --midi NAME      MIDI output port: case-insensitive part of \"client:port\"\n"
          "                   (default: first available; 'none' = no output; 'list' = show ports;\n"
@@ -53,7 +53,7 @@ static void usage(void) {
          "  --pattern FILE   pattern file to load and autosave (default seq4h.pat)\n"
          "  --songs DIR      folder for the M > SONG SAVE files seq4h-song1..8.pat (default:\n"
          "                   the pattern file's folder; with --screenshot, songs are off unless given)\n"
-         "  --channel N      put all four tracks on MIDI channel N (1-16), e.g. for Felucca's\n"
+         "  --channel N      put all eight tracks on MIDI channel N (1-16), e.g. for Felucca's\n"
          "                   MIDI IN: SEL mode, where every channel plays the selected track\n"
          "  --input FILE     button mapping file (default seq4h.input if it exists)\n"
          "  --show-input     show each button's raw code on screen and on stderr\n"
