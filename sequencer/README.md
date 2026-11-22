@@ -26,7 +26,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - Clock master: MIDI clock (also while stopped), start and stop output; each can be turned off per output on M > DEVICE + CLOCK (or both with `--no-clock`)
 - Device presets (M > DEVICE + CLOCK): FELUCCA, JANGADA, DIGITONE and BLACKBOX 2 set the channels, drum map, clock and start/stop in one go
 - Modulation (M > MODULATION): 4 LFOs (sine, triangle, ramp up/down, square, sample and hold, smooth random; synced to the BPM or free running from 0.1 s to 10 minutes) driving up to 16 MIDI CC destinations, each with its own channel or track, CC number and LOW-HIGH range. A MIDI IN monitor shows what the device sends back, and LEARN takes an incoming CC
-- Live and recording (M > LIVE + RECORD): a PERFORM page (mute, solo, DENSITY and EVOLVE for every track, scenes and songs that switch on the next bar line), a count-in (1, 2 or 4 bars, with an optional click) before MIDI Start, a SONG LENGTH that stops on a bar line, Start-to-stop at the bar end, Song Position before Start, and a start mark so evolving takes repeat exactly
+- Live and recording (M > LIVE + RECORD): a PERFORM page (mute, solo, DENSITY and EVOLVE for every track, scenes and songs that switch on the next bar line), an ARRANGE page (scenes as sections with bar counts and fills, looping or stopping at the end), a count-in (1, 2 or 4 bars, with an optional click) before MIDI Start, a SONG LENGTH that stops on a bar line, Start-to-stop at the bar end, Song Position before Start, and a start mark so evolving takes repeat exactly
 - Everything (all 8 slots per track, chains, generators, evolution, mutes,
   scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
   each edit, once a minute while playing, and at quit, so it survives the
@@ -443,6 +443,14 @@ switches to **RECORD** and back.
 | SWITCH AT | every 1, 2, 4 or 8 bars (counted from Start) |
 
 A waiting switch counts down on the row and in the header on every page.
+
+The **ARRANGE** page (L1/R1 from PERFORM) turns scenes into a whole track:
+up to 16 sections, each a scene played for 1-64 bars, with an optional fill
+in its last bar. With ARRANGE ON, Start plays from section 1, each section's
+scene comes in on its bar line, and AT THE END it loops or stops. On a
+section: left/right bars, hold Y + left/right scene, X fill (OFF, DRUM FILL,
+FILL ALL), A adds a copy below, Select removes it. The arrangement is saved
+with the song.
 
 The **RECORD** page: Up/down row,
 left/right change (hold Y: 16 bars a step on SONG LENGTH), A on the mark

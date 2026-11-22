@@ -190,6 +190,7 @@ typedef struct {
     uint8_t click_ch, click_left;
     uint8_t stop_pending; /* Start was pressed: stop at the next bar line */
     uint16_t fill;        /* bit per track: a fill plays while it is set (held X on PERFORM; not saved) */
+    uint16_t fill_auto;   /* ...and the ARRANGE section fills, set for a section's last bar */
     int8_t scene;         /* scene last recalled, -1 = none */
     int8_t scene_q;       /* scene waiting for the switch bar, -1 = none */
     int8_t song_q;        /* song waiting for the switch bar, -1 = none */
@@ -201,6 +202,20 @@ typedef struct {
     LiveTake mark[SEQ_TRACKS];
 } Live;
 enum { SEQ_RATE_32, SEQ_RATE_16T, SEQ_RATE_16, SEQ_RATE_8T, SEQ_RATE_8, SEQ_RATE_4, SEQ_RATE_2, SEQ_RATE_BAR, SEQ_RATES };
+
+/* ARRANGE (M > LIVE): the song as sections, each a scene (slot k of every
+ * track) played for some bars, optionally with a fill in its last bar. It
+ * belongs to the song: saved with it ("ar" and "as" lines). */
+#define ARR_MAX 16
+enum { ARR_LOOP, ARR_STOP };                           /* what happens after the last section */
+enum { ARR_FILL_OFF, ARR_FILL_DRUMS, ARR_FILL_ALL };   /* fill in a section's last bar */
+typedef struct { uint8_t scene, bars, fill; } ArrSection;
+typedef struct {
+    uint8_t on, end, n;
+    ArrSection sec[ARR_MAX];
+    uint8_t pos;        /* section playing (not saved) */
+    uint16_t bar;       /* bars of it played so far (not saved) */
+} Arrange;
 
 typedef void (*SeqSend)(void *ctx, const uint8_t *msg, int len);
 
@@ -223,6 +238,7 @@ typedef struct {
     int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
     int realign;        /* REALIGN: every this many bars, tracks that are not on their step 1 jump back to it (0 = never) */
     Mod mod;                                      /* M > MODULATION: LFOs sending CCs (mod.h) */
+    Arrange arr;                                  /* M > LIVE: ARRANGE (live.h); saved with the song */
     Live live;                                    /* M > LIVE: count-in, song length, start mark (live.h) */
     SeqSend send;
     void *ctx;

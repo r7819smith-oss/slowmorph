@@ -705,6 +705,19 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     multiple of SWITCH AT (1/2/4/8 bars from Start; saved as `lq`); stopped,
     they happen at once. The countdown shows on the row and in the header
     on every page (SCENE 3 IN 2 BARS ... IN 1). B cancels.
+  - **ARRANGE page** (L1/R1 from PERFORM; Roy's item 5): up to 16
+    sections, each a scene played for 1-64 bars (1 2 3 4 6 8 12 16 24 32 48
+    64), with an optional fill in its last bar (DRUM FILL = drum tracks, or
+    FILL ALL). ARRANGE ON makes Start begin at section 1 (its scene recalled
+    before the first note); after the last section it LOOPs or STOPs on the
+    bar line. Left/right bars, Y + left/right scene, X fill, A adds a copy
+    below, Select removes, + ADD SECTION appends (next scene). The side
+    shows a timeline coloured by scene with the playhead. It belongs to the
+    **song** (`ar ON END N` + `as I SCENE BARS FILL` lines, saved with SONG
+    SAVE); a queued song brings its own arrangement, from its section 1.
+    Scene queue and SONG LENGTH still work on top (SONG LENGTH can cut an
+    arrangement short). Turning ARRANGE on with no sections adds one (the
+    current scene, 8 bars).
   - **Song queue:** A on the SONG row reads the song file (player unlocked)
     and hands it to the engine, which swaps it in at the switch bar with
     `song_apply` (in time, clock not restarted; the LIVE settings stay).

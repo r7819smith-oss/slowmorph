@@ -64,6 +64,8 @@ static void click_off(Seq *s) {
     l->click_left = 0;
 }
 
+static void arr_begin(Seq *s);
+
 static void switch_song(Seq *s) {
     Live *l = &s->live;
     void *song = l->song_next;
@@ -76,9 +78,48 @@ static void switch_song(Seq *s) {
     swap(s, song);   /* song_apply keeps s->live */
     s->live.song_now = (int8_t)k;
     s->live.scene = -1;
+    arr_begin(s);    /* the new song's own arrangement, from its start */
 }
 
 void live_start_song_now(Seq *s) { if (s->live.song_q >= 0) switch_song(s); }
+
+static void arr_fills(Seq *s) {
+    const Arrange *a = &s->arr;
+    s->live.fill_auto = 0;
+    if (!a->on || a->pos >= a->n) return;
+    const ArrSection *sec = &a->sec[a->pos];
+    if (sec->fill == ARR_FILL_OFF || a->bar + 1 != sec->bars) return;
+    for (int t = 0; t < SEQ_TRACKS; t++)
+        if (sec->fill == ARR_FILL_ALL || s->track[t].type == TRACK_DRUMS) s->live.fill_auto |= (uint16_t)(1u << t);
+}
+
+/* Start, or a song swapped in: section 1, bar 1. */
+static void arr_begin(Seq *s) {
+    Arrange *a = &s->arr;
+    a->pos = 0;
+    a->bar = 0;
+    s->live.fill_auto = 0;
+    if (!a->on || !a->n) return;
+    live_scene_recall(s, a->sec[0].scene);
+    arr_fills(s);
+}
+
+/* A bar line: 1 if the arrangement ended and playback stopped. */
+static int arr_bar(Seq *s) {
+    Arrange *a = &s->arr;
+    if (!a->on || !a->n) { s->live.fill_auto = 0; return 0; }
+    if (a->pos >= a->n) a->pos = 0;
+    if (++a->bar >= a->sec[a->pos].bars) {
+        a->bar = 0;
+        if (++a->pos >= a->n) {
+            if (a->end == ARR_STOP) { a->pos = 0; s->live.fill_auto = 0; seq_stop(s); return 1; }
+            a->pos = 0;
+        }
+        live_scene_recall(s, a->sec[a->pos].scene);
+    }
+    arr_fills(s);
+    return 0;
+}
 
 int live_start(Seq *s) {
     Live *l = &s->live;
@@ -87,6 +128,7 @@ int live_start(Seq *s) {
     if (l->song_q >= 0) switch_song(s);   /* queued while stopped: in before bar 1 */
     if (l->scene_q >= 0) { live_scene_recall(s, l->scene_q); l->scene_q = -1; }
     if (l->from_mark) live_restore_mark(s);
+    arr_begin(s);
     l->count_left = (uint32_t)l->count_in * BAR;
     return l->count_left > 0;
 }
@@ -124,6 +166,7 @@ int live_bar(Seq *s, uint32_t bar) {
         seq_stop(s);
         return 1;
     }
+    if (arr_bar(s)) return 1;   /* ARRANGE ended with STOP */
     if (bar % (l->quant ? l->quant : 1) == 0) {   /* a switch bar */
         if (l->song_q >= 0) switch_song(s);
         if (l->scene_q >= 0) { live_scene_recall(s, l->scene_q); l->scene_q = -1; }
@@ -219,7 +262,7 @@ void live_fill(Seq *s, int t, int on) {
     else s->live.fill &= (uint16_t)~(1u << t);
 }
 
-static int filling(const Seq *s, int t) { return (s->live.fill >> t) & 1; }
+static int filling(const Seq *s, int t) { return ((s->live.fill | s->live.fill_auto) >> t) & 1; }
 
 int live_busy(const Seq *s, int t) { return s->live.density[t] != 0 || filling(s, t); }
 
@@ -367,6 +410,52 @@ int live_counting(const Seq *s, int *bars, int *beats) {
     return 1;
 }
 
+int live_arr_total(const Seq *s) {
+    int n = 0;
+    for (int i = 0; i < s->arr.n && i < ARR_MAX; i++) n += s->arr.sec[i].bars;
+    return n;
+}
+
+static ArrSection arr_clean(ArrSection x) {
+    x.scene = (uint8_t)clampi(x.scene, 0, LIVE_SCENES - 1);
+    x.bars = (uint8_t)clampi(x.bars, 1, 64);
+    x.fill = (uint8_t)clampi(x.fill, ARR_FILL_OFF, ARR_FILL_ALL);
+    return x;
+}
+
+void live_arr_insert(Seq *s, int i, ArrSection sec) {
+    Arrange *a = &s->arr;
+    if (a->n >= ARR_MAX) return;
+    i = clampi(i, 0, a->n);
+    memmove(&a->sec[i + 1], &a->sec[i], (size_t)(a->n - i) * sizeof a->sec[0]);
+    a->sec[i] = arr_clean(sec);
+    a->n++;
+    if (s->playing && a->on && i <= a->pos && a->n > 1) a->pos++;   /* keep playing the same section */
+}
+
+void live_arr_delete(Seq *s, int i) {
+    Arrange *a = &s->arr;
+    if (i < 0 || i >= a->n) return;
+    memmove(&a->sec[i], &a->sec[i + 1], (size_t)(a->n - i - 1) * sizeof a->sec[0]);
+    a->n--;
+    if (i < a->pos) a->pos--;
+    if (a->pos >= a->n) { a->pos = 0; a->bar = 0; }
+}
+
+int live_arr_where(const Seq *s, int *bar) {
+    *bar = 0;
+    if (!s->playing || s->live.count_left || !s->arr.on || !s->arr.n) return -1;
+    *bar = s->arr.bar;
+    return s->arr.pos;
+}
+
+void live_arr_save(const Seq *s, FILE *f) {
+    const Arrange *a = &s->arr;
+    if (!a->on && !a->n) return;
+    fprintf(f, "ar %d %d %d\n", a->on, a->end, a->n);   /* "ar ON END N", then "as I SCENE BARS FILL"; older versions skip them */
+    for (int i = 0; i < a->n; i++) fprintf(f, "as %d %d %d %d\n", i, a->sec[i].scene, a->sec[i].bars, a->sec[i].fill);
+}
+
 void live_save(const Seq *s, FILE *f) {
     const Live *l = &s->live;
     /* "lv COUNT CLICK LENGTH STOPMODE SPP FROMMARK"; older versions skip it */
@@ -378,6 +467,17 @@ void live_save(const Seq *s, FILE *f) {
 
 int live_load_line(Seq *s, const char *line) {
     int a, b, c, d, e, g;
+    if (sscanf(line, "ar %d %d %d", &a, &b, &c) == 3) {
+        s->arr.on = a != 0;
+        s->arr.end = b == ARR_STOP ? ARR_STOP : ARR_LOOP;
+        s->arr.n = (uint8_t)clampi(c, 0, ARR_MAX);
+        for (int i = 0; i < s->arr.n; i++) s->arr.sec[i] = arr_clean((ArrSection){0, 4, 0});
+        return 1;
+    }
+    if (sscanf(line, "as %d %d %d %d", &a, &b, &c, &d) == 4) {
+        if (a >= 0 && a < s->arr.n) s->arr.sec[a] = arr_clean((ArrSection){(uint8_t)clampi(b, 0, 255), (uint8_t)clampi(c, 0, 255), (uint8_t)clampi(d, 0, 255)});
+        return 1;
+    }
     if (sscanf(line, "lq %d", &a) == 1) { live_set_quant(s, a); return 1; }
     if (sscanf(line, "ld %d %d", &a, &b) == 2) {
         if (a >= 0 && a < SEQ_TRACKS) s->live.density[a] = (int8_t)clampi(b, -100, 100);

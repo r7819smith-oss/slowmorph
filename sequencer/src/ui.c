@@ -91,9 +91,9 @@ typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1
                P_LFO, P_DEST, P_MIDIIN,                                /* M > MODULATION: its three pages, L1/R1 between them */
                P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
                P_ALLSTEPS,                                           /* Select on the GRID's track box: ALL STEPS */
-               P_PERFORM, P_RECORD,                                  /* M > LIVE: PERFORM and RECORD, L1/R1 between them (ui_live.c) */
+               P_PERFORM, P_ARRANGE, P_RECORD,                       /* M > LIVE: PERFORM, ARRANGE and RECORD, L1/R1 between them (ui_live.c) */
                P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "DEVICE", "LFO", "CC DEST", "MIDI IN", "ROLL", "DRUMS", "ALL STEPS", "PERFORM", "RECORD"};
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "DEVICE", "LFO", "CC DEST", "MIDI IN", "ROLL", "DRUMS", "ALL STEPS", "PERFORM", "ARRANGE", "RECORD"};
 #define MAX_PORTS 8   /* M > MIDI lists this many output ports */
 #define MAX_USB 8     /* ...and this many USB devices */
 #define MAP_ROWS (SEQ_LANES + 1)   /* DRUM MAP: the 8 lanes, then RESET TO GM */
@@ -193,7 +193,7 @@ typedef struct {
     int perf_song_due;           /* PERFORM: read and queue perf_song after the press */
 } Ui;
 
-static int live_rows(int page);   /* rows of the M > LIVE pages (ui_live.c) */
+static int live_rows(const Seq *s, int page);   /* rows of the M > LIVE pages (ui_live.c) */
 
 /* Generate page rows. */
 enum {
@@ -743,7 +743,7 @@ static int page_rows(const Ui *u, int page) {
     if (page == P_ALLSTEPS) return all_rows(&u->p->seq, u);
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
          : page == P_SLOTS ? SEQ_SLOTS : page == P_SONGS ? SEQ_SONGS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : page == P_DEVICE ? DEVICE_ROWS
-         : page == P_RECORD || page == P_PERFORM ? live_rows(page) : page == P_LFO ? LFO_ROWS : page == P_DEST ? DEST_ROWS : page == P_MIDIIN ? IN_ROWS : GEN_ROWS;
+         : page == P_RECORD || page == P_PERFORM || page == P_ARRANGE ? live_rows(&u->p->seq, page) : page == P_LFO ? LFO_ROWS : page == P_DEST ? DEST_ROWS : page == P_MIDIIN ? IN_ROWS : GEN_ROWS;
 }
 
 /* The grid cursor covers 16 steps, or 32 once any track is longer than 16. */
@@ -1795,6 +1795,7 @@ static void select_combo(Seq *s, Ui *u, Btn b) {
 /* Select pressed and released on its own: the GRID opens the piano roll (note
  * track) or drum grid (drum track); from either, back to the GRID. */
 static void select_tap(Ui *u) {
+    if (u->page == P_ARRANGE) { arr_select(u); return; }   /* remove the section */
     player_lock(u->p);
     Seq *s = &u->p->seq;
     if (u->page == P_GRID && u->on_label) open_all(u);   /* the track box: ALL STEPS */
@@ -1852,7 +1853,7 @@ static void press(Ui *u, Btn b) {
     player_lock(p);
     Seq *s = &p->seq;
     int modp = u->page == P_LFO || u->page == P_DEST || u->page == P_MIDIIN;
-    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI || u->page == P_DEVICE || u->page == P_RECORD || u->page == P_PERFORM || modp;
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI || u->page == P_DEVICE || u->page == P_RECORD || u->page == P_PERFORM || u->page == P_ARRANGE || modp;
     int was_midi = u->page == P_MIDI;
     int sub = u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALLSTEPS;   /* opened from the GRID */
     int from = in_menu ? u->menu_from : sub ? P_GRID : u->page;   /* where L1/R1 count from */
@@ -1873,13 +1874,15 @@ static void press(Ui *u, Btn b) {
     else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
     else if (u->page == P_MIDI && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) midi_press(u, b, dy);
     else if (u->page == P_DEVICE && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) device_press(s, u, b, dx, dy);
-    else if ((u->page == P_RECORD || u->page == P_PERFORM) && (b == B_L || b == B_R || b == B_PAGE)) {   /* L1/R1: PERFORM, RECORD */
-        u->page = u->page == P_PERFORM ? P_RECORD : P_PERFORM;
+    else if ((u->page == P_RECORD || u->page == P_PERFORM || u->page == P_ARRANGE) && (b == B_L || b == B_R || b == B_PAGE)) {   /* L1/R1: PERFORM, ARRANGE, RECORD */
+        u->page = P_PERFORM + wrap(u->page - P_PERFORM + (b == B_L ? -1 : 1), 3);
         if (u->page == P_PERFORM) u->song_scan_due = 1;
     }
     else if (u->page == P_PERFORM && (b == B_VUP || b == B_VDOWN)) perf_stick(s, u, b == B_VUP ? 1 : -1);
     else if (u->page == P_PERFORM && b != B_L2 && b != B_R2) perf_press(s, u, b, dx, dy);
     else if (u->page == P_RECORD && b != B_L2 && b != B_R2) rec_press(s, u, b, dx, dy);
+    else if (u->page == P_ARRANGE && (b == B_VUP || b == B_VDOWN)) { /* nothing */ }
+    else if (u->page == P_ARRANGE && b != B_L2 && b != B_R2) arr_press(s, u, b, dx, dy);
     else if (modp && (b == B_L || b == B_R || b == B_PAGE)) {   /* L1/R1: LFO, CC DEST, MIDI IN */
         u->page = P_LFO + wrap(u->page - P_LFO + (b == B_L ? -1 : 1), 3);
         if (u->page == P_DEST && u->dest_sel != u->learn) u->learn = -1;
@@ -2800,6 +2803,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         else if (u->page == P_DEST) { dest_row_text(&s, u, row, label, val); head = row == DW_DEST; }
         else if (u->page == P_MIDIIN) midiin_row_text(u, row, label, val);
         else if (u->page == P_RECORD) { rec_row_text(&s, row, label, val); head = row < RR_MARK; }
+        else if (u->page == P_ARRANGE) { arr_row_text(&s, row, label, val); head = row < AR_FIRST || row - AR_FIRST < s.arr.n; }
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
@@ -2816,6 +2820,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
     if (u->page == P_DEST) { draw_dest_side(r, &s, u); return; }
     if (u->page == P_MIDIIN) { draw_midiin_side(r, u); return; }
     if (u->page == P_RECORD) { draw_rec_side(r, &s, u); return; }
+    if (u->page == P_ARRANGE) { draw_arr_side(r, &s, u); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
     else {
         text(r, 392, 62, 2, YELLOW, "MAIN MENU");
