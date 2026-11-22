@@ -905,7 +905,7 @@ static void test_style_presets(void) {
         style_apply(&a, styles[k], 0);
         style_apply(&b, styles[k], 0);
         CHECK(a.bpm == b.bpm && a.scale == b.scale && a.root == b.root && a.swing == b.swing);
-        for (int t = 0; t < SEQ_TRACKS; t++) {
+        for (int t = 0; t < SEQ_BANK; t++) {
             CHECK(a.track[t].len == b.track[t].len && a.track[t].gen.type == b.track[t].gen.type);
             CHECK(memcmp(a.track[t].gen.p, b.track[t].gen.p, 4) == 0);
             CHECK(same_steps(a.track[t].step, b.track[t].step, SEQ_STEPS));
@@ -959,7 +959,7 @@ static void test_style_presets(void) {
         CHECK(!strcmp(scale_name(s.scale), "DORIAN") || !strcmp(scale_name(s.scale), "MAJOR"));
         const SeqTrack *bass = &s.track[0], *arp = &s.track[1], *call = &s.track[2], *ans = &s.track[3];
         CHECK(bass->step[0].on && bass->step[0].lock && bass->step[0].note % 12 == s.root);
-        for (int t = 0; t < SEQ_TRACKS; t++) CHECK(s.track[t].len == 32);
+        for (int t = 0; t < SEQ_BANK; t++) CHECK(s.track[t].len == 32);
         int calls = 0;
         for (int i = 0; i < 32; i++) {
             int seg = i / 8, root = degree7(&s, bass->step[seg * 8].note);   /* chord root under this step */
@@ -994,7 +994,7 @@ static void test_style_presets(void) {
         seq_init(&s, NULL, NULL);
         style_apply(&s, STYLE_AMBIENT, 0);
         uint32_t h = 2166136261u;
-        for (int t = 0; t < SEQ_TRACKS; t++)
+        for (int t = 0; t < SEQ_BANK; t++)
             for (int i = 0; i < s.track[t].len; i++) {
                 const SeqStep *st = &s.track[t].step[i];
                 uint8_t v[5] = {st->on, st->note, st->vel, st->gate, st->prob};
@@ -1016,7 +1016,7 @@ static void test_styles(void) {
         seq_init(&s, count_notes, &c);
         style_apply(&s, st, 0);
         CHECK(s.style == st);
-        for (int t = 0; t < SEQ_TRACKS; t++) {
+        for (int t = 0; t < SEQ_BANK; t++) {
             CHECK(s.track[t].gen.type != GEN_NONE);
             CHECK(s.track[t].len >= 1 && s.track[t].len <= SEQ_STEPS);
             for (int i = 0; i < s.track[t].len; i++) CHECK(seq_in_scale(&s, s.track[t].step[i].note));
@@ -1025,7 +1025,7 @@ static void test_styles(void) {
         CHECK(hits(&s, 0) + hits(&s, 1) + hits(&s, 2) + hits(&s, 3) > 0);
         seq_start(&s);
         for (int i = 0; i < 384 * 32; i++) seq_tick(&s);   /* 32 bars of evolution */
-        for (int t = 0; t < SEQ_TRACKS; t++) {
+        for (int t = 0; t < SEQ_BANK; t++) {
             density[st] += c.on[t];
             for (int i = 0; i < s.track[t].len; i++) CHECK(seq_in_scale(&s, s.track[t].step[i].note));
         }
@@ -1054,7 +1054,7 @@ static void test_styles(void) {
         CHECK(same_steps(mine, m.track[0].step, SEQ_STEPS) && m.track[0].len == 9 && m.track[0].gen.type == GEN_NONE);
         CHECK(m.scale == 3 && m.root == 4);                 /* key kept so new tracks fit the manual one */
         CHECK(m.track[1].gen.type != GEN_NONE && m.track[3].gen.type != GEN_NONE);
-        for (int t = 1; t < SEQ_TRACKS; t++)
+        for (int t = 1; t < SEQ_BANK; t++)
             for (int i = 0; i < m.track[t].len; i++) CHECK(seq_in_scale(&m, m.track[t].step[i].note));
         /* evolution is off on a manual track unless you turn it on */
         CHECK(m.track[0].evo.every == 0);
@@ -1099,7 +1099,7 @@ static void test_blank_style(void) {
     CHECK(s.style == STYLE_BLANK && s.bpm == 84 && s.swing == 3 && s.scale == 3 && s.root == 4);
     CHECK(s.track[2].channel == 9);
     CHECK(memcmp(&s.track[0].slot[5], &kept, sizeof kept) == 0);
-    for (int t = 0; t < SEQ_TRACKS; t++) {
+    for (int t = 0; t < SEQ_BANK; t++) {
         const SeqTrack *tr = &s.track[t];
         CHECK(tr->gen.type == GEN_NONE && tr->len == SEQ_DEFAULT_LEN && hits(&s, t) == 0);
         CHECK(tr->evo.every == 0 && !tr->has_anchor && tr->chain_len == 0 && !tr->mute && !tr->solo);
@@ -1135,7 +1135,7 @@ static void test_save_all_slots(void) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         for (int k = 0; k < SEQ_SLOTS; k++) {
             gen_roll(&a, t);
-            a.track[t].len = (uint8_t)(5 + t * 6 + k);       /* every slot a different length */
+            a.track[t].len = (uint8_t)(3 + t * 3 + k);       /* every slot a different length (3..31) */
             a.track[t].step[k].hold = (uint8_t)k;
             a.track[t].step[(k + 3) % SEQ_STEPS].lock = 1;
             seq_slot_store(&a, t, k);
@@ -1223,7 +1223,7 @@ static void test_style_tracks(void) {
     SeqTrack t0 = s.track[0];
     seq_track_type(&s, 3, TRACK_DRUMS);
     /* T1 kept, T2 a drone pad, T3 ambient's motif, T4 (a drum track) the hip hop kit */
-    int st[SEQ_TRACKS] = {STYLE_KEEP, STYLE_DRONE, STYLE_AMBIENT, STYLE_HIPHOP};
+    int st[SEQ_TRACKS] = {STYLE_KEEP, STYLE_DRONE, STYLE_AMBIENT, STYLE_HIPHOP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP};
     int pt[SEQ_TRACKS] = {0, 1, 2, 3};
     CHECK(style_apply_tracks(&s, STYLE_HIPHOP, st, pt) == 3);
     CHECK(same_steps(t0.step, s.track[0].step, SEQ_STEPS) && s.track[0].gen.type == t0.gen.type);
@@ -1237,16 +1237,43 @@ static void test_style_tracks(void) {
     gen_roll(&s, 3);
     CHECK(s.track[3].drum.vel[1][4] && s.track[3].drum.vel[1][12]);
     /* a part from another track's slot: TECHNO's kick (part 0) on track 3 */
-    int st2[SEQ_TRACKS] = {STYLE_KEEP, STYLE_KEEP, STYLE_TECHNO, STYLE_KEEP};
+    int st2[SEQ_TRACKS] = {STYLE_KEEP, STYLE_KEEP, STYLE_TECHNO, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP};
     int pt2[SEQ_TRACKS] = {0, 0, 0, 0};
     CHECK(style_apply_tracks(&s, STYLE_TECHNO, st2, pt2) == 1);
     for (int i = 0; i < 16; i++) CHECK(s.track[2].step[i].on == (i % 4 == 0));
     /* nothing kept: the MUSIC STYLE sets tempo, swing and key */
-    int st3[SEQ_TRACKS] = {STYLE_DNB, STYLE_DNB, STYLE_DNB, STYLE_DNB};
+    int st3[SEQ_TRACKS] = {STYLE_DNB, STYLE_DNB, STYLE_DNB, STYLE_DNB, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP};
     int pt3[SEQ_TRACKS] = {0, 1, 2, 3};
     CHECK(style_apply_tracks(&s, STYLE_DNB, st3, pt3) == 4 && s.bpm == 172 && s.swing == 0);
+    /* T5-T8: empty ones left as they are don't hold the key; they take any
+     * style's parts, and a FOLLOW part follows its own page (T5, not T1) */
+    {
+        Seq e;
+        seq_init(&e, NULL, NULL);
+        CHECK(e.track[5].channel == 5 && e.track[7].channel == 7 && e.track[6].part == 2 && gen_hits(&e, 4) == 0);
+        int s5[SEQ_TRACKS] = {STYLE_TECHNO, STYLE_TECHNO, STYLE_TECHNO, STYLE_TECHNO, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP};
+        int p5[SEQ_TRACKS] = {0, 1, 2, 3, 0, 1, 2, 3};
+        CHECK(style_apply_tracks(&e, STYLE_TECHNO, s5, p5) == 4 && e.bpm == 128);   /* a fresh start: TECHNO's tempo */
+        CHECK(gen_hits(&e, 4) == 0 && e.track[4].gen.type == GEN_NONE);
+        int s6[SEQ_TRACKS] = {STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_TECHNO, STYLE_TECHNO, STYLE_TECHNO, STYLE_TECHNO};
+        e.bpm = 101;
+        CHECK(style_apply_tracks(&e, STYLE_TECHNO, s6, p5) == 4 && e.bpm == 101);   /* T1-T4 kept: tempo stays */
+        CHECK(e.track[4].gen.type == GEN_EUCLID && e.track[6].gen.type == GEN_FOLLOW && e.track[6].gen.p[0] == 5);
+        for (int i = 0; i < 16; i++) CHECK(e.track[4].step[i].on == e.track[0].step[i].on);   /* same kick */
+        CHECK(e.track[6].style == STYLE_TECHNO && e.track[6].part == 2 && e.track[6].channel == 6);
+        /* style_apply (MUSIC STYLE, first run) leaves T5-T8 alone */
+        int h5 = gen_hits(&e, 4);
+        CHECK(style_apply(&e, STYLE_AMBIENT, 0) == 0 && gen_hits(&e, 4) == h5 && e.track[4].style == STYLE_TECHNO);
+        /* and they are saved and loaded */
+        FILE *ef = tmpfile();
+        seq_save(&e, ef); rewind(ef);
+        static Seq eb;
+        seq_init(&eb, NULL, NULL);
+        CHECK(seq_load(&eb, ef) == 0 && same_steps(eb.track[6].step, e.track[6].step, SEQ_STEPS) && eb.track[6].gen.p[0] == 5);
+        fclose(ef);
+    }
     /* BLANK on one track empties only that one */
-    int st4[SEQ_TRACKS] = {STYLE_KEEP, STYLE_BLANK, STYLE_KEEP, STYLE_KEEP};
+    int st4[SEQ_TRACKS] = {STYLE_KEEP, STYLE_BLANK, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP, STYLE_KEEP};
     int h0 = hits(&s, 0);
     style_apply_tracks(&s, STYLE_DNB, st4, pt3);
     CHECK(hits(&s, 1) == 0 && s.track[1].gen.type == GEN_NONE && hits(&s, 0) == h0 && s.bpm == 172);

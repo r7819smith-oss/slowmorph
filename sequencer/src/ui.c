@@ -45,7 +45,9 @@ static const uint8_t FONT[64][5] = {
 
 typedef struct { uint8_t r, g, b; } Col;
 
-static const Col TRACK_COL[SEQ_TRACKS] = {{235, 90, 80}, {240, 180, 60}, {90, 200, 130}, {90, 150, 240}};
+/* T1-T4, then T5-T8 (the second GRID page) in their own, cooler colours. */
+static const Col TRACK_COL[SEQ_TRACKS] = {{235, 90, 80}, {240, 180, 60}, {90, 200, 130}, {90, 150, 240},
+                                          {230, 110, 200}, {80, 210, 210}, {180, 220, 90}, {165, 120, 245}};
 static const Col WHITE = {240, 240, 240}, DIM = {120, 125, 140}, YELLOW = {255, 230, 80};
 
 static void color(SDL_Renderer *r, Col c) { SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255); }
@@ -80,7 +82,8 @@ static void text(SDL_Renderer *r, int x, int y, int sc, Col c, const char *s) {
 
 static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uint8_t)(c.g * pct / 100), (uint8_t)(c.b * pct / 100)}; }
 
-/* Pages, in L1/R1 order. GRID shows all four tracks; the others are lists of
+/* Pages, in L1/R1 order. GRID shows four tracks at a time (T1-T4, or T5-T8
+ * once the cursor moves below T4); the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
 typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1/R1 */
                P_MENU = P_TABS, P_SLOTS, P_SONGS, P_DRUMMAP, P_MIDI, P_DEVICE,   /* PATTERN SAVE, SONG SAVE, DRUM MAP, MIDI and DEVICE open from the main menu */
@@ -124,7 +127,7 @@ typedef struct {
     int slot;                 /* slot chosen on the generate page */
     int snap;                 /* changing scale moves notes into it */
     int confirm_new;          /* NEW FROM STYLE was pressed once */
-    int plan_style[SEQ_TRACKS];   /* M menu T1-T4 rows: the style each track gets from NEW FROM STYLE, or STYLE_KEEP */
+    int plan_style[SEQ_TRACKS];   /* M menu T1-T8 rows: the style each track gets from NEW FROM STYLE, or STYLE_KEEP */
     int plan_part[SEQ_TRACKS];    /* ...and which of that style's parts */
     int plan_init;            /* the plan has been read from the tracks */
     int y_used;               /* another button was pressed while Y was held (so its release doesn't lock) */
@@ -373,6 +376,21 @@ static int audition_track(const Seq *s, const Ui *u) {
     return u->track;
 }
 
+/* A track is in use once it has notes, hits or a generator. Empty T5-T8 stay
+ * KEEP in NEW FROM STYLE, so an FM1-only setup never fills them. */
+static int track_in_use(const Seq *s, int t) {
+    const SeqTrack *tr = &s->track[t];
+    return tr->gen.type != GEN_NONE || (tr->type == TRACK_DRUMS ? seq_drum_hits(tr) : gen_hits(s, t)) > 0;
+}
+
+/* What the MUSIC STYLE plans for track t: its part of the style on T1-T4; on
+ * T5-T8 the same parts again, but only for a track in use. */
+static void plan_style_row(const Seq *s, Ui *u, int t) {
+    int use = t < SEQ_BANK || track_in_use(s, t);
+    u->plan_style[t] = use ? s->style : STYLE_KEEP;
+    u->plan_part[t] = t % STYLE_PARTS;
+}
+
 #define STEP_ROWS 10
 #define TRACK_ROWS 11
 #define TRACK_BPM_ROW 7
@@ -507,13 +525,17 @@ static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 /* Main menu, opened with M. Settings that apply to the whole session go here
  * (e.g. a music style). Add a row: bump MENU_ROWS, then handle it in
  * menu_row_text, menu_row_adjust (left/right) and menu_row_select (A). */
-#define MENU_ROWS 15
 enum { MENU_RESUME, MENU_STYLE, MENU_T1, MENU_T4 = MENU_T1 + SEQ_TRACKS - 1, MENU_NEW, MENU_SLOTS, MENU_SONGS, MENU_DRUMMAP,
-       MENU_MIDI, MENU_DEVICE, MENU_MOD, MENU_CODES, MENU_QUIT };
+       MENU_MIDI, MENU_DEVICE, MENU_MOD, MENU_CODES, MENU_QUIT, MENU_ROWS };
+/* (MENU_T4 is the last T row, T8.) */
 
-/* The T1-T4 rows start as each track's own style and part. */
+/* The T rows start as each track's own style and part; an empty T5-T8 as KEEP. */
 static void plan_from_tracks(const Seq *s, Ui *u) {
-    for (int t = 0; t < SEQ_TRACKS; t++) { u->plan_style[t] = s->track[t].style; u->plan_part[t] = s->track[t].part; }
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        int use = t < SEQ_BANK || track_in_use(s, t);
+        u->plan_style[t] = use ? s->track[t].style : STYLE_KEEP;
+        u->plan_part[t] = s->track[t].part % STYLE_PARTS;
+    }
     u->plan_init = 1;
 }
 
@@ -544,9 +566,9 @@ static void plan_adjust(const Seq *s, Ui *u, int t, int d, int big) {
     for (int i = 0; i < n; i++)   /* the current choice, or its style's entry */
         if (opt[i] == want || (want >= 0 && opt[i] >= 0 && opt[i] / STYLE_PARTS == want / STYLE_PARTS && opt[i] <= want)) cur = i;
     cur = wrap(cur + d, n);
-    if (opt[cur] < 0) { u->plan_style[t] = STYLE_KEEP; u->plan_part[t] = t; return; }
+    if (opt[cur] < 0) { u->plan_style[t] = STYLE_KEEP; u->plan_part[t] = t % STYLE_PARTS; return; }
     u->plan_style[t] = opt[cur] / STYLE_PARTS;
-    u->plan_part[t] = big || is_drums(s, t) || u->plan_style[t] == STYLE_BLANK ? t : opt[cur] % STYLE_PARTS;
+    u->plan_part[t] = big || is_drums(s, t) || u->plan_style[t] == STYLE_BLANK ? t % STYLE_PARTS : opt[cur] % STYLE_PARTS;
 }
 
 static int plan_count(const Ui *u, int *kept) {
@@ -568,7 +590,7 @@ static void menu_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         int kept, n = plan_count(u, &kept);
         snprintf(label, 24, "NEW FROM STYLE");
         if (!n) snprintf(val, 24, "ALL KEPT");
-        else snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : n == SEQ_TRACKS ? "A: ALL 4 TRACKS" : "A: THE T ROWS");
+        else snprintf(val, 24, "%s", u->confirm_new ? "A AGAIN: REPLACE" : n == SEQ_TRACKS ? "A: ALL 8 TRACKS" : "A: THE T ROWS");
     }
     else if (row == MENU_SLOTS) { snprintf(label, 24, "PATTERN SAVE"); snprintf(val, 24, "A: OPEN"); }
     else if (row == MENU_SONGS) { snprintf(label, 24, "SONG SAVE"); snprintf(val, 24, "A: OPEN"); }
@@ -595,9 +617,9 @@ static void toggle_codes(Ui *u) {
 }
 
 static void menu_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
-    if (row == MENU_STYLE) {   /* the MUSIC STYLE sets all four T rows */
+    if (row == MENU_STYLE) {   /* the MUSIC STYLE sets T1-T4's rows, and those of T5-T8 in use */
         s->style = wrap(s->style + d, style_count());
-        for (int t = 0; t < SEQ_TRACKS; t++) { u->plan_style[t] = s->style; u->plan_part[t] = t; }
+        for (int t = 0; t < SEQ_TRACKS; t++) plan_style_row(s, u, t);
         u->confirm_new = 0;
     }
     else if (row >= MENU_T1 && row <= MENU_T4) { plan_adjust(s, u, row - MENU_T1, d, big); u->confirm_new = 0; }
@@ -622,8 +644,9 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         style_apply_tracks(s, s->style, u->plan_style, u->plan_part);
         u->page = P_GRID;
         int all_blank = 1;
-        for (int t = 0; t < SEQ_TRACKS; t++) all_blank &= u->plan_style[t] == STYLE_BLANK;
-        if (all_blank) say(u, "BLANK: FOUR EMPTY MANUAL TRACKS");
+        for (int t = 0; t < SEQ_TRACKS; t++)   /* an empty T5-T8 kept as it is is blank too */
+            all_blank &= u->plan_style[t] == STYLE_BLANK || (u->plan_style[t] == STYLE_KEEP && t >= SEQ_BANK && !track_in_use(s, t));
+        if (all_blank) say(u, "BLANK: EMPTY MANUAL TRACKS");
         else if (!kept) say(u, "NEW PATTERNS FROM STYLE");
         else {
             char *m = u->msg_buf;
@@ -986,7 +1009,7 @@ static void slots_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
     else if (b == B_SEL) { u->slot_more = 1; u->more_row = MORE_COPY; u->copy_to = (k + 1) % SEQ_SLOTS; }
 }
 
-/* SONG SAVE page (M > SONG SAVE): 8 songs, each the whole session (all four
+/* SONG SAVE page (M > SONG SAVE): 8 songs, each the whole session (all eight
  * tracks with their pattern slots and chains, BPM, scale, style, channels,
  * track types, DRUM MAP) in its own file next to seq4h.pat. A loads (a second
  * A confirms, since it replaces everything), X saves the session here, Y
@@ -2082,14 +2105,27 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     const Seq s = *sp;
     char buf[160];
     int view = (u->step / GRID_COLS) * GRID_COLS;   /* 16 steps on screen; the cursor picks which 16 */
+    int bank = u->track / SEQ_BANK, t0 = bank * SEQ_BANK;   /* 4 tracks on screen; the cursor picks which 4 */
     if (view) {
         snprintf(buf, sizeof buf, "STEPS %d-%d", view + 1, view + GRID_COLS);
         text(r, 560, 46, 1, YELLOW, buf);
     }
+    /* page of tracks: T1-4 / T5-8, the one on screen bright */
+    text(r, 494, 58, 1, bank == 0 ? YELLOW : DIM, "T1-4");
+    text(r, 524, 58, 1, DIM, "/");
+    text(r, 532, 58, 1, bank == 1 ? YELLOW : DIM, "T5-8");
+    {   /* a dot for each track of the other page that has notes, so a hidden page that plays is never a surprise */
+        int o0 = (1 - bank) * SEQ_BANK;
+        for (int k = 0; k < SEQ_BANK; k++) {
+            const SeqTrack *ot = &s.track[o0 + k];
+            int on = ot->type == TRACK_DRUMS ? seq_drum_hits(ot) > 0 : gen_hits(&s, o0 + k) > 0;
+            if (on) rect(r, 562 + k * 6, 59, 4, 6, ot->mute ? (Col){90, 90, 95} : TRACK_COL[o0 + k]);
+        }
+    }
     const Col BG = {16, 17, 24}, MUTE_COL = {90, 90, 95};
-    for (int t = 0; t < SEQ_TRACKS; t++) {
+    for (int t = t0; t < t0 + SEQ_BANK; t++) {
         const SeqTrack *tr = &s.track[t];
-        int y = ROW_Y0 + t * ROW_H;
+        int y = ROW_Y0 + (t - t0) * ROW_H;
         /* grey = muted; dimmed = silent because another track is soloed */
         Col base = tr->mute ? MUTE_COL : seq_track_audible(&s, t) ? TRACK_COL[t] : scale(TRACK_COL[t], 40);
         if (u->on_label && t == u->track) {   /* label cursor */
@@ -2169,7 +2205,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     const SeqStep *st = &tr->step[u->step];
     char nn[8];
     seq_note_name(st->note, nn);
-    int y = ROW_Y0 + SEQ_TRACKS * ROW_H + 10;
+    int y = ROW_Y0 + SEQ_BANK * ROW_H + 10;
     if (u->on_label) {
         snprintf(buf, sizeof buf, "T%d  MUTE %s  SOLO %s  LOCK %s  CH %d", u->track + 1, tr->mute ? "ON" : "OFF", tr->solo ? "ON" : "OFF",
                  tr->locked ? "ON" : "OFF", tr->channel + 1);
@@ -2184,7 +2220,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
                  tr->locked ? ", LOCKED (ROLL/EVOLVE SKIP IT)" : "");
         text(r, 20, y + 44, 2, DIM, buf);
         text(r, 20, H - 48, 1, DIM, "A MUTE  B SOLO  X ROLL THIS TRACK (HOLD X: UNDO)  Y LOCK TRACK  SELECT ALL STEPS");
-        text(r, 20, H - 34, 1, DIM, "UP/DOWN TRACK  RIGHT BACK TO STEP 1  START PLAY/STOP");
+        text(r, 20, H - 34, 1, DIM, "UP/DOWN TRACK (PAST T4: T5-T8)  RIGHT BACK TO STEP 1  START PLAY/STOP");
         text(r, 20, H - 20, 1, DIM, "L1/R1 PAGE  L2/R2 TRACK  M MENU  SELECT+START QUIT");
         return;
     }
@@ -2345,17 +2381,23 @@ static void draw_device_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
     text(r, 392, 62, 2, YELLOW, "DEVICE");
     snprintf(buf, sizeof buf, "IN USE: %s", device_name(in_use));
     text(r, 392, 86, 1, WHITE, buf);
-    snprintf(buf, sizeof buf, "CHANNELS %d %d %d %d  DRUM MAP %s", s->track[0].channel + 1, s->track[1].channel + 1,
-             s->track[2].channel + 1, s->track[3].channel + 1, seq_drum_map_is(s, DRUM_FELUCCA) ? "FELUCCA"
-             : seq_drum_map_is(s, DRUM_GM) ? "GM" : seq_drum_map_is(s, DRUM_BLACKBOX) ? "BLACKBOX" : "OWN");
-    text(r, 392, 98, 1, DIM, buf);
+    {   /* T1-T8's channels, then the map */
+        int n = snprintf(buf, sizeof buf, "CH");
+        for (int t = 0; t < SEQ_TRACKS; t++) n += snprintf(buf + n, sizeof buf - (size_t)n, " %d", s->track[t].channel + 1);
+        snprintf(buf + n, sizeof buf - (size_t)n, "  MAP %s", seq_drum_map_is(s, DRUM_FELUCCA) ? "FELUCCA"
+                 : seq_drum_map_is(s, DRUM_GM) ? "GM" : seq_drum_map_is(s, DRUM_BLACKBOX) ? "BLACKBOX" : "OWN");
+        text(r, 392, 98, 1, DIM, buf);
+    }
     int y = 120;
     if (k == DR_DEVICE) {
         snprintf(buf, sizeof buf, "%s SETS:", p->name);
         text(r, 392, y, 1, YELLOW, buf);
-        snprintf(buf, sizeof buf, " CHANNELS %d %d %d %d, DRUM MAP %s", p->channel[0] + 1, p->channel[1] + 1,
-                 p->channel[2] + 1, p->channel[3] + 1, seq_drum_preset_name(p->drum_map));
-        text(r, 392, y + 12, 1, WHITE, buf);
+        {
+            int n = snprintf(buf, sizeof buf, " CH");
+            for (int t = 0; t < SEQ_TRACKS; t++) n += snprintf(buf + n, sizeof buf - (size_t)n, " %d", p->channel[t] + 1);
+            snprintf(buf + n, sizeof buf - (size_t)n, ", DRUM MAP %s", seq_drum_preset_name(p->drum_map));
+            text(r, 392, y + 12, 1, WHITE, buf);
+        }
         snprintf(buf, sizeof buf, " CLOCK %s, START/STOP %s", p->clock ? "ON" : "OFF", p->transport ? "ON" : "OFF");
         text(r, 392, y + 24, 1, WHITE, buf);
         text(r, 392, y + 44, 1, YELLOW, "ON THE DEVICE:");
@@ -2500,10 +2542,10 @@ static void draw_songs_side(SDL_Renderer *r, const Ui *u) {
         text(r, 392, 102, 1, WHITE, buf);
         snprintf(buf, sizeof buf, "STYLE %s  %d PATTERNS STORED", style_name(in->style), in->slots);
         text(r, 392, 116, 1, WHITE, buf);
-        for (int t = 0; t < SEQ_TRACKS; t++) {
-            snprintf(buf, sizeof buf, "T%d %s %d STEPS%s", t + 1, in->type[t] == TRACK_DRUMS ? "DRUMS" : "NOTES",
-                     in->len[t], in->chain[t] > 1 ? "  CHAIN" : "");
-            text(r, 392, 132 + t * 12, 1, TRACK_COL[t], buf);
+        for (int t = 0; t < SEQ_TRACKS; t++) {   /* two columns: T1-T4, T5-T8 */
+            snprintf(buf, sizeof buf, "T%d %s %d%s", t + 1, in->type[t] == TRACK_DRUMS ? "DRUMS" : "NOTES",
+                     in->len[t], in->chain[t] > 1 ? " CH" : "");
+            text(r, 392 + (t / SEQ_BANK) * 120, 132 + (t % SEQ_BANK) * 12, 1, TRACK_COL[t], buf);
         }
     } else text(r, 392, 102, 1, DIM, "X SAVES THE WHOLE SESSION HERE");
     int y = 204 + 18;
@@ -2524,13 +2566,13 @@ static void draw_songs_side(SDL_Renderer *r, const Ui *u) {
         text(r, 392, y + 116, 1, DIM, "A DO IT (A AGAIN TO CONFIRM)  B CLOSE");
     } else {
         text(r, 392, y, 1, DIM, "A     LOAD THE SONG (A AGAIN:");
-        text(r, 392, y + 12, 1, DIM, "      REPLACES ALL 4 TRACKS)");
+        text(r, 392, y + 12, 1, DIM, "      REPLACES ALL 8 TRACKS)");
         text(r, 392, y + 26, 1, DIM, "X     SAVE THE SESSION HERE");
         text(r, 392, y + 40, 1, DIM, "Y     RENAME");
         text(r, 392, y + 54, 1, DIM, "SELECT COPY, CLEAR, UNDO LOAD");
         text(r, 392, y + 76, 1, DIM, "< = SONG LAST LOADED OR SAVED");
         text(r, 392, y + 88, 1, DIM, "PATTERN SAVE KEEPS ONE TRACK;");
-        text(r, 392, y + 100, 1, DIM, "A SONG KEEPS ALL FOUR AND BPM,");
+        text(r, 392, y + 100, 1, DIM, "A SONG KEEPS ALL 8 AND BPM,");
         text(r, 392, y + 112, 1, DIM, "SCALE, STYLE AND DRUM MAP.");
     }
     text(r, 20, H - 34, 1, DIM, "UP/DOWN SONG  A LOAD  X SAVE HERE  Y RENAME  SELECT COPY/CLEAR/UNDO");
@@ -2632,7 +2674,7 @@ static void draw_dest_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
         row == DW_LOW || row == DW_HIGH || row == DW_MOVE ?
             "THE CC MOVES BETWEEN LOW AND HIGH AND NEVER OUTSIDE THEM. HIGH - LOW IS THE DEPTH. MOVE RANGE SHIFTS BOTH, KEEPING THE DEPTH. LOW = HIGH HOLDS ONE VALUE." :
         row == DW_TO ?
-            "T1-T4: THAT TRACK'S CHANNEL (FOLLOWS IT). T1-T4 (ALL): EVERY TRACK'S CHANNEL. CH 1-16: A FIXED CHANNEL. FELUCCA: CH 1-4 = ITS TRACKS 1-4." :
+            "T1-T8: THAT TRACK'S CHANNEL (FOLLOWS IT). T1-T4, T5-T8, T1-T8: THE CHANNELS OF THOSE TRACKS. CH 1-16: A FIXED CHANNEL. FELUCCA: CH 1-4 = ITS TRACKS 1-4." :
         row == DW_LEARN ?
             (u->in_open || u->learn >= 0 ? "LEARN TAKES THE NEXT CC THAT ARRIVES FROM THE DEVICE, AND ITS CHANNEL. FELUCCA DOES NOT SEND ITS KNOBS: IT SENDS CC 1 ONLY WHEN SELECT IS IN MODW MODE. SEE MIDI IN."
                                          : "LEARN TAKES THE NEXT CC THAT ARRIVES FROM THE DEVICE (CHECK ON MIDI IN THAT ANYTHING ARRIVES). IT CANNOT FIND THE CC OF AN FM1 KNOB: FELUCCA DOES NOT SEND KNOB MOVES.") :
@@ -2717,8 +2759,8 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 62, 2, YELLOW, "MAIN MENU");
         if (u->row[P_MENU] >= MENU_STYLE && u->row[P_MENU] <= MENU_NEW) {
             static const char *HELP[] = {
-                "MUSIC STYLE SETS ALL FOUR T ROWS.", "",
-                "T1-T4: WHAT EACH TRACK GETS FROM", "NEW FROM STYLE. LEFT/RIGHT GOES",
+                "MUSIC STYLE SETS THE T1-T4 ROWS,", "AND T5-T8 ONCE THEY HAVE NOTES.", "",
+                "T1-T8: WHAT EACH TRACK GETS FROM", "NEW FROM STYLE. LEFT/RIGHT GOES",
                 "THROUGH EACH STYLE'S PARTS (BASS,", "PAD, DRUMS ...), HOLD Y FOR THE",
                 "NEXT STYLE. KEEP LEAVES THE TRACK", "AS IT IS. A DRUM TRACK GETS THE",
                 "STYLE'S DRUM KIT.", "",

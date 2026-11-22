@@ -4,9 +4,9 @@
  * The model, per destination: the CC moves between LOW and HIGH (0..127),
  * never outside them. HIGH - LOW is how far it moves (the depth); the middle
  * of the two is its centre. The LFO's 0..1 output maps LOW..HIGH (INVERT
- * swaps the direction). A destination sends on a track's channel (T1-T4, which
- * follows the track if its channel changes), on all four track channels
- * (T1-T4 ALL), or on a fixed channel 1-16.
+ * swaps the direction). A destination sends on a track's channel (T1-T8, which
+ * follows the track if its channel changes), on the channels of a page of
+ * tracks (T1-T4, T5-T8) or of all eight (T1-T8), or on a fixed channel 1-16.
  *
  * Output is kept light: a CC is only sent when its value changes, at most once
  * every MOD_GAP_MS per destination, and at most MOD_PER_TICK messages per
@@ -23,13 +23,16 @@
 #define MOD_DESTS 16
 #define MOD_GAP_MS 20     /* shortest time between two CCs of one destination */
 #define MOD_PER_TICK 4    /* most CC messages sent on one engine tick */
-#define MOD_TRACKS 4      /* = SEQ_TRACKS */
+#define MOD_TRACKS 8      /* = SEQ_TRACKS */
 #define MOD_PPQN 96       /* = SEQ_PPQN */
 
 enum { WAVE_SINE, WAVE_TRI, WAVE_RAMP_UP, WAVE_RAMP_DOWN, WAVE_SQUARE, WAVE_SH, WAVE_SMOOTH, WAVE_COUNT };
 
-/* Where a destination sends: a track's channel, all four, or a fixed channel. */
-enum { TO_T1 = 0, TO_ALL = MOD_TRACKS, TO_CH1, TO_COUNT = TO_CH1 + 16 };
+/* Where a destination sends: a track's channel, a group of tracks' channels
+ * (TO_ALL = T1-T4, TO_ALL2 = T5-T8, TO_ALL8 = T1-T8), or a fixed channel.
+ * Pattern files keep the numbers of the 4-track builds (0-3 T1-T4, 4 T1-T4
+ * ALL, 5-20 CH 1-16) and add 21-24 for T5-T8, 25 T5-T8 ALL, 26 T1-T8 ALL. */
+enum { TO_T1 = 0, TO_ALL = MOD_TRACKS, TO_ALL2, TO_ALL8, TO_CH1, TO_COUNT = TO_CH1 + 16 };
 
 typedef struct {
     uint8_t wave;     /* WAVE_* */

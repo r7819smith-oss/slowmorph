@@ -1,4 +1,4 @@
-/* Songs (M > SONG SAVE): the whole session, all four tracks with their
+/* Songs (M > SONG SAVE): the whole session, all eight tracks with their
  * pattern slots and chains, BPM, swing, scale, root, style, channels, track
  * types and the DRUM MAP, kept in one of SEQ_SONGS named song files.
  *

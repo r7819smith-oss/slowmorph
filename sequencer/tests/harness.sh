@@ -89,6 +89,10 @@ render)
     # shuffle, and an ambient kit that re-rolls every 2 bars.
     ./seq4h-render --pattern tests/fixtures/drums.pat --bars 128 --out "$OUT/midi/render-drums.cap"
     check render-drums-128-bars "$OUT/midi/render-drums.cap" --bpm 124 --poly --offset 3 --expect-channels 1,2,4 --tolerance-ms 0.01
+    # Eight tracks: AMBIENT on T1-T4, TECHNO kick and hats plus AMBIENT motif and
+    # high parts on T5-T8. Every one of channels 1-8 plays, nothing else does.
+    ./seq4h-render --pattern tests/fixtures/eight.pat --bars 128 --out "$OUT/midi/render-eight.cap"
+    check render-eight-tracks-128-bars "$OUT/midi/render-eight.cap" --bpm 72 --channels 1-8 --expect-channels 1-8 --max-hold 31 --tolerance-ms 0.01
     # Modulation (M > MODULATION) on top of the evolving pattern: notes keep
     # their timing; each CC changes value every time it is sent, at most every
     # 20 ms, and stays within its LOW-HIGH range.
@@ -155,6 +159,11 @@ screenshots)
         [ -f "$OUT/shots/$name.bmp" ] || note "- **FAIL** $name: no screenshot written"
     done <<'EOF'
 grid-demo|
+grid-tracks-5-8|Up
+grid-t5-step-on|Down,Down,Down,Down,Right,z,Right,Right,z
+grid-t5-label|Down,Down,Down,Down,Left
+track-page-t6|Down,Down,Down,Down,Down,w,w
+menu-t5-rows|m,Down,Down,Down,Down,Down,Down
 grid-cursor-moved|Down,Down,Right,Right,Right
 grid-step-toggled|Right,z
 grid-step-locked|Right,v
@@ -191,16 +200,16 @@ all-steps-drums|w,w,Down,Right,w,z,x,Left,Tab
 track-page-solo|Left,x,Down,x,w,w,Down,Down,Down,Down
 bat17-grid|
 menu-style-blank|m,Down,Right,Right,Right
-grid-blank|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z
+grid-blank|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z
 menu-style-drone|m,Down,Right,Right,Right,Right
-grid-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,z,z
-generate-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,z,z,w,w,w
-generate-drone-chord|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
-slots-page|m,Down,Down,Down,Down,Down,Down,Down,z
-slots-saved|m,Down,Down,Down,Down,Down,Down,Down,z,c,Down,c,c,c
-slots-rename|m,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
-slots-named|m,Down,Down,Down,Down,Down,Down,Down,z,c,v,Down,Down,Down,Down,Right,Down,z
-slots-copy-panel|m,Down,Down,Down,Down,Down,Down,Down,z,c,Tab,Right
+grid-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z
+generate-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,w,w,w
+generate-drone-chord|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+slots-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+slots-saved|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,Down,c,c,c
+slots-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
+slots-named|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Down,Down,Down,Down,Right,Down,z
+slots-copy-panel|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,Tab,Right
 roll-page|Tab
 roll-edited|Tab,Up,Up,z,+v,Right,Right,Right,-v,+c,Up,Up,Up,Right,Right,-c
 roll-track2|Tab,2
@@ -212,51 +221,51 @@ drums-edited|w,w,Down,Right,w,z,x,Tab,Down,z,Right,Right,+c,Down,Down,Left,-c,v
 drums-label|w,w,Down,Right,w,z,x,Tab,Left
 drums-lane-mute|w,w,Down,Right,w,z,x,Tab,Left,z
 drums-lane-solo|w,w,Down,Right,w,z,x,Tab,Left,Down,Down,x
-drum-map|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-drum-map-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Right,Right,c,Up
-drum-map-next-sound|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
-drum-map-preset|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Up,Right
+drum-map|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+drum-map-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Right,Right,c,Up
+drum-map-next-sound|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,+v,Right,Right,-v
+drum-map-preset|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Up,Right
 step-next-x|c,Down,Down,+c,Right,Right,-c
 step-next-stick|c,Down,Down,period,period,period
 roll-new-length|Tab,Right,+v,Right,Right,Right,-v,Up,Up,z
-midi-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-midi-cable-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down
-midi-cable-chosen|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
-menu-mixed|m,Down,Right,Right,Right,Right,Right,Down,+v,Left,Left,Left,Left,Left,Left,-v,Down,+v,Left,-v,Down,+v,Left,Left,Left,Left,Left,-v,Down,Down
-grid-mixed|m,Down,Right,Right,Right,Right,Right,Down,+v,Left,Left,Left,Left,Left,Left,-v,Down,+v,Left,-v,Down,+v,Left,Left,Left,Left,Left,-v,Down,Down,z,z
+midi-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+midi-cable-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down
+midi-cable-chosen|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
+menu-mixed|m,Down,Right,Right,Right,Right,Right,Down,+v,Left,Left,Left,Left,Left,Left,-v,Down,+v,Left,-v,Down,+v,Left,Left,Left,Left,Left,-v,Down,Down,Down,Down,Down,Down
+grid-mixed|m,Down,Right,Right,Right,Right,Right,Down,+v,Left,Left,Left,Left,Left,Left,-v,Down,+v,Left,-v,Down,+v,Left,Left,Left,Left,Left,-v,Down,Down,Down,Down,Down,Down,z,z
 menu-hiphop|m,Down,Right,Right,Right,Right,Right
-grid-hiphop|m,Down,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z
-drums-hiphop|w,w,Down,Right,x,m,Down,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z,Tab
-grid-dnb|m,Down,Right,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,z,z
+grid-hiphop|m,Down,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z
+drums-hiphop|w,w,Down,Right,x,m,Down,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,Tab
+grid-dnb|m,Down,Right,Right,Right,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z
 roll-locked|Tab,Right,v,Right,Right,v,Up,Up,z,v
-midinone-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-menu-song-save|m,Down,Down,Down,Down,Down,Down,Down,Down
-song-page|m,Down,Down,Down,Down,Down,Down,Down,Down,z
-song-saved|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c
-song-load-confirm|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,z
-song-loaded|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,z,z
-song-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Right,Up
-song-named|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Right,Up,z
-song-panel|m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,Tab
+midinone-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+menu-song-save|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+song-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+song-saved|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c
+song-load-confirm|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,z
+song-loaded|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,z,z
+song-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Right,Up
+song-named|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Right,Up,z
+song-panel|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,Tab
 track-voices-poly|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right
 step-chord|c,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right
 roll-chord|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,x,Tab,Up,Up,z,Up,Up,z,Right,Right,Right,Right,z,Up,Up,Up,z
 grid-chord|w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,x,Tab,Up,Up,z,Up,Up,z,Right,Right,Right,Right,z,Up,Up,Up,z,x
 generate-chords|w,w,w,Down,Left
 roll-chords-gen|w,w,w,Down,Left,z,x,Tab
-device-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-device-digitone|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right
-device-blackbox-used|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Left,z,z
-device-clock-off|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
-device-transport-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down
-menu-modulation|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
-mod-lfo|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-mod-lfo-free|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,Right,Down
-mod-dest|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w
-mod-dest-on|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down
-mod-dest-range|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down,Down,Right,Right,Right
-mod-in-monitor|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
-mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+device-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+device-digitone|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right
+device-blackbox-used|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Left,z,z
+device-clock-off|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,z
+device-transport-row|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down
+menu-modulation|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+mod-lfo|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+mod-lfo-free|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,Right,Down
+mod-dest|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w
+mod-dest-on|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down
+mod-dest-range|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down,Down,Right,Right,Right
+mod-in-monitor|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
+mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 EOF
     unset SEQ4H_TEST_PORTS SEQ4H_TEST_IN
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -315,7 +324,7 @@ persist)
     keys="$keys,2,z"
     # Then M > SLOTS on track 2 (opens on slot 8), Y rename, up turns the S
     # of "SLOT 8" into T, A keeps it: saved as "sn 1 7 TLOT_8".
-    keys="$keys,m,Down,Down,Down,Down,Down,Down,Down,z,v,Up,z"   # M > SLOTS
+    keys="$keys,m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,v,Up,z"   # M > SLOTS
     # Killed with SIGKILL (as a system exit hotkey or a flat battery would):
     # nothing runs at exit, so only the autosave two seconds after the edits
     # can have written the file.
@@ -341,7 +350,7 @@ persist)
     # the pattern, and the next start (no --midi name, as SEQ4H.sh runs it)
     # asks for that port.
     SEQ4H_TEST_PORTS="USB2.0-MIDI:USB2.0-MIDI MIDI 1,FM-1:FM-1 MIDI 1" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
+        timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,z,Escape" 2> "$P/run3.log"
     [ "$(cat "$P/seq4h.midi" 2>/dev/null)" = "FM-1:FM-1 MIDI 1" ]
     result "a port picked on M > MIDI is kept in seq4h.midi" $?
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" --keys Escape 2> "$P/run4.log"
@@ -352,7 +361,7 @@ persist)
     # S of "SONG 1" into T, A keeps it), down + X saves song 2. Both files sit
     # next to seq4h.pat, written safely (no .tmp left).
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi none --pattern "$P/seq4h.pat" \
-        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,z,Down,c,Escape" 2> "$P/run5.log"
+        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,z,Down,c,Escape" 2> "$P/run5.log"
     [ -f "$P/seq4h-song1.pat" ] && [ -f "$P/seq4h-song2.pat" ] && [ ! -e "$P/seq4h-song1.pat.tmp" ] \
         && grep -q '^name TONG_1$' "$P/seq4h-song1.pat" && ! grep -q '^name ' "$P/seq4h-song2.pat" \
         && [ "$(grep -c '^sl ' "$P/seq4h-song1.pat")" = 9 ]
@@ -365,7 +374,7 @@ persist)
     # saved at quit has the song's tempo and slots again.
     cp "$P/seq4h-song1.pat" "$P/song1-before.pat"
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi none --demo --bpm 211 --pattern "$P/seq4h.pat" \
-        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,z,z,z,Escape" 2> "$P/run7.log"
+        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,z,Escape" 2> "$P/run7.log"
     [ "$(grep '^bpm ' "$P/seq4h.pat")" = "$(grep '^bpm ' "$P/seq4h-song1.pat")" ] && ! grep -q '^bpm 211$' "$P/seq4h.pat" \
         && [ "$(grep -c '^sl ' "$P/seq4h.pat")" = 9 ] && cmp -s "$P/song1-before.pat" "$P/seq4h-song1.pat"
     result "loading song 1 brings back its tempo and slots, and leaves the song file as it was" $?
@@ -373,7 +382,7 @@ persist)
     # and Start/Stop off for this port in seq4h.midi, and the next start
     # brings them back.
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20 ./seq4h --midi "" --pattern "$P/seq4h.pat" \
-        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,z,z,Escape" 2> "$P/run8.log"
+        --keys "m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,z,z,Escape" 2> "$P/run8.log"
     grep -qx 'out 1 0 DIGITONE FM-1:FM-1 MIDI 1' "$P/seq4h.midi" && [ "$(head -1 "$P/seq4h.midi")" = "FM-1:FM-1 MIDI 1" ] \
         && grep -qx 'transport 0' "$P/seq4h.pat"
     result "a device picked on M > DEVICE is kept for its output in seq4h.midi" $?
