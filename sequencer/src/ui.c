@@ -201,6 +201,8 @@ static int wrap(int v, int n) { return (v % n + n) % n; }
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 static void say(Ui *u, const char *m);
+static void remember(Seq *s, Ui *u);
+static void say_locked(Ui *u);
 static int is_drums(const Seq *s, int t) { return s->track[t].type == TRACK_DRUMS; }
 /* ALL STEPS rows: VELOCITY GATE HOLD OFFSET PROBABILITY STEP LOCKS (drums: VELOCITY PROBABILITY STEP LOCKS) */
 static int all_rows(const Seq *s, const Ui *u) { return is_drums(s, u->track) ? 3 : 6; }
@@ -218,9 +220,16 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     label[0] = val[0] = 0;
     if (row == GR_TRACK) { snprintf(label, 24, "TRACK"); snprintf(val, 24, "%d", t + 1); }
     else if (row == GR_GEN) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "DRUM KIT" : gen_name(g->type)); }
-    else if (row <= GR_P3 && tr->type == TRACK_DRUMS) {   /* the drum generator has one setting */
-        snprintf(label, 24, row == GR_P0 ? "  BUSY" : "  -");
-        if (row == GR_P0) snprintf(val, 24, "%d%%", tr->drum_busy);
+    else if (row <= GR_P3 && tr->type == TRACK_DRUMS) {   /* BUSY, then a Euclidean rhythm for one lane */
+        int l = u->lane;
+        if (row == GR_P0) { snprintf(label, 24, "  BUSY"); snprintf(val, 24, "%d%%", tr->drum_busy); }
+        else if (row == GR_P1) { snprintf(label, 24, "  EUCLID LANE"); snprintf(val, 24, "%s", s->lane_name[l]); }
+        else if (row == GR_P2) {
+            snprintf(label, 24, "    HITS");
+            if (tr->euc_hits[l]) snprintf(val, 24, "%d OF %d", tr->euc_hits[l] > tr->len ? tr->len : tr->euc_hits[l], tr->len);
+            else snprintf(val, 24, "OFF (KIT)");
+        }
+        else { snprintf(label, 24, "    ROTATE"); snprintf(val, 24, "%d", tr->euc_rot[l]); }
     }
     else if (row <= GR_P3) {
         int k = row - GR_P0;
@@ -303,7 +312,17 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     if (row == GR_TRACK) u->track = wrap(u->track + d, SEQ_TRACKS);
     else if (tr->type == TRACK_DRUMS && row == GR_GEN) say(u, "DRUM TRACK: TYPE IS ON THE TRACK PAGE");
     else if (tr->type == TRACK_DRUMS && row <= GR_P3) {
+        int l = u->lane;
         if (row == GR_P0) tr->drum_busy = (uint8_t)clampi(tr->drum_busy + 5 * d * (big ? 2 : 1), 0, 100);
+        else if (row == GR_P1) u->lane = wrap(u->lane + d, SEQ_LANES);
+        else if (tr->drum_lock & (1 << l)) say(u, "LANE LOCKED (DRUM GRID Y)");
+        else if (tr->locked) say_locked(u);
+        else {   /* the lane changes straight away, so you hear it; OFF keeps the hits, the next roll uses the kit */
+            remember(s, u);
+            if (row == GR_P2) tr->euc_hits[l] = (uint8_t)clampi(tr->euc_hits[l] + d * (big ? 4 : 1), 0, tr->len);
+            else tr->euc_rot[l] = (uint8_t)wrap(tr->euc_rot[l] + d, tr->len);
+            gen_drum_euclid_lane(s, u->track, l);
+        }
     }
     else if (row == GR_GEN) gen_set_type(s, u->track, wrap(g->type + d, GEN_COUNT));
     else if (row <= GR_P3) {
@@ -374,9 +393,11 @@ static int audition_track(const Seq *s, const Ui *u) {
 }
 
 #define STEP_ROWS 10
-#define TRACK_ROWS 11
+#define TRACK_ROWS 13
 #define TRACK_BPM_ROW 7
 #define TRACK_VOICES_ROW 10
+#define TRACK_RATE_ROW 11      /* STEP RATE: how long this track's steps are */
+#define TRACK_REALIGN_ROW 12   /* REALIGN: every N bars all tracks back to step 1 (A: now) */
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
@@ -454,8 +475,17 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
 static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char *val, const char *midi_desc) {
     const SeqTrack *tr = &s->track[u->track];
     static const char *L[TRACK_ROWS] = {"TRACK", "TYPE", "MIDI CHANNEL", "LENGTH", "MUTE", "SHUFFLE", "NEVER ON GRID", "BPM", "SWING", "MIDI OUT",
-                                        "VOICES"};
+                                        "VOICES", "STEP RATE", "REALIGN ALL"};
     snprintf(label, 24, "%s", L[row]);
+    if (row == TRACK_RATE_ROW) {
+        snprintf(val, 24, "%s%s", seq_rate_name(tr->rate), tr->rate == SEQ_RATE_16 ? " (NORMAL)" : "");
+        return;
+    }
+    if (row == TRACK_REALIGN_ROW) {
+        if (s->realign) snprintf(val, 24, "EVERY %d BAR%s", s->realign, s->realign > 1 ? "S" : "");
+        else snprintf(val, 24, "OFF (A: NOW)");
+        return;
+    }
     if (row == TRACK_VOICES_ROW) {
         snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "- (DRUMS)" : tr->poly ? "POLY" : "MONO");
         return;
@@ -479,6 +509,8 @@ static void track_row_text(const Seq *s, const Ui *u, int row, char *label, char
 }
 
 static void track_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
+    if (row == TRACK_RATE_ROW) { seq_track_rate(s, u->track, d); return; }
+    if (row == TRACK_REALIGN_ROW) { seq_adjust_realign(s, d); return; }
     if (row == TRACK_VOICES_ROW) {
         if (is_drums(s, u->track)) { say(u, "DRUM TRACKS ARE ALWAYS POLY"); return; }
         seq_track_poly(s, u->track, !s->track[u->track].poly);
@@ -1876,6 +1908,10 @@ static void press(Ui *u, Btn b) {
         else if (b == B_A && u->page == P_STEP && is_drums(s, u->track)) { if (*row > 0) seq_drum_toggle(s, u->track, *row - 1, u->step); }
         else if (b == B_A && u->page == P_STEP) seq_step_toggle(s, u->track, u->step);
         else if (b == B_A && u->page == P_GEN) gen_action(s, u, *row);
+        else if (b == B_A && u->page == P_TRACK && *row == TRACK_REALIGN_ROW) {
+            seq_realign_now(s);
+            say(u, s->playing ? "ALL TRACKS BACK TO STEP 1" : "TRACKS START TOGETHER ON PLAY");
+        }
         else if (b == B_X && u->page == P_GEN) undo(s, u);
     }
     player_unlock(p);
@@ -2100,6 +2136,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         text(r, 12, y + 4, 2, t == u->track ? YELLOW : base, buf);
         snprintf(buf, sizeof buf, "C%d", tr->channel + 1);
         text(r, 12, y + 24, 1, DIM, buf);
+        if (tr->rate != SEQ_RATE_16) text(r, 12, y + 50, 1, DIM, seq_rate_name(tr->rate));   /* STEP RATE, when not 1/16 */
         if (tr->mute) { rect(r, 29, y + 22, 9, 11, (Col){200, 200, 205}); text(r, 31, y + 24, 1, BG, "M"); }   /* badges */
         if (tr->solo) { rect(r, 40, y + 22, 9, 11, YELLOW); text(r, 42, y + 24, 1, BG, "S"); }
         if (tr->locked) { rect(r, 40, y + 5, 9, 11, (Col){255, 150, 40}); text(r, 42, y + 7, 1, BG, "L"); }   /* track lock */
@@ -2189,8 +2226,9 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         return;
     }
     if (tr->type == TRACK_DRUMS) {   /* which lanes hit on this step */
-        snprintf(buf, sizeof buf, "T%d STEP %02d DRUMS%s  LEN %d  CH %d", u->track + 1, u->step + 1,
-                 tr->drum_step_lock & (1u << u->step) ? " LOCKED" : "", tr->len, tr->channel + 1);
+        snprintf(buf, sizeof buf, "T%d STEP %02d DRUMS%s  LEN %d%s%s  CH %d", u->track + 1, u->step + 1,
+                 tr->drum_step_lock & (1u << u->step) ? " LOCKED" : "", tr->len, tr->rate == SEQ_RATE_16 ? "" : " ",
+                 tr->rate == SEQ_RATE_16 ? "" : seq_rate_name(tr->rate), tr->channel + 1);
         text(r, 20, y, 2, WHITE, buf);
         int n = 0;
         buf[0] = 0;
@@ -2205,8 +2243,9 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
     {
         char ob[16] = "";
         if (st->nudge) snprintf(ob, sizeof ob, "  %s %d%%", st->nudge < 0 ? "EARLY" : "LATE", (abs(st->nudge) * 100 + 12) / SEQ_TICKS_PER_STEP);
-        snprintf(buf, sizeof buf, "T%d STEP %02d %s%s%s  LEN %d  CH %d", u->track + 1, u->step + 1, st->on ? "ON" : "OFF",
-                 st->lock ? " LOCKED" : "", ob, tr->len, tr->channel + 1);
+        snprintf(buf, sizeof buf, "T%d STEP %02d %s%s%s  LEN %d%s%s  CH %d", u->track + 1, u->step + 1, st->on ? "ON" : "OFF",
+                 st->lock ? " LOCKED" : "", ob, tr->len, tr->rate == SEQ_RATE_16 ? "" : " ",
+                 tr->rate == SEQ_RATE_16 ? "" : seq_rate_name(tr->rate), tr->channel + 1);
     }
     text(r, 20, y, 2, WHITE, buf);
     {   /* hold rides on the gate ("GATE 50 +2"); the offset goes on the line above */

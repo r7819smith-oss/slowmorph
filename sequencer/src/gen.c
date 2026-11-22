@@ -1299,7 +1299,7 @@ int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX
 
 const char *gen_xform_name(int op) {
     static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR", "SPREAD", "ON GRID",
-                                      "WRITE CHORD"};
+                                      "WRITE CHORD", "EUCLID"};
     return op >= 0 && op < XF_COUNT ? N[op] : "?";
 }
 
@@ -1391,6 +1391,17 @@ void gen_transform(Seq *s, int t, int op, int amount) {
     case XF_GRID:
         for (int k = 0; k < np; k++) tr->step[pos[k]].nudge = 0;
         break;
+    case XF_EUCLID: {   /* the same notes, in the same order, on evenly spaced steps */
+        int n = 0, rot = ((amount % np) + np) % np;
+        for (int k = 0; k < np; k++) if (tr->step[pos[k]].on) tmp[n++] = tr->step[pos[k]];
+        if (!n) break;
+        for (int k = 0, m = 0; k < np; k++) {
+            int j = (k - rot + np) % np;
+            if ((j * n) % np < n) tr->step[pos[k]] = tmp[m++];
+            else tr->step[pos[k]].on = 0;
+        }
+        break;
+    }
     case XF_HUMANIZE:
         if (amount <= 0) break;
         for (int k = 0; k < np; k++) {

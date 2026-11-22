@@ -333,11 +333,30 @@ static void kit_roll(Seq *s, int style, int len, int busy, uint8_t locked, SeqDr
     }
 }
 
+void gen_drum_euclid_lane(Seq *s, int t, int l) {
+    SeqTrack *tr = &s->track[t];
+    if (l < 0 || l >= SEQ_LANES || !tr->euc_hits[l] || tr->locked || (tr->drum_lock & (1 << l))) return;
+    const LanePart *p = &KIT[kit_for(tr->style)][l];
+    int vlo = p->vhi ? p->vlo : 80, vhi = p->vhi ? p->vhi : 100;
+    int plo = p->phi ? p->plo : 100, phi = p->phi ? p->phi : 100;
+    int len = tr->len, k = tr->euc_hits[l] > len ? len : tr->euc_hits[l], rot = tr->euc_rot[l] % len;
+    for (int i = 0; i < len; i++) {
+        if (!col_free(tr, i)) continue;
+        int j = (i - rot + len) % len;
+        if ((j * k) % len < k) {
+            tr->drum.vel[l][i] = (uint8_t)range(s, vlo, vhi);
+            tr->drum.prob[l][i] = (uint8_t)range(s, plo, phi);
+        } else tr->drum.vel[l][i] = 0;
+    }
+    for (int i = len; i < SEQ_STEPS; i++) if (col_free(tr, i)) tr->drum.vel[l][i] = 0;
+}
+
 void gen_drum_roll(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     if (tr->locked) return;   /* a locked track is left alone */
     SeqDrums keep = tr->drum;
     kit_roll(s, tr->style, tr->len, tr->drum_busy, tr->drum_lock, &tr->drum);
+    for (int l = 0; l < SEQ_LANES; l++) gen_drum_euclid_lane(s, t, l);
     for (int i = 0; i < SEQ_STEPS; i++)   /* step-locked steps keep every lane's hit */
         if (!col_free(tr, i))
             for (int l = 0; l < SEQ_LANES; l++) { tr->drum.vel[l][i] = keep.vel[l][i]; tr->drum.prob[l][i] = keep.prob[l][i]; }
@@ -476,6 +495,21 @@ int gen_drum_transform(Seq *s, int t, int op, int amount) {
             if (tr->drum_lock & (1 << l)) continue;
             for (int i = 0; i < len; i++)
                 if (tr->drum.vel[l][i] && col_free(tr, i)) tr->drum.vel[l][i] = (uint8_t)clampi(tr->drum.vel[l][i] + pick(s, 2 * amount + 1) - amount, 1, 127);
+        }
+        return 0;
+    case XF_EUCLID:   /* each lane's hits, the same number in the same order, evenly spaced */
+        if (!np) return 0;
+        for (int l = 0; l < SEQ_LANES; l++) {
+            if (tr->drum_lock & (1 << l)) continue;
+            uint8_t v[SEQ_STEPS], p[SEQ_STEPS];
+            int n = 0, rot = ((amount % np) + np) % np;
+            for (int k = 0; k < np; k++) if (tr->drum.vel[l][pos[k]]) { v[n] = tr->drum.vel[l][pos[k]]; p[n++] = tr->drum.prob[l][pos[k]]; }
+            if (!n) continue;
+            for (int k = 0, m = 0; k < np; k++) {
+                int j = (k - rot + np) % np;
+                if ((j * n) % np < n) { tr->drum.vel[l][pos[k]] = v[m]; tr->drum.prob[l][pos[k]] = p[m++]; }
+                else tr->drum.vel[l][pos[k]] = 0;
+            }
         }
         return 0;
     case XF_CLEAR:
