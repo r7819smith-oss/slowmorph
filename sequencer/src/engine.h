@@ -1,4 +1,4 @@
-/* seq4h engine: four step-sequencer tracks, driven by a tick counter.
+/* seq4h engine: eight step-sequencer tracks, driven by a tick counter.
  * Pure C, no I/O except through the send callback, so it can be unit-tested. */
 #ifndef SEQ4H_ENGINE_H
 #define SEQ4H_ENGINE_H
@@ -8,7 +8,10 @@
 
 #include "mod.h"
 
-#define SEQ_TRACKS 4
+#define SEQ_TRACKS 8
+#define SEQ_BANK 4                 /* tracks on one GRID page: T1-T4, then T5-T8. Felucca plays
+                                      T1-T4 (channels 1-4); T5-T8 start on channels 5-8 for a
+                                      second instrument (Blackbox 2, Digitone ...) */
 #define SEQ_STEPS 32               /* longest pattern */
 #define SEQ_DEFAULT_LEN 16         /* new tracks start one bar long */
 #define SEQ_PPQN 96                 /* engine ticks per quarter note */

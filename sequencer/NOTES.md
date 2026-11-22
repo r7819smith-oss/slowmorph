@@ -7,14 +7,41 @@ work continues on `claude/project-thread-pro3ph`; generator/evolution work on
 
 ## Goal
 
-A four-track MIDI note-pattern sequencer for an **Anbernic RG40XX-V** running
-**Knulli**, driving an **M-VAVE FM1** running **Felucca** firmware. It is
+An eight-track MIDI note-pattern sequencer for an **Anbernic RG40XX-V** running
+**Knulli**, driving an **M-VAVE FM1** running **Felucca** firmware (T1-T4 on
+channels 1-4) and, on T5-T8 (channels 5-8), a second instrument. It is
 inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares no code with
 it. The focus is *generating and evolving note patterns*: writing and editing
 by hand, generating in several ways, and letting patterns drift through
 probability and chance. Effects, CCs and sound design are left to the FM1.
 
 ## Decisions made
+
+- **Eight tracks, two GRID pages of four (Roy, 2026-11-21, option 2 of *Is 8
+  tracks a good idea?*).** `SEQ_TRACKS` is 8, `SEQ_BANK` 4. The GRID shows
+  T1-T4 or T5-T8: the cursor's track picks the page (Down past T4, R2 past
+  T4, Up from T1 wraps to T8). Top right `T1-4 / T5-8` marks the page, with a
+  dot per track of the hidden page that has notes. T5-T8 colours: pink,
+  teal, lime, purple. Decisions made without asking:
+  - T5-T8 start **empty, MANUAL, on channels 5-8**; every device preset puts
+    them on 5-8 too, so device matching and FM1-only setups are unchanged.
+  - Styles keep **4 parts** (`STYLE_PARTS` 4). `style_apply` (first run,
+    tests) touches T1-T4 only. On M, MUSIC STYLE sets the T1-T4 rows, and a
+    T5-T8 row only if that track is in use (notes, hits or a generator);
+    empty T5-T8 rows default to KEEP. Any T row can take any part. An empty
+    kept T5-T8 doesn't count as "kept" for the tempo/key rule. A style's
+    FOLLOW source is moved into the track's own page (T7 TECHNO BASS
+    follows T5); FOLLOW SOURCE goes 1-8; MELODIC ANSWER reads the track above.
+  - **Save files**: no format change, lines just carry track numbers 4-7.
+    Old 4-track files load with T5-T8 at their defaults; old builds drop
+    T5-T8. **Modulation SEND TO** gained T5-T8, T5-T8 ALL and T1-T8 ALL; the
+    file keeps the old numbers (0-3, 4 = T1-T4 ALL, 5-20 = CH 1-16) and adds
+    21-24, 25, 26, so old files and old builds read T1-T4/CH destinations
+    right. A group of more channels than the 4-CCs-a-tick budget (T1-T8)
+    still goes out, in one burst at the start of a tick.
+  - M menu now has 19 rows (T1-T8); everything below the T rows moved down 4.
+    Harness key sequences were updated to match.
+  - Panic/Stop send CC 120/123 on all 8 channels (one each).
 
 - **Renamed to Genvolve** (Roy, 2026-11-21, from the build after main
   f2f57f2). What changed: the header and window title read GENVOLVE, the
@@ -696,6 +723,8 @@ Works and tested on desktop Linux:
 
 ## Next steps (suggested order)
 
+0. Run `tests/hardware-sheet-8tracks.md` (checklist D11, 10 tests: page 2
+   of tracks, T5-T8 on a second instrument, saves and songs).
 0. Run `tests/hardware-sheet-mod.md` (10 tests: modulation, MIDI IN, learn,
    teaching Felucca with SEND ONCE). Tests 6-8 settle what Felucca really
    sends back over USB.
@@ -1314,6 +1343,21 @@ Full sheet with expected results: `tests/hardware-sheet-rhythm.md` (part 1).
 5. [ ] TRANSFORM EUCLID spreads notes (and drum hits) evenly; BY turns them.
 6. [ ] All of it survives a restart.
 
+**D11. Tracks 5 to 8 (2026-11-21)**
+
+The full sheet is `tests/hardware-sheet-8tracks.md`. Short form:
+
+1. [ ] Old pattern plays as before; top right shows `T1-4` bright.
+2. [ ] Down from T4 shows T5-T8 (empty, C5-C8); Up goes back; R2/L2 step 1-8.
+3. [ ] Notes on T5: pink steps, a dot top right on page 1, FM1 unaffected.
+4. [ ] STEP/TRACK/GENERATE, mute and solo work on T5-T8.
+5. [ ] NEW FROM STYLE leaves empty T5-T8 alone.
+6. [ ] T5-T8 rows can take any style's parts; only they change.
+7. [ ] A second instrument (Blackbox 2 / Digitone) plays T5-T8 in time.
+8. [ ] A drum track on T5 works; DRUM MAP says T5, channel 5.
+9. [ ] T5-T8 survive a restart and a song save/load.
+10. [ ] Modulation SEND TO lists T1-T8 and the three groups.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1387,6 +1431,7 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Rename to Genvolve (D8) | not tested yet |
 | Modulation, MIDI IN and learn (D9, `tests/hardware-sheet-mod.md`) | not tested yet |
 | Polymeter and Euclidean rhythms (D10, `tests/hardware-sheet-rhythm.md` part 1) | not tested yet |
+| Tracks 5-8 (D11, `tests/hardware-sheet-8tracks.md`) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 
@@ -1580,6 +1625,10 @@ What to do for each:
   Same channel for all) could set all four MIDI CHANNEL values at once. Optional.
 
 ### Is 8 tracks a good idea?
+
+**Built 2026-11-21 as option 2** (two pages of four), because Roy now also
+uses a Blackbox 2 and a Digitone. See *Decisions made*. The analysis below is
+from 2026-11-20.
 
 What it would take in seq4h:
 

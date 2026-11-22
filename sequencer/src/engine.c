@@ -52,7 +52,7 @@ static void release(Seq *s, SeqTrack *t) {
 }
 
 void seq_init(Seq *s, SeqSend send, void *ctx) {
-    static const uint8_t base[SEQ_TRACKS] = {36, 48, 60, 72};
+    static const uint8_t base[SEQ_BANK] = {36, 48, 60, 72};   /* T5-T8 repeat T1-T4 */
     memset(s, 0, sizeof *s);
     s->bpm = 120;
     s->scale = SCALE_MIN_PENT;
@@ -70,18 +70,18 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->channel = (uint8_t)t;
         tr->sounding = -1;
         tr->last_note = -1;
-        tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t] - 12), 2, 0x9E37u + (uint32_t)t * 0x2F1Bu};
+        tr->gen = (GenSettings){GEN_NONE, {0, 0, 0, 0}, (uint8_t)(base[t % SEQ_BANK] - 12), 2, 0x9E37u + (uint32_t)t * 0x2F1Bu};
         tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
         tr->chain_bars = 4;
         tr->style = STYLE_AMBIENT;
-        tr->part = (uint8_t)t;
+        tr->part = (uint8_t)(t % STYLE_PARTS);
         tr->drum_busy = 50;
         tr->rate = SEQ_RATE_16;
         for (int l = 0; l < SEQ_LANES; l++)
             for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
         for (int k = 0; k < SEQ_SLOTS; k++) tr->slot[k].drum = tr->drum;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, base[t], 100, 50, 100, 0, 0, 0, {0}};
+            tr->step[i] = (SeqStep){0, base[t % SEQ_BANK], 100, 50, 100, 0, 0, 0, {0}};
     }
 }
 

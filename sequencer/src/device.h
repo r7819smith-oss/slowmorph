@@ -1,7 +1,7 @@
 /* seq4h device presets (M > DEVICE) and the per-output settings kept in
  * seq4h.midi.
  *
- * A preset sets, in one go, the four tracks' MIDI channels, the DRUM MAP,
+ * A preset sets, in one go, the eight tracks' MIDI channels, the DRUM MAP,
  * MIDI clock and MIDI Start/Stop for one instrument. Clock and Start/Stop
  * belong to the output: each output port remembers its own (and which
  * device it was set to) in seq4h.midi, so going back to a port brings its

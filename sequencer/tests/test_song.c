@@ -1,5 +1,6 @@
 /* Songs: save, read back, apply to a playing session, names, old files. */
 #include "../src/engine.h"
+#include "../src/drum.h"
 #include "../src/gen.h"
 #include "../src/song.h"
 
@@ -49,6 +50,47 @@ int main(void) {
     song_clean_name(2, "song 3", name); CHECK(name[0] == 0);
     song_clean_name(2, "dawn_mix!x", name); CHECK(!strcmp(name, "DAWN MIX"));
     song_show_name(2, "", out); CHECK(!strcmp(out, "SONG 3"));
+
+    /* a pattern file from the 4-track builds loads as before; T5-T8 keep their
+     * defaults: empty, MANUAL, channels 5-8. Its modulation keeps its
+     * destinations (SEND TO 4 = T1-T4 ALL, 20 = CH 16). */
+    {
+        static Seq o;
+        seq_init(&o, NULL, NULL);
+        FILE *f = fopen("tests/fixtures/mod.pat", "r");
+        CHECK(f && seq_load(&o, f) == 0);
+        if (f) fclose(f);
+        CHECK(o.track[1].len == 12 && o.track[2].len == 7);
+        CHECK(o.mod.dest[1].to == TO_T1 + 1 && o.mod.dest[2].to == TO_ALL && o.mod.dest[3].to == TO_CH1 + 15);
+        for (int t = SEQ_BANK; t < SEQ_TRACKS; t++) {
+            const SeqTrack *tr = &o.track[t];
+            CHECK(tr->channel == t && tr->len == SEQ_DEFAULT_LEN && tr->gen.type == GEN_NONE && !tr->mute);
+            CHECK(tr->part == t % SEQ_BANK && tr->type == TRACK_NOTES && seq_slots_used(&o) >= 0);
+            for (int i = 0; i < SEQ_STEPS; i++) CHECK(!tr->step[i].on);
+        }
+        f = fopen("tests/fixtures/drums.pat", "r");
+        seq_init(&o, NULL, NULL);
+        CHECK(f && seq_load(&o, f) == 0);
+        if (f) fclose(f);
+        for (int t = SEQ_BANK; t < SEQ_TRACKS; t++) CHECK(seq_drum_hits(&o.track[t]) == 0 && o.track[t].channel == t);
+        /* T5-T8 go into a song and come back */
+        o.track[6].step[3].on = 1; o.track[6].step[3].note = 70; o.track[6].channel = 11; o.track[6].len = 9;
+        o.track[7].type = TRACK_DRUMS; o.track[7].drum.vel[2][5] = 99; o.track[7].mute = 1;
+        o.mod.dest[5].to = TO_ALL2; o.mod.dest[6].to = TO_T1 + 7;
+        char p8[300];
+        snprintf(p8, sizeof p8, "%s/eight.pat", dir);
+        CHECK(song_save_file(&o, "EIGHT", p8) == 0);
+        static Seq q;
+        seq_init(&q, NULL, NULL);
+        CHECK(song_read_file(p8, &q, NULL) == 0);
+        CHECK(q.track[6].step[3].on && q.track[6].step[3].note == 70 && q.track[6].channel == 11 && q.track[6].len == 9);
+        CHECK(q.track[7].type == TRACK_DRUMS && q.track[7].drum.vel[2][5] == 99 && q.track[7].mute);
+        CHECK(q.mod.dest[5].to == TO_ALL2 && q.mod.dest[6].to == TO_T1 + 7);
+        SongInfo in;
+        song_info(p8, 0, &in);
+        CHECK(in.used && in.type[7] == TRACK_DRUMS && in.len[6] == 9);
+        remove(p8);
+    }
 
     /* a session with a bit of everything */
     static Seq a, b, c;

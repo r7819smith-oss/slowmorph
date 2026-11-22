@@ -160,9 +160,28 @@ int main(void) {
     /* ---- T1-T4 sends on each track channel once; 16 destinations stay within 4 CCs a tick ---- */
     seq_init(&s, rec, &lg);
     s.track[1].channel = 0;   /* T2 shares channel 1 with T1 */
-    uint8_t ch[4] = {0, 0, 2, 3}, c[4];
+    uint8_t ch[MOD_TRACKS] = {0, 0, 2, 3, 4, 5, 6, 3}, c[MOD_TRACKS];
     s.mod.dest[0].to = TO_ALL;
     CHECK(mod_channels(&s.mod, 0, ch, c) == 3);
+    s.mod.dest[0].to = TO_ALL2;   /* T5-T8: channels 5, 6, 7 and T8 on 4 */
+    CHECK(mod_channels(&s.mod, 0, ch, c) == 4 && c[0] == 4 && c[3] == 3);
+    s.mod.dest[0].to = TO_ALL8;   /* every track's channel once */
+    CHECK(mod_channels(&s.mod, 0, ch, c) == 6);
+    s.mod.dest[0].to = TO_T1 + 6;
+    CHECK(mod_channels(&s.mod, 0, ch, c) == 1 && c[0] == 6);
+    {   /* T1-T8 is 8 channels, more than MOD_PER_TICK: it still goes out */
+        static Seq q;
+        seq_init(&q, rec, &lg);
+        q.mod.on = 1;
+        q.mod.dest[0] = (ModDest){1, 3, TO_ALL8, 30, 0, 127, 0, -1, 0};
+        q.mod.lfo[3] = (ModLfo){.wave = WAVE_SQUARE, .sync = 1, .rate = 0};
+        lg.n = 0;
+        seq_start(&q);
+        for (int i = 0; i < 96; i++) seq_tick(&q);
+        int chs8 = 0;
+        for (int i = 0; i < lg.n; i++) if ((lg.m[i][0] & 0xF0) == 0xB0 && lg.m[i][1] == 30) chs8 |= 1 << (lg.m[i][0] & 15);
+        CHECK(chs8 == 0xFF);
+    }
     s.mod.dest[0].to = TO_CH1 + 9;
     CHECK(mod_channels(&s.mod, 0, ch, c) == 1 && c[0] == 9);
     for (int d = 0; d < MOD_DESTS; d++) {
@@ -207,6 +226,25 @@ int main(void) {
     CHECK(t.mod.lfo[2].wave == WAVE_SMOOTH && !t.mod.lfo[2].sync && t.mod.lfo[2].rate == 20 && t.mod.lfo[2].phase == 35 && t.mod.lfo[2].hold && t.mod.lfo[2].stop_hold);
     ModDest *y = &t.mod.dest[11];
     CHECK(y->on && y->lfo == 2 && y->to == TO_CH1 + 12 && y->cc == 94 && y->lo == 17 && y->hi == 99 && y->inv);
+    {   /* SEND TO in the file keeps the 4-track numbers: 0-3 T1-T4, 4 T1-T4 ALL, 5-20 CH 1-16; then 21-24 T5-T8, 25, 26 */
+        static const struct { int mem, file; } TO[] = {{TO_T1 + 2, 2}, {TO_ALL, 4}, {TO_CH1, 5}, {TO_CH1 + 15, 20},
+                                                      {TO_T1 + 4, 21}, {TO_T1 + 7, 24}, {TO_ALL2, 25}, {TO_ALL8, 26}};
+        for (unsigned k = 0; k < sizeof TO / sizeof TO[0]; k++) {
+            char line[64], want[16];
+            Mod mm;
+            mod_init(&mm);
+            mm.dest[0].to = (uint8_t)TO[k].mem;
+            char buf[4096] = {0};
+            FILE *mf = fmemopen(buf, sizeof buf, "w");
+            mod_save(&mm, mf);
+            fclose(mf);
+            snprintf(want, sizeof want, "md 0 %d %d %d ", mm.dest[0].on, mm.dest[0].lfo, TO[k].file);
+            CHECK(strstr(buf, want) != NULL);
+            snprintf(line, sizeof line, "md 0 1 0 %d 74 0 127 0\n", TO[k].file);
+            mod_init(&mm);
+            CHECK(mod_load_line(&mm, line) == 1 && mm.dest[0].to == TO[k].mem);
+        }
+    }
     snprintf(path, sizeof path, "%s/song.pat", dir);
     CHECK(song_save_file(&s, "MOD", path) == 0);
     seq_init(&t, NULL, NULL);
@@ -269,7 +307,7 @@ int main(void) {
 
     /* ---- learn ---- */
     seq_init(&s, rec, &lg);
-    uint8_t chs[4] = {0, 1, 2, 3};
+    uint8_t chs[MOD_TRACKS] = {0, 1, 2, 3, 4, 5, 6, 7};
     uint8_t l1[3] = {0xB1, 21, 10}, l2[3] = {0xB9, 33, 0}, bad[3] = {0xB0, 123, 0};
     CHECK(mod_learn(&s.mod, 5, l1, 3, chs) && s.mod.dest[5].cc == 21 && s.mod.dest[5].to == TO_T1 + 1);   /* channel 2 = T2 */
     CHECK(mod_learn(&s.mod, 5, l2, 3, chs) && s.mod.dest[5].cc == 33 && s.mod.dest[5].to == TO_CH1 + 9);  /* no track on 10 */
