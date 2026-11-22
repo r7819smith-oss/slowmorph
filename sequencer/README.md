@@ -160,12 +160,37 @@ which track you are on. Keyboard keys are in brackets.
 | Left stick left / right [, / .] | previous / next step (grid, STEP page, piano roll, drum grid) |
 | Left stick up / down [`]` / `[`] | velocity: the grid step (on a drum step every hit on it, on a track label every step of the track), the piano roll note, the drum grid hit (on a lane name every hit of the lane). On STEP, TRACK, GENERATE and ALL STEPS it changes the selected row's value, like right / left |
 | Stick press [R] | quick roll of the current track (as A on GENERATE) |
-| hold Select + A / X / Y | roll / undo / lock or unlock the whole track |
+| hold Select + A / X / B / Y | roll / undo / redo / lock or unlock the whole track. Undo goes back up to 32 edits (see *Undo history* below) |
 | hold Select + stick up / down | tempo up / down by 1 BPM (keeps going while held) |
 | B [X] | back to the grid (on a grid track label: solo) |
-| M [M] | open / close the main menu |
+| M [M], tapped | open / close the main menu (it acts as you let go) |
+| M held | the **jump panel** (below): every page as a tile |
 | Start [Space] | play / stop |
 | Select + Start [Tab + Space, or Esc] | quit (the pattern is saved) |
+
+**Jump panel** (hold M for a third of a second, or press the d-pad while
+holding it): a tile for every page: GRID, STEP, TRACK, GENERATE, PIANO ROLL
+(DRUM GRID on a drum track), ALL STEPS, MAIN MENU, PATTERNS, SONGS, DRUM MAP,
+MIDI OUT, DEVICE, MODULATION, PERFORM, ARRANGE, RECORD, HISTORY and HELP. The
+d-pad picks a tile and letting go of M goes there; A goes straight away, B
+cancels (letting go then does nothing) and L2/R2 changes the track. The panel
+starts on the page you were on before this one, so hold-and-let-go flips
+between two pages. Keyboard: hold M.
+
+**HELP** (M > HELP, or the HELP tile): the buttons of the page you came from,
+then the ones that work everywhere. Up/down scrolls, A or B goes back.
+
+**Undo history**: every pattern edit (notes, step settings, drum hits, track
+length, rolls, transforms, slot and scene loads, NEW FROM STYLE, ALL STEPS)
+can be taken back, up to 32 of them, on every track. Hold Select + X to undo,
+Select + B to redo (a new edit drops the redo list). Holding a button that
+repeats the same change (e.g. right on VELOCITY) is one undo. **M > UNDO
+HISTORY** lists the edits, newest first, with redo lines above **NOW**: pick
+one and press A to go back (or forward) to it. Settings such as channel,
+mute, tempo and the generator's rows are not in the history, and changes
+made by evolution or chains while playing are dropped by an undo. Loading or
+switching to a song clears the history (SONG SAVE's UNDO LOAD still works).
+The history is not saved.
 
 **GRID page**: four tracks at a time. T1-T4 is the first page of tracks;
 moving down from T4 (D-pad, or R2) shows T5-T8, and up from T5 goes back.
@@ -304,7 +329,7 @@ change bigger.
 |---|---|---|
 | STEP | step number (hold X + left/right, or the stick, moves to the previous / next step from any row), on/off, note (scale degree; hold Y = octave), velocity, gate, hold, offset, probability, lock | A = step on/off |
 | TRACK | track, type (NOTES or DRUMS), MIDI channel, length, mute, shuffle, never on grid, BPM, swing, MIDI port (shown only) | |
-| GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo the last roll, transform or slot load |
+| GENERATE | track, generator and its parameters, lowest note, range, evolve settings (amount, kinds, min/max hits), anchor and pull, transform, slots and chain, scale, root, snap notes, chord, swell, swell depth, rests | A = roll, or the selected row's action; X = undo (as Select + X) |
 
 **Main menu** (M): settings for the whole session. Up/down picks a row,
 left/right changes it, A selects; M or B closes it and returns to the page
