@@ -13,7 +13,7 @@ goes back up to 32 edits, with redo, and the main menu has two new rows,
 
 ---
 
-### N1. A tap of M still opens the menu
+### 1. A tap of M still opens the menu
 1. On the GRID, tap **M** (press and let go straight away).
 2. Tap **M** again.
 
@@ -22,7 +22,7 @@ back on the GRID. It opens as you let go, not as you press.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N2. Hold M: the jump panel
+### 2. Hold M: the jump panel
 1. On the GRID, hold **M** for about half a second and keep holding.
 
 **Expected:** a panel titled **JUMP TO** covers the screen with 18 tiles in 4
@@ -34,7 +34,7 @@ right.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N3. Pick a page and let go
+### 3. Pick a page and let go
 1. Still holding **M**, use the **d-pad** to move the yellow box to **SONGS**.
 2. Let go of **M**.
 
@@ -43,7 +43,7 @@ right.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N4. Back to the last page in one move
+### 4. Back to the last page in one move
 1. Go to the **GENERATE** page (R1 three times from the GRID), then back to the GRID with **B**.
 2. Hold **M** until the panel shows, then let go without touching anything else.
 
@@ -53,7 +53,7 @@ GRID.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N5. Cancel, A and track change in the panel
+### 5. Cancel, A and track change in the panel
 1. Hold **M**, move to any tile, press **B**, then let go of M.
 2. Hold **M**, press **R2** twice, move to **TRACK**, press **A** (still holding M), then let go.
 
@@ -63,7 +63,7 @@ panel goes T1, T2, T3; A opens the TRACK page for **T3** straight away.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N6. Jump into the live and MIDI pages
+### 6. Jump into the live and MIDI pages
 1. Hold **M**, pick **PERFORM**, let go. Then hold M, pick **RECORD**, let go.
 2. Hold **M**, pick **MODULATION**, let go. Tap **M**.
 
@@ -73,7 +73,7 @@ any of these closes it, back to the GRID.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N7. HELP for the page you are on
+### 7. HELP for the page you are on
 1. Go to the **piano roll** (Select on the GRID on a note track).
 2. Hold **M**, pick **HELP**, let go.
 3. Press **down** a few times, then **B**.
@@ -86,7 +86,7 @@ opened the menu from.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N8. Undo several edits, then redo
+### 8. Undo several edits, then redo
 1. On the GRID turn on 3 empty steps on T1 with **A** (three different steps).
 2. Hold **Select** and press **X** three times.
 3. Still holding Select, press **B** once.
@@ -98,7 +98,7 @@ Select + X with nothing left says **NOTHING TO UNDO**.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N9. Holding a value is one undo
+### 9. Holding a value is one undo
 1. On the **STEP** page, hold **right** on VELOCITY until it has gone up a lot.
 2. Select + X once.
 
@@ -107,7 +107,7 @@ the same change within about 1.5 seconds are one entry).
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N10. UNDO HISTORY page
+### 10. UNDO HISTORY page
 1. Make a few different edits: roll T2 (stick press, or Select + A), change a
    step on T1, and on GENERATE apply a transform (e.g. REVERSE) to T3.
 2. Hold **M**, pick **HISTORY**, let go.
@@ -122,7 +122,7 @@ edits are back. Undo also works while playing.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N11. Old undo buttons still work
+### 11. Old undo buttons still work
 1. On the GRID's track box (left of step 1), tap **X** to roll the track, then
    hold **X** for half a second.
 2. On GENERATE press **A** (roll), then **X**.
@@ -132,7 +132,7 @@ Select + X.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
 
-### N12. Loading a song clears the history
+### 12. Loading a song clears the history
 1. Make an edit, then load a song (M > SONG SAVE, A, A).
 2. Select + X.
 
