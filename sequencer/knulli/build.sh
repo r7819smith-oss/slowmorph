@@ -61,10 +61,10 @@ echo "Newest glibc symbol: $maxglibc"
 #    draws a frame with SDL's dummy video driver and the arm64 SDL library.
 if command -v qemu-aarch64-static >/dev/null 2>&1; then
     aarch64-linux-gnu-gcc -O2 -mcpu=cortex-a53 -o tests/test_engine.arm64 \
-        tests/test_engine.c src/engine.c src/gen.c src/drum.c src/mod.c
+        tests/test_engine.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
     qemu-aarch64-static tests/test_engine.arm64
     aarch64-linux-gnu-gcc -O2 -mcpu=cortex-a53 -o tests/test_gen.arm64 \
-        tests/test_gen.c src/engine.c src/gen.c src/drum.c src/mod.c
+        tests/test_gen.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
     qemu-aarch64-static tests/test_gen.arm64
     aarch64-linux-gnu-gcc -O2 -mcpu=cortex-a53 $($CROSS_PKG --cflags sdl2) -o tests/test_input.arm64 \
         tests/test_input.c src/input.c $($CROSS_PKG --libs sdl2)
