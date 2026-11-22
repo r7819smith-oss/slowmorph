@@ -12,6 +12,7 @@ static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v;
 
 static int8_t draw_offset(Seq *s, const SeqTrack *tr, const SeqStep *st);
 static int live_offset(const SeqTrack *tr);
+static void cancel_ratchets(SeqTrack *tr);
 
 uint32_t seq_rand(Seq *s) {
     uint32_t x = s->rng;
@@ -83,7 +84,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
             for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
         for (int k = 0; k < SEQ_SLOTS; k++) tr->slot[k].drum = tr->drum;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, base[t % SEQ_BANK], 100, 50, 100, 0, 0, 0, {0}};
+            tr->step[i] = (SeqStep){0, base[t % SEQ_BANK], 100, 50, 100, 0, 0, 0, {0}, 0, 0};
     }
 }
 
@@ -118,6 +119,8 @@ void seq_start(Seq *s) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         s->track[t].rest_left = 0;
         s->track[t].origin = 0;
+        s->track[t].pre = 0;
+        cancel_ratchets(&s->track[t]);
         memset(s->track[t].played, 0, sizeof s->track[t].played);
         if (live_offset(&s->track[t])) seq_reshuffle(s, t);
     }
@@ -132,6 +135,7 @@ void seq_stop(Seq *s) {
     live_stop(s);
     for (int t = 0; t < SEQ_TRACKS; t++) {
         release(s, &s->track[t]);
+        cancel_ratchets(&s->track[t]);
         emit3(s, 0xB0 | s->track[t].channel, 123, 0);   /* all notes off */
     }
     if (s->transport_out) emit1(s, 0xFC);
@@ -188,14 +192,51 @@ static void poly_note(Seq *s, SeqTrack *tr, uint8_t note, int vel, uint32_t off)
     tr->npv++;
 }
 
-/* Send one step's note (and its chord notes); called at the tick the step is due. */
-static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
-    SeqTrack *tr = &s->track[t];
-    if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) return;
+/* Trig conditions (COND_*). A:B conditions are numbered 1:2, 2:2, 1:3, 2:3,
+ * 3:3, 1:4 ... 8:8: B's block starts after the blocks for 2..B-1. */
+static int cond_base(int b) { return 1 + (b - 1) * b / 2 - 1; }   /* number of 1:B */
+int seq_cond_make(int a, int b) {
+    if (b < 2 || b > 8 || a < 1 || a > b) return COND_ALWAYS;
+    return cond_base(b) + a - 1;
+}
+int seq_cond_ab(int c, int *a, int *b) {
+    if (c < COND_AB_FIRST || c > COND_AB_LAST) return 0;
+    for (int bb = 2; bb <= 8; bb++)
+        if (c < cond_base(bb) + bb) { *a = c - cond_base(bb) + 1; *b = bb; return 1; }
+    return 0;
+}
+void seq_cond_name(int c, char out[12]) {
+    int a, b;
+    if (seq_cond_ab(c, &a, &b)) { snprintf(out, 12, "%d:%d", a, b); return; }
+    snprintf(out, 12, "%s", c == COND_FIRST ? "FIRST" : c == COND_NOT_FIRST ? "NOT FIRST" : c == COND_PRE ? "PRE"
+                          : c == COND_NOT_PRE ? "NOT PRE" : "ALWAYS");
+}
 
+/* 1 if a step with condition c plays on pass `pass` (0 = the first) of the
+ * track's pattern. A:B and FIRST results are remembered for PRE. */
+static int cond_ok(SeqTrack *tr, int c, uint32_t pass) {
+    int a, b, ok;
+    if (c == COND_ALWAYS || c >= COND_COUNT) return 1;
+    if (c == COND_PRE) return tr->pre;
+    if (c == COND_NOT_PRE) return !tr->pre;
+    if (seq_cond_ab(c, &a, &b)) ok = (int)(pass % (uint32_t)b) == a - 1;
+    else ok = c == COND_FIRST ? pass == 0 : pass != 0;
+    tr->pre = (uint8_t)ok;
+    return ok;
+}
+
+static void cancel_ratchets(SeqTrack *tr) {
+    tr->rat_k = tr->rat_r;
+    for (int l = 0; l < SEQ_LANES; l++) tr->lrat_k[l] = tr->lrat_r[l];
+}
+
+/* Repeat k (0 = the step itself) of an r-times ratchet starts this many ticks into the step. */
+static uint32_t rat_at(int tps, int k, int r) { return (uint32_t)(k * tps / r); }
+
+/* Sound one step's note (and its chord notes) for gl ticks. */
+static void sound_step(Seq *s, int t, uint32_t now, const SeqStep *st, uint32_t gl) {
+    SeqTrack *tr = &s->track[t];
     if (tr->poly) {
-        uint32_t tps = (uint32_t)seq_track_tps(tr);
-        uint32_t gl = (uint32_t)st->gate * tps / 100 + (uint32_t)st->hold * tps;
         uint32_t off = now + (gl ? gl : 1);
         int vel = seq_swell_vel(s, t, now, st->vel);
         uint8_t nn[SEQ_POLY];
@@ -228,29 +269,92 @@ static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st) {
     tr->last_note = st->note;
     tr->last_nvoice = tr->nvoice;
     memcpy(tr->last_voice, tr->voice, sizeof tr->voice);
-    uint32_t tps = (uint32_t)seq_track_tps(tr);
-    uint32_t gl = (uint32_t)st->gate * tps / 100 + (uint32_t)st->hold * tps;
     tr->off_tick = now + (gl ? gl : 1);
 }
 
-/* A drum track's step: every lane with a hit there plays its own note (from
- * the DRUM MAP), each with its own chance, as short one-shots. */
-static void play_drums(Seq *s, int t, uint32_t now, int idx) {
+/* How long repeat k of a ratcheted step sounds: its gate of the repeat's
+ * share of the step; the last repeat also gets the step's hold. */
+static uint32_t ratchet_len(const SeqStep *st, int tps, int k, int r) {
+    uint32_t gap = rat_at(tps, k + 1, r) - rat_at(tps, k, r);
+    uint32_t gl = (uint32_t)st->gate * gap / 100;
+    if (k == r - 1) gl += (uint32_t)st->hold * (uint32_t)tps;
+    return gl ? gl : 1;
+}
+
+/* A step is due: check its condition and chance, then play it (and set up
+ * its ratchet repeats). */
+static void play_step(Seq *s, int t, uint32_t now, const SeqStep *st, uint32_t pass) {
     SeqTrack *tr = &s->track[t];
+    if (!cond_ok(tr, st->cond, pass)) return;
+    if (st->prob < 100 && (int)(seq_rand(s) % 100) >= st->prob) return;
+    int tps = seq_track_tps(tr), r = st->ratchet;
+    if (r >= 2) {
+        tr->rat_st = *st;
+        tr->rat_r = (uint8_t)r;
+        tr->rat_k = 1;
+        tr->rat_t0 = now;
+        sound_step(s, t, now, st, ratchet_len(st, tps, 0, r));
+        return;
+    }
+    tr->rat_k = tr->rat_r;   /* a new note ends the last step's repeats */
+    sound_step(s, t, now, st, (uint32_t)st->gate * (uint32_t)tps / 100 + (uint32_t)st->hold * (uint32_t)tps);
+}
+
+/* One drum hit on lane l, a one-shot of `gate` ticks. */
+static void hit_lane(Seq *s, int t, uint32_t now, int l, int v, uint32_t gate) {
+    SeqTrack *tr = &s->track[t];
+    release_lane(s, tr, l);
+    uint8_t note = s->lane_note[l];
+    for (int m = 0; m < SEQ_LANES; m++)   /* two lanes on one note: the new hit takes over */
+        if (m != l && (tr->drum_down & (1 << m)) && tr->drum_note[m] == note) release_lane(s, tr, m);
+    emit3(s, 0x90 | tr->channel, note, (uint8_t)seq_swell_vel(s, t, now, v));
+    tr->drum_note[l] = note;
+    tr->drum_down |= (uint8_t)(1 << l);
+    tr->drum_off[l] = now + (gate ? gate : 1);
+}
+
+/* A drum hit's length: SEQ_DRUM_GATE, but at most 3/4 of the time to the next hit. */
+static uint32_t drum_gate(int span) { return (uint32_t)(SEQ_DRUM_GATE < span * 3 / 4 ? SEQ_DRUM_GATE : span * 3 / 4); }
+
+/* A drum track's step: every lane with a hit there plays its own note (from
+ * the DRUM MAP), each with its own condition and chance, as short one-shots. */
+static void play_drums(Seq *s, int t, uint32_t now, int idx, uint32_t pass) {
+    SeqTrack *tr = &s->track[t];
+    int tps = seq_track_tps(tr);
     for (int l = 0; l < SEQ_LANES; l++) {
         int v = tr->drum.vel[l][idx];
         if (!v || !seq_lane_audible(tr, l)) continue;
+        if (!cond_ok(tr, tr->drum.cond[l][idx], pass)) continue;
         int p = tr->drum.prob[l][idx];
         if (p < 100 && (int)(seq_rand(s) % 100) >= p) continue;
-        release_lane(s, tr, l);
-        uint8_t note = s->lane_note[l];
-        for (int m = 0; m < SEQ_LANES; m++)   /* two lanes on one note: the new hit takes over */
-            if (m != l && (tr->drum_down & (1 << m)) && tr->drum_note[m] == note) release_lane(s, tr, m);
-        emit3(s, 0x90 | tr->channel, note, (uint8_t)seq_swell_vel(s, t, now, v));
-        tr->drum_note[l] = note;
-        tr->drum_down |= (uint8_t)(1 << l);
-        int tps = seq_track_tps(tr);
-        tr->drum_off[l] = now + (uint32_t)(SEQ_DRUM_GATE < tps * 3 / 4 ? SEQ_DRUM_GATE : tps * 3 / 4);
+        int r = tr->drum.rat[l][idx];
+        if (r >= 2) {
+            tr->lrat_r[l] = (uint8_t)r;
+            tr->lrat_k[l] = 1;
+            tr->lrat_t0[l] = now;
+            tr->lrat_vel[l] = (uint8_t)v;
+            hit_lane(s, t, now, l, v, drum_gate((int)rat_at(tps, 1, r)));
+        } else {
+            tr->lrat_k[l] = tr->lrat_r[l];
+            hit_lane(s, t, now, l, v, drum_gate(tps));
+        }
+    }
+}
+
+/* Ratchet repeats due on this tick. */
+static void play_ratchets(Seq *s, int t, uint32_t now) {
+    SeqTrack *tr = &s->track[t];
+    int tps = seq_track_tps(tr);
+    if (tr->rat_k < tr->rat_r && now - tr->rat_t0 == rat_at(tps, tr->rat_k, tr->rat_r)) {
+        sound_step(s, t, now, &tr->rat_st, ratchet_len(&tr->rat_st, tps, tr->rat_k, tr->rat_r));
+        tr->rat_k++;
+    }
+    for (int l = 0; l < SEQ_LANES; l++) {
+        int k = tr->lrat_k[l], r = tr->lrat_r[l];
+        if (k >= r || now - tr->lrat_t0[l] != rat_at(tps, k, r)) continue;
+        if (seq_lane_audible(tr, l))
+            hit_lane(s, t, now, l, tr->lrat_vel[l], drum_gate((int)(rat_at(tps, k + 1, r) - rat_at(tps, k, r))));
+        tr->lrat_k[l]++;
     }
 }
 
@@ -337,7 +441,8 @@ void seq_tick(Seq *s) {
         for (int l = 0; tr->drum_down && l < SEQ_LANES; l++)
             if ((tr->drum_down & (1 << l)) && (int32_t)(now - tr->drum_off[l]) >= 0) release_lane(s, tr, l);
         int drums = tr->type == TRACK_DRUMS, busy = live_busy(s, t);   /* busy: PERFORM's DENSITY */
-        if (!seq_track_audible(s, t) || tr->rest_left) continue;   /* a rest lets held notes ring out */
+        if (!seq_track_audible(s, t) || tr->rest_left) { cancel_ratchets(tr); continue; }   /* a rest lets held notes ring out */
+        play_ratchets(s, t, now);
 
         /* A step plays at its grid time + swing + its own offset. A track's
          * steps last its STEP RATE (tps ticks) and count from its origin (0,
@@ -366,16 +471,17 @@ void seq_tick(Seq *s) {
             if (!due) continue;
             tr->played[idx] = g + 1;
             if (live) tr->jit[idx] = draw_offset(s, tr, st);   /* where it lands next time round */
+            uint32_t pass = g / tr->len;   /* times round the pattern since the origin, for conditions */
             if (busy && drums) {
                 uint8_t vel[SEQ_LANES];
                 if (live_drum_step(s, t, idx, vel)) play_hits(s, t, now, vel);
             } else if (busy) {
                 SeqStep ghost;
                 const SeqStep *p = live_note_step(s, t, idx, st, &ghost);
-                if (p) play_step(s, t, now, p);
+                if (p) play_step(s, t, now, p, pass);
             }
-            else if (drums) play_drums(s, t, now, idx);
-            else play_step(s, t, now, st);
+            else if (drums) play_drums(s, t, now, idx, pass);
+            else play_step(s, t, now, st, pass);
         }
     }
     s->tick++;
@@ -531,6 +637,30 @@ void seq_step_nudge(Seq *s, int t, int i, int d) {
     SeqStep *st = &s->track[t].step[i];
     st->nudge = (int8_t)clampi(st->nudge + d, -SEQ_MAX_NUDGE, SEQ_MAX_NUDGE);
     if (live_offset(&s->track[t])) s->track[t].jit[i] = draw_offset(s, &s->track[t], st);
+}
+
+void seq_step_ratchet(Seq *s, int t, int i, int d) {
+    SeqStep *st = &s->track[t].step[i];
+    st->ratchet = (uint8_t)clampi((st->ratchet < 1 ? 1 : st->ratchet) + d, 1, SEQ_MAX_RATCHET);
+    if (st->ratchet == 1) st->ratchet = 0;
+}
+
+void seq_step_cond(Seq *s, int t, int i, int d) {
+    SeqStep *st = &s->track[t].step[i];
+    st->cond = (uint8_t)clampi(st->cond + d, 0, COND_COUNT - 1);
+}
+
+void seq_drum_ratchet(Seq *s, int t, int l, int i, int d) {
+    SeqDrums *dr = &s->track[t].drum;
+    if (l < 0 || l >= SEQ_LANES || !dr->vel[l][i]) return;
+    int r = clampi((dr->rat[l][i] < 1 ? 1 : dr->rat[l][i]) + d, 1, SEQ_MAX_RATCHET);
+    dr->rat[l][i] = (uint8_t)(r == 1 ? 0 : r);
+}
+
+void seq_drum_cond(Seq *s, int t, int l, int i, int d) {
+    SeqDrums *dr = &s->track[t].drum;
+    if (l < 0 || l >= SEQ_LANES || !dr->vel[l][i]) return;
+    dr->cond[l][i] = (uint8_t)clampi(dr->cond[l][i] + d, 0, COND_COUNT - 1);
 }
 
 void seq_track_lock_toggle(Seq *s, int t) { s->track[t].locked ^= 1; }
@@ -873,17 +1003,40 @@ void seq_note_name(int note, char out[8]) {
     snprintf(out, 8, "%s%d", n[note % 12], note / 12 - 1);
 }
 
-/* Drum hits: "PREFIX ... LANE STEP VEL PROB", one line per hit. */
-static void save_hits(FILE *f, const char *prefix, const SeqDrums *d) {
+/* Drum hits: "TAG IDS LANE STEP VEL PROB", one line per hit, then for a hit
+ * with a ratchet or condition "TAGr IDS LANE STEP RAT COND" (older versions skip it). */
+static void save_hits(FILE *f, const char *tag, const char *ids, const SeqDrums *d) {
     for (int l = 0; l < SEQ_LANES; l++)
-        for (int i = 0; i < SEQ_STEPS; i++)
-            if (d->vel[l][i]) fprintf(f, "%s %d %d %d %d\n", prefix, l, i, d->vel[l][i], d->prob[l][i]);
+        for (int i = 0; i < SEQ_STEPS; i++) {
+            if (!d->vel[l][i]) continue;
+            fprintf(f, "%s %s %d %d %d %d\n", tag, ids, l, i, d->vel[l][i], d->prob[l][i]);
+            if (d->rat[l][i] || d->cond[l][i]) fprintf(f, "%sr %s %d %d %d %d\n", tag, ids, l, i, d->rat[l][i], d->cond[l][i]);
+        }
+}
+
+static void load_hit_extra(SeqDrums *d, int l, int i, int r, int c) {
+    if (l < 0 || l >= SEQ_LANES || i < 0 || i >= SEQ_STEPS) return;
+    r = clampi(r, 0, SEQ_MAX_RATCHET);
+    d->rat[l][i] = (uint8_t)(r == 1 ? 0 : r);
+    d->cond[l][i] = (uint8_t)clampi(c, 0, COND_COUNT - 1);
+}
+
+/* A step's ratchet and condition: "TAG IDS STEP RAT COND" (older versions skip it). */
+static void save_extra(FILE *f, const char *tag, const char *ids, int i, const SeqStep *st) {
+    if (st->ratchet || st->cond) fprintf(f, "%s %s %d %d %d\n", tag, ids, i, st->ratchet, st->cond);
+}
+
+static void load_extra(SeqStep *st, int r, int c) {
+    r = clampi(r, 0, SEQ_MAX_RATCHET);
+    st->ratchet = (uint8_t)(r == 1 ? 0 : r);
+    st->cond = (uint8_t)clampi(c, 0, COND_COUNT - 1);
 }
 
 static void load_hit(SeqDrums *d, int l, int i, int v, int p) {
     if (l < 0 || l >= SEQ_LANES || i < 0 || i >= SEQ_STEPS) return;
     d->vel[l][i] = (uint8_t)clampi(v, 0, 127);
     d->prob[l][i] = (uint8_t)clampi(p, 0, 100);
+    d->rat[l][i] = d->cond[l][i] = 0;   /* a "dhr" line may follow */
 }
 
 void seq_save(const Seq *s, FILE *f) {
@@ -935,14 +1088,17 @@ void seq_save(const Seq *s, FILE *f) {
                 if (st->hold) fprintf(f, "sh %d %d %d %d\n", t, k, i, st->hold);
                 if (st->nudge) fprintf(f, "so %d %d %d %d\n", t, k, i, st->nudge);
                 if (st->more[0]) fprintf(f, "sx %d %d %d %d %d %d\n", t, k, i, st->more[0], st->more[1], st->more[2]);
+                snprintf(pre, sizeof pre, "%d %d", t, k);
+                save_extra(f, "sr", pre, i, st);
             }
-            snprintf(pre, sizeof pre, "dsh %d %d", t, k);
-            save_hits(f, pre, &sl->drum);
+            snprintf(pre, sizeof pre, "%d %d", t, k);
+            save_hits(f, "dsh", pre, &sl->drum);
         }
         fprintf(f, "ch %d %d %d %d %d %d %d", t, tr->cur_slot, tr->chain_len, tr->chain_pos, tr->chain_bars, tr->chain_morph, SEQ_SLOTS);
         for (int k = 0; k < SEQ_SLOTS; k++) fprintf(f, " %d", tr->chain[k]);
         fputc('\n', f);
-        if (tr->has_anchor) { snprintf(pre, sizeof pre, "dah %d", t); save_hits(f, pre, &tr->drum_anchor); }
+        snprintf(pre, sizeof pre, "%d", t);
+        if (tr->has_anchor) save_hits(f, "dah", pre, &tr->drum_anchor);
         if (tr->has_anchor)
             for (int i = 0; i < SEQ_STEPS; i++) {
                 const SeqStep *st = &tr->anchor[i];
@@ -950,6 +1106,8 @@ void seq_save(const Seq *s, FILE *f) {
                 if (st->hold) fprintf(f, "ah %d %d %d\n", t, i, st->hold);
                 if (st->nudge) fprintf(f, "ao %d %d %d\n", t, i, st->nudge);
                 if (st->more[0]) fprintf(f, "ax %d %d %d %d %d\n", t, i, st->more[0], st->more[1], st->more[2]);
+                snprintf(pre, sizeof pre, "%d", t);
+                save_extra(f, "atr", pre, i, st);
             }
         for (int i = 0; i < SEQ_STEPS; i++) {
             const SeqStep *st = &tr->step[i];
@@ -958,9 +1116,10 @@ void seq_save(const Seq *s, FILE *f) {
             if (st->nudge) fprintf(f, "o %d %d %d\n", t, i, st->nudge);   /* offset; older versions skip it */
             /* chord notes, in scale degrees from the step's note; older versions skip it */
             if (st->more[0]) fprintf(f, "x %d %d %d %d %d\n", t, i, st->more[0], st->more[1], st->more[2]);
+            snprintf(pre, sizeof pre, "%d", t);
+            save_extra(f, "r", pre, i, st);   /* ratchet and condition; older versions skip it */
         }
-        snprintf(pre, sizeof pre, "dh %d", t);
-        save_hits(f, pre, &tr->drum);
+        save_hits(f, "dh", pre, &tr->drum);
     }
 }
 
@@ -1015,6 +1174,13 @@ int seq_load(Seq *s, FILE *f) {
             if (sscanf(line, "dmv %d", &a) == 1) map_version = a;
             else if (sscanf(line, "dl %d %u", &a, &u) == 2) {
                 if (a >= 0 && a < SEQ_TRACKS) s->track[a].drum_step_lock = (uint32_t)u;
+            }
+            else if (sscanf(line, "dhr %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+                if (a >= 0 && a < SEQ_TRACKS) load_hit_extra(&s->track[a].drum, b, c, d, e);
+            } else if (sscanf(line, "dahr %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+                if (a >= 0 && a < SEQ_TRACKS) load_hit_extra(&s->track[a].drum_anchor, b, c, d, e);
+            } else if (sscanf(line, "dshr %d %d %d %d %d %d", &a, &k, &b, &c, &d, &e) == 6) {
+                if (a >= 0 && a < SEQ_TRACKS && k >= 0 && k < SEQ_SLOTS) load_hit_extra(&s->track[a].slot[k].drum, b, c, d, e);
             }
             else if (sscanf(line, "dh %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
                 if (a >= 0 && a < SEQ_TRACKS) load_hit(&s->track[a].drum, b, c, d, e);
@@ -1094,6 +1260,13 @@ int seq_load(Seq *s, FILE *f) {
         } else if (sscanf(line, "sx %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g) == 6) {
             if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
                 load_more(&s->track[a].slot[b].step[c], d, e, g);
+        } else if (sscanf(line, "r %d %d %d %d", &a, &b, &c, &d) == 4) {   /* ratchet + condition, after the step line */
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) load_extra(&s->track[a].step[b], c, d);
+        } else if (sscanf(line, "atr %d %d %d %d", &a, &b, &c, &d) == 4) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_STEPS) load_extra(&s->track[a].anchor[b], c, d);
+        } else if (sscanf(line, "sr %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) {
+            if (a >= 0 && a < SEQ_TRACKS && b >= 0 && b < SEQ_SLOTS && c >= 0 && c < SEQ_STEPS)
+                load_extra(&s->track[a].slot[b].step[c], d, e);
         } else if (sscanf(line, "vo %d %d", &a, &b) == 2) {
             if (a >= 0 && a < SEQ_TRACKS) s->track[a].poly = b != 0;
         }
@@ -1110,7 +1283,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_SLOTS || c < 0 || c >= SEQ_STEPS) continue;
             s->track[a].slot[b].step[c] = (SeqStep){(uint8_t)(d != 0), (uint8_t)clampi(e, 0, 127),
                                                     (uint8_t)clampi(g, 1, 127), (uint8_t)clampi(h, 5, 100),
-                                                    (uint8_t)clampi(k, 0, 100), (uint8_t)(n != 0), 0, 0, {0}};
+                                                    (uint8_t)clampi(k, 0, 100), (uint8_t)(n != 0), 0, 0, {0}, 0, 0};
         } else if (sscanf(line, "ch %d %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g, &h) == 7) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
             SeqTrack *tr = &s->track[a];
@@ -1142,7 +1315,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
             s->track[a].anchor[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
                                               (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
-                                              (uint8_t)clampi(h, 0, 100), 0, 0, 0, {0}};
+                                              (uint8_t)clampi(h, 0, 100), 0, 0, 0, {0}, 0, 0};
             s->track[a].has_anchor = 1;
         } else if (sscanf(line, "e %d %d %d %d", &a, &b, &c, &d) == 4) {
             if (a < 0 || a >= SEQ_TRACKS) continue;
@@ -1170,7 +1343,7 @@ int seq_load(Seq *s, FILE *f) {
             if (a < 0 || a >= SEQ_TRACKS || b < 0 || b >= SEQ_STEPS) continue;
             s->track[a].step[b] = (SeqStep){(uint8_t)(c != 0), (uint8_t)clampi(d, 0, 127),
                                             (uint8_t)clampi(e, 1, 127), (uint8_t)clampi(g, 5, 100),
-                                            (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0, 0, {0}};
+                                            (uint8_t)clampi(h, 0, 100), (uint8_t)(m == 8 && n != 0), 0, 0, {0}, 0, 0};
         }
     }
     /* The first drum build (PR 23) defaulted to the GM map and wrote it to

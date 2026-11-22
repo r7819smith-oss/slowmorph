@@ -84,3 +84,78 @@ undoes.
 you left them.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
+
+---
+
+## Part 2: ratchets and trig conditions
+
+New settings start **off** here too: no step has a ratchet or a condition
+until you give it one, and EVO RATCHET+COND is off on every track.
+
+### 7. A ratchet on a note
+1. On the grid, put the cursor on a T1 note and press **X** (STEP page).
+2. Go **up** from **STEP** twice: **RATCHET**. Press **right** twice: **x3 IN THE STEP**.
+3. Press **Start**. Then try **x2**, **x4** and **x8**.
+
+**Expected:** the note plays 3 quick times inside its step, evenly spaced,
+in time with the FM1. Back on the grid the block shows thin lines splitting
+it into 3, and the info line ends with **X3**. x8 at 1/16 is a fast buzz.
+With T1's STEP RATE at **1/4**, an x4 plays four 1/16s.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 8. Every other pass (CONDITION)
+1. Same STEP page, row **CONDITION** (up once from STEP). Press **right**:
+   **1:2 PASS 1 OF 2**. Press **right** again: **2:2**.
+2. Listen for 4 passes of T1 with 1:2, then with 2:2.
+3. Keep going right: **1:3**, **2:3** ... **8:8**, **FIRST**, **NOT FIRST**,
+   **PRE**, **NOT PRE** (hold **Y** to jump 4 at a time).
+
+**Expected:** 1:2 plays the note on passes 1, 3, 5 ...; 2:2 on passes 2, 4,
+6 ...; FIRST only on the first pass after Start; NOT FIRST on every pass
+but the first. The grid block has a small cyan square in its bottom left
+corner. A step's chance (PROBABILITY) still applies on top.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 9. Taking turns (PRE / NOT PRE)
+1. Give one T1 note **1:2**, the next note **PRE**, and the one after **NOT PRE**.
+
+**Expected:** pass 1 plays the first two notes, pass 2 only the third, and
+so on: the two later notes take turns, following the first one.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 10. Drum hits
+1. On your drum track, go to the **STEP** page on a step where the kick hits.
+2. Move onto the **KICK** row, then **down** past the lanes to **KICK RATCHET**
+   and **KICK COND** (they follow the last lane row you were on). Set
+   **x2** and **2:2**. Do the same for a hat with **x4**.
+3. Open the drum grid (**Select** on the grid).
+
+**Expected:** a kick roll of 2 on every second pass, a hat roll of 4. On
+the drum grid the hits show the split lines and the cyan square, and the
+info line reads e.g. **STEP 01 KICK VEL 72 CHANCE 69% X2 2:2**.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 11. RATCHET and VARY transforms, and EVO RATCHET+COND
+1. GENERATE > TRANSFORM: **RATCHET**, **BY +3**, press **A**. Then **VARY**, **BY +4**, **A**.
+2. **BY 0** on either clears them all (**0 (CLEAR ALL)**); **X** undoes.
+3. Turn on **EVOLVE** (every 1 bar, amount 50%) with only **EVO RATCHET+COND** on.
+
+**Expected:** 1: three notes get a ratchet (x2 to x4) and four get a
+condition (mostly 1:2 or 2:2, sometimes 1:4, 3:4, 1:3 or NOT FIRST), so the
+pattern changes from pass to pass. 3: now and then a ratchet or a
+condition appears or goes, the notes themselves stay. Locked steps never
+change. Works on drum tracks too.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 12. Saved
+1. Save a slot, quit and start again, then load the slot.
+
+**Expected:** ratchets and conditions come back on the live pattern, the
+slot and the anchor, for notes and drum hits.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________

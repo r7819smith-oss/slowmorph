@@ -26,7 +26,8 @@ typedef enum {
 
 enum { EVO_PITCH = 1, EVO_RHYTHM = 2, EVO_VEL = 4, EVO_ROTATE = 8, EVO_REGEN = 16, EVO_PROB = 32,
        EVO_OFFSET = 64,   /* drift step offsets a little */
-       EVO_ALL = 127 };
+       EVO_TRIG = 128,    /* now and then add or take away a ratchet or a trig condition */
+       EVO_ALL = 255 };
 
 /* Hand-editing transforms; all leave locked steps where they are. */
 typedef enum {
@@ -43,8 +44,13 @@ typedef enum {
     XF_CHORD,       /* write the CHORD row's chord into every unlocked note (OFF: single notes again); sets POLY */
     XF_EUCLID,      /* space the unlocked notes (drums: each lane's hits) evenly, keeping how many there are and their order;
                        `amount` turns the result by that many steps */
+    XF_RATCHET,     /* give `amount` notes a ratchet (2-4 repeats); negative takes that many away; 0 clears them all */
+    XF_VARY,        /* give `amount` notes a trig condition (1:2, 2:2, 1:4 ...) so passes differ; negative / 0 as RATCHET */
     XF_COUNT
 } XformType;
+/* The ratchets and conditions RATCHET, VARY and EVO TRIG hand out. */
+int gen_pick_ratchet(Seq *s);
+int gen_pick_cond(Seq *s);
 
 enum { SCALE_CHROMATIC = 0, SCALE_MIN_PENT = 9 };
 
