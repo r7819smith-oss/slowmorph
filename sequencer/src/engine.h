@@ -31,7 +31,21 @@ typedef struct {
     int8_t more[3];  /* the step's other notes (a chord), in scale degrees above (+) or below (-) `note`;
                         0 = unused, the used ones come first. They follow `note` when it moves (see seq_step_notes).
                         Only a POLY track plays them. */
+    uint8_t ratchet; /* 0 or 1 = the note plays once; 2..SEQ_MAX_RATCHET = it repeats that many times inside its step */
+    uint8_t cond;    /* trig condition (COND_*): which passes of the pattern the step plays on; 0 = every pass */
 } SeqStep;
+#define SEQ_MAX_RATCHET 8
+/* Trig conditions. A:B plays on pass A of every B passes of the track's
+ * pattern (1:2 = passes 1, 3, 5 ...; 2:4 = passes 2, 6, 10 ...). FIRST plays
+ * only on the first pass after Start (or a REALIGN that moved the track);
+ * PRE plays when the track's last A:B / FIRST step did, NOT PRE when it
+ * didn't, so two steps can take turns. Probability still applies on top. */
+enum { COND_ALWAYS = 0, COND_AB_FIRST = 1, COND_AB_LAST = 35,   /* 1:2 2:2 1:3 2:3 3:3 1:4 ... 8:8 */
+       COND_FIRST, COND_NOT_FIRST, COND_PRE, COND_NOT_PRE, COND_COUNT };
+void seq_cond_name(int cond, char out[12]);   /* "ALWAYS", "1:2", "NOT FIRST" ... */
+/* A:B of an A:B condition (returns 1), or 0 for the others. */
+int  seq_cond_ab(int cond, int *a, int *b);
+int  seq_cond_make(int a, int b);             /* the A:B condition, COND_ALWAYS if out of range */
 #define SEQ_POLY 4         /* notes one step can hold: its own note and up to 3 more */
 #define SEQ_POLY_VOICES 8  /* notes a POLY track keeps sounding at once (Felucca has 8 voices in all) */
 #define SEQ_MORE_MAX 35    /* furthest a chord note sits from the step's note, in scale degrees (5 octaves) */
@@ -75,6 +89,8 @@ enum { TRACK_NOTES, TRACK_DRUMS };
 typedef struct {
     uint8_t vel[SEQ_LANES][SEQ_STEPS];    /* 0 = no hit, else the hit's velocity 1..127 */
     uint8_t prob[SEQ_LANES][SEQ_STEPS];   /* chance a hit plays, 0..100 */
+    uint8_t rat[SEQ_LANES][SEQ_STEPS];    /* the hit's ratchet, as SeqStep.ratchet */
+    uint8_t cond[SEQ_LANES][SEQ_STEPS];   /* the hit's trig condition, as SeqStep.cond */
 } SeqDrums;
 
 typedef struct {
@@ -161,6 +177,18 @@ typedef struct {
      * drum kit rolls, instead of the kit's own pattern. */
     uint8_t euc_hits[SEQ_LANES];
     uint8_t euc_rot[SEQ_LANES];
+    /* Ratchets still to play (not saved): the repeats of the last step (note
+     * tracks) or of each lane's last hit (drum tracks). A new step on the
+     * track cancels the note repeats; a new hit on a lane cancels that lane's. */
+    SeqStep rat_st;             /* the step being repeated */
+    uint8_t rat_r, rat_k;       /* its ratchet count, and the next repeat to play (1..rat_r-1; rat_k >= rat_r: none left) */
+    uint32_t rat_t0;            /* tick the step started on */
+    uint8_t lrat_r[SEQ_LANES], lrat_k[SEQ_LANES], lrat_vel[SEQ_LANES];
+    uint32_t lrat_t0[SEQ_LANES];
+    uint8_t pre;                /* result of the track's last A:B / FIRST condition, for PRE (not saved) */
+    /* FOLLOW HARMONY (HARM_*, gen.h): how this track's notes follow the
+     * HARMONY progression as they are sent. The pattern is unchanged. */
+    uint8_t harm_mode;
 } SeqTrack;
 
 /* Live playing and recording (M > LIVE; live.h has the functions). The
@@ -236,6 +264,11 @@ typedef struct {
     uint8_t lane_note[SEQ_LANES];                 /* DRUM MAP: MIDI note of each lane, shared by every drum track */
     char lane_name[SEQ_LANES][SEQ_LANE_NAME + 1];
     int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
+    /* HARMONY: a chord progression every note track can follow (see gen.h). */
+    int harm;           /* HARMONY preset (HP_*); 0 = off */
+    int harm_bars;      /* bars per chord: 1, 2, 4 or 8 */
+    int harm_drift;     /* the DRIFT preset's current chord, a scale degree 0..6 (not saved) */
+    int key_next;       /* KEY MOVE waiting for the next bar line: the new root 0..11, or -1 (not saved) */
     int realign;        /* REALIGN: every this many bars, tracks that are not on their step 1 jump back to it (0 = never) */
     Mod mod;                                      /* M > MODULATION: LFOs sending CCs (mod.h) */
     Arrange arr;                                  /* M > LIVE: ARRANGE (live.h); saved with the song */
@@ -296,7 +329,12 @@ void seq_track_release(Seq *s, int t);
 /* Adjust step parameters; a note change also switches the step on. */
 void seq_step_adjust(Seq *s, int t, int i, int dnote, int dvel, int dgate, int dprob);
 void seq_step_hold(Seq *s, int t, int i, int delta);   /* change a step's hold, 0..SEQ_MAX_HOLD */
-void seq_step_nudge(Seq *s, int t, int i, int delta);  /* change a step's offset, -SEQ_MAX_NUDGE..SEQ_MAX_NUDGE ticks */
+void seq_step_nudge(Seq *s, int t, int i, int delta);
+void seq_step_ratchet(Seq *s, int t, int i, int delta);   /* 1..SEQ_MAX_RATCHET (1 = off) */
+void seq_step_cond(Seq *s, int t, int i, int delta);      /* steps through COND_* */
+/* The same for drum hit (lane, step); a step with no hit is left alone. */
+void seq_drum_ratchet(Seq *s, int t, int lane, int i, int delta);
+void seq_drum_cond(Seq *s, int t, int lane, int i, int delta);  /* change a step's offset, -SEQ_MAX_NUDGE..SEQ_MAX_NUDGE ticks */
 void seq_track_mute_toggle(Seq *s, int t);
 /* Solo: while any track is soloed, only soloed, unmuted tracks play. Several
  * tracks can be soloed at once. Notes held by tracks that go silent are

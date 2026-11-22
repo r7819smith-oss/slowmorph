@@ -140,13 +140,13 @@ void seq_drum_toggle(Seq *s, int t, int lane, int i) {
     if (lane < 0 || lane >= SEQ_LANES || i < 0 || i >= SEQ_STEPS) return;
     SeqDrums *d = &s->track[t].drum;
     if (d->vel[lane][i]) d->vel[lane][i] = 0;
-    else { d->vel[lane][i] = 100; d->prob[lane][i] = 100; }
+    else { d->vel[lane][i] = 100; d->prob[lane][i] = 100; d->rat[lane][i] = d->cond[lane][i] = 0; }
 }
 
 void seq_drum_adjust(Seq *s, int t, int lane, int i, int dv, int dp) {
     if (lane < 0 || lane >= SEQ_LANES || i < 0 || i >= SEQ_STEPS) return;
     SeqDrums *d = &s->track[t].drum;
-    if (!d->vel[lane][i]) { d->vel[lane][i] = 100; d->prob[lane][i] = 100; }
+    if (!d->vel[lane][i]) { d->vel[lane][i] = 100; d->prob[lane][i] = 100; d->rat[lane][i] = d->cond[lane][i] = 0; }
     d->vel[lane][i] = (uint8_t)clampi(d->vel[lane][i] + dv, 1, 127);
     d->prob[lane][i] = (uint8_t)clampi(d->prob[lane][i] + dp, 0, 100);
 }
@@ -330,6 +330,8 @@ static void kit_roll(Seq *s, int style, int len, int busy, uint8_t locked, SeqDr
             d->vel[l][i] = (uint8_t)range(s, 35, 55);
             d->prob[l][i] = (uint8_t)range(s, 30, 50);
         }
+        for (int i = 0; i < SEQ_STEPS; i++)   /* a ratchet or condition stays with a step that still has a hit */
+            if (!d->vel[l][i]) d->rat[l][i] = d->cond[l][i] = 0;
     }
 }
 
@@ -346,9 +348,9 @@ void gen_drum_euclid_lane(Seq *s, int t, int l) {
         if ((j * k) % len < k) {
             tr->drum.vel[l][i] = (uint8_t)range(s, vlo, vhi);
             tr->drum.prob[l][i] = (uint8_t)range(s, plo, phi);
-        } else tr->drum.vel[l][i] = 0;
+        } else tr->drum.vel[l][i] = tr->drum.rat[l][i] = tr->drum.cond[l][i] = 0;
     }
-    for (int i = len; i < SEQ_STEPS; i++) if (col_free(tr, i)) tr->drum.vel[l][i] = 0;
+    for (int i = len; i < SEQ_STEPS; i++) if (col_free(tr, i)) tr->drum.vel[l][i] = tr->drum.rat[l][i] = tr->drum.cond[l][i] = 0;
 }
 
 void gen_drum_roll(Seq *s, int t) {
@@ -359,7 +361,10 @@ void gen_drum_roll(Seq *s, int t) {
     for (int l = 0; l < SEQ_LANES; l++) gen_drum_euclid_lane(s, t, l);
     for (int i = 0; i < SEQ_STEPS; i++)   /* step-locked steps keep every lane's hit */
         if (!col_free(tr, i))
-            for (int l = 0; l < SEQ_LANES; l++) { tr->drum.vel[l][i] = keep.vel[l][i]; tr->drum.prob[l][i] = keep.prob[l][i]; }
+            for (int l = 0; l < SEQ_LANES; l++) {
+                tr->drum.vel[l][i] = keep.vel[l][i]; tr->drum.prob[l][i] = keep.prob[l][i];
+                tr->drum.rat[l][i] = keep.rat[l][i]; tr->drum.cond[l][i] = keep.cond[l][i];
+            }
 }
 
 void gen_drum_notes(Seq *s, int t) {
@@ -393,10 +398,14 @@ void gen_drum_notes(Seq *s, int t) {
 static void lane_rotate(SeqTrack *tr, int l, int by) {
     int pos[SEQ_STEPS], n = free_cols(tr, pos);
     if (!n) return;
-    uint8_t v[SEQ_STEPS], p[SEQ_STEPS];
+    uint8_t v[SEQ_STEPS], p[SEQ_STEPS], r[SEQ_STEPS], c[SEQ_STEPS];
+    SeqDrums *d = &tr->drum;
     by = ((by % n) + n) % n;
-    for (int k = 0; k < n; k++) { v[(k + by) % n] = tr->drum.vel[l][pos[k]]; p[(k + by) % n] = tr->drum.prob[l][pos[k]]; }
-    for (int k = 0; k < n; k++) { tr->drum.vel[l][pos[k]] = v[k]; tr->drum.prob[l][pos[k]] = p[k]; }
+    for (int k = 0; k < n; k++) {
+        int j = (k + by) % n;
+        v[j] = d->vel[l][pos[k]]; p[j] = d->prob[l][pos[k]]; r[j] = d->rat[l][pos[k]]; c[j] = d->cond[l][pos[k]];
+    }
+    for (int k = 0; k < n; k++) { d->vel[l][pos[k]] = v[k]; d->prob[l][pos[k]] = p[k]; d->rat[l][pos[k]] = r[k]; d->cond[l][pos[k]] = c[k]; }
 }
 
 void gen_drum_morph(Seq *s, int t, const SeqDrums *target, int pct) {
@@ -406,7 +415,11 @@ void gen_drum_morph(Seq *s, int t, const SeqDrums *target, int pct) {
         for (int i = 0; i < tr->len; i++) {
             if (!col_free(tr, i)) continue;
             int differs = tr->drum.vel[l][i] != target->vel[l][i] || (target->vel[l][i] && tr->drum.prob[l][i] != target->prob[l][i]);
-            if (differs && chance(s, pct)) { tr->drum.vel[l][i] = target->vel[l][i]; tr->drum.prob[l][i] = target->prob[l][i]; }
+            differs |= target->vel[l][i] && (tr->drum.rat[l][i] != target->rat[l][i] || tr->drum.cond[l][i] != target->cond[l][i]);
+            if (differs && chance(s, pct)) {
+                tr->drum.vel[l][i] = target->vel[l][i]; tr->drum.prob[l][i] = target->prob[l][i];
+                tr->drum.rat[l][i] = target->rat[l][i]; tr->drum.cond[l][i] = target->cond[l][i];
+            }
         }
     }
 }
@@ -425,10 +438,25 @@ void gen_drum_evolve(Seq *s, int t) {
             for (int i = 0; i < len; i++) if (v[i] && col_free(tr, i)) hits[n++] = i;
             if (n && n < len) {
                 int i = hits[pick(s, n)], j = (i + (pick(s, 2) ? 1 : len - 1)) % len;
-                if (!v[j] && col_free(tr, j)) { v[j] = v[i]; p[j] = p[i]; v[i] = 0; }
+                if (!v[j] && col_free(tr, j)) {
+                    v[j] = v[i]; p[j] = p[i]; v[i] = 0;
+                    tr->drum.rat[l][j] = tr->drum.rat[l][i]; tr->drum.cond[l][j] = tr->drum.cond[l][i];
+                    tr->drum.rat[l][i] = tr->drum.cond[l][i] = 0;
+                }
             }
         }
         if ((e->kinds & EVO_ROTATE) && chance(s, e->amount)) lane_rotate(tr, l, pick(s, 2) ? 1 : -1);
+        if ((e->kinds & EVO_TRIG) && chance(s, e->amount / 4)) {   /* a hit gains or loses a ratchet or condition */
+            int hits[SEQ_STEPS], n = 0;
+            for (int i = 0; i < len; i++) if (v[i] && col_free(tr, i)) hits[n++] = i;
+            if (n) {
+                int i = hits[pick(s, n)];
+                uint8_t *r = &tr->drum.rat[l][i], *c = &tr->drum.cond[l][i];
+                if ((*r || *c) && pick(s, 2)) { if (*r && (!*c || pick(s, 2))) *r = 0; else *c = 0; }
+                else if (pick(s, 2)) *r = (uint8_t)gen_pick_ratchet(s);
+                else *c = (uint8_t)gen_pick_cond(s);
+            }
+        }
         for (int i = 0; i < len; i++) {
             if (!v[i] || !col_free(tr, i)) continue;
             if ((e->kinds & EVO_VEL) && chance(s, e->amount))
@@ -451,6 +479,8 @@ int gen_drum_transform(Seq *s, int t, int op, int amount) {
                 int i = pos[a], j = pos[b];
                 uint8_t x = tr->drum.vel[l][i]; tr->drum.vel[l][i] = tr->drum.vel[l][j]; tr->drum.vel[l][j] = x;
                 x = tr->drum.prob[l][i]; tr->drum.prob[l][i] = tr->drum.prob[l][j]; tr->drum.prob[l][j] = x;
+                x = tr->drum.rat[l][i]; tr->drum.rat[l][i] = tr->drum.rat[l][j]; tr->drum.rat[l][j] = x;
+                x = tr->drum.cond[l][i]; tr->drum.cond[l][i] = tr->drum.cond[l][j]; tr->drum.cond[l][j] = x;
             }
         }
         return 0;
@@ -501,17 +531,44 @@ int gen_drum_transform(Seq *s, int t, int op, int amount) {
         if (!np) return 0;
         for (int l = 0; l < SEQ_LANES; l++) {
             if (tr->drum_lock & (1 << l)) continue;
-            uint8_t v[SEQ_STEPS], p[SEQ_STEPS];
+            SeqDrums *d = &tr->drum;
+            uint8_t v[SEQ_STEPS], p[SEQ_STEPS], r[SEQ_STEPS], c[SEQ_STEPS];
             int n = 0, rot = ((amount % np) + np) % np;
-            for (int k = 0; k < np; k++) if (tr->drum.vel[l][pos[k]]) { v[n] = tr->drum.vel[l][pos[k]]; p[n++] = tr->drum.prob[l][pos[k]]; }
+            for (int k = 0; k < np; k++)
+                if (d->vel[l][pos[k]]) { v[n] = d->vel[l][pos[k]]; p[n] = d->prob[l][pos[k]]; r[n] = d->rat[l][pos[k]]; c[n++] = d->cond[l][pos[k]]; }
             if (!n) continue;
             for (int k = 0, m = 0; k < np; k++) {
-                int j = (k - rot + np) % np;
-                if ((j * n) % np < n) { tr->drum.vel[l][pos[k]] = v[m]; tr->drum.prob[l][pos[k]] = p[m++]; }
-                else tr->drum.vel[l][pos[k]] = 0;
+                int j = (k - rot + np) % np, i = pos[k];
+                if ((j * n) % np < n) { d->vel[l][i] = v[m]; d->prob[l][i] = p[m]; d->rat[l][i] = r[m]; d->cond[l][i] = c[m++]; }
+                else d->vel[l][i] = d->rat[l][i] = d->cond[l][i] = 0;
             }
         }
         return 0;
+    case XF_RATCHET:
+    case XF_VARY: {   /* as on note tracks, over every unlocked hit */
+        int rat = op == XF_RATCHET;
+        uint8_t (*f)[SEQ_STEPS] = rat ? tr->drum.rat : tr->drum.cond;
+        if (amount == 0) {
+            for (int l = 0; l < SEQ_LANES; l++)
+                if (!(tr->drum_lock & (1 << l)))
+                    for (int k = 0; k < np; k++) f[l][pos[k]] = 0;
+            return 0;
+        }
+        for (int r = 0; r < (amount < 0 ? -amount : amount); r++) {
+            int cl[SEQ_LANES * SEQ_STEPS], ci[SEQ_LANES * SEQ_STEPS], nc = 0;
+            for (int l = 0; l < SEQ_LANES; l++) {
+                if (tr->drum_lock & (1 << l)) continue;
+                for (int k = 0; k < np; k++) {
+                    int i = pos[k];
+                    if (tr->drum.vel[l][i] && (amount > 0 ? !f[l][i] : f[l][i] != 0)) { cl[nc] = l; ci[nc++] = i; }
+                }
+            }
+            if (!nc) break;
+            int c = pick(s, nc);
+            f[cl[c]][ci[c]] = amount > 0 ? (uint8_t)(rat ? gen_pick_ratchet(s) : gen_pick_cond(s)) : 0;
+        }
+        return 0;
+    }
     case XF_CLEAR:
         for (int l = 0; l < SEQ_LANES; l++)
             if (!(tr->drum_lock & (1 << l)))

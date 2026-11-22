@@ -750,6 +750,67 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     already there for note tracks.
   - Not built: a per-track clock *multiplier* beyond 1/32, and odd rates
     such as 1/16 dotted (5/4 of a step does not divide a bar evenly).
+- **Ratchets and trig conditions (2026-11-22, Roy's list item 7).**
+  - **RATCHET** (STEP page, 2 up from STEP): x2 to x8 repeats inside the
+    step, evenly spread over the step's length at the track's STEP RATE.
+    Each repeat sounds for GATE % of its share; the last also gets the
+    HOLD. Chance and condition are decided once for the whole step. A POLY
+    step repeats its whole chord. A new note on the track, Stop, mute or a
+    rest ends the repeats.
+  - **CONDITION** (STEP page, 1 up from STEP): ALWAYS; A:B for B = 2..8
+    (plays on pass A of every B passes of the track's own pattern, counted
+    from Start or the REALIGN that last moved the track); FIRST; NOT FIRST;
+    PRE / NOT PRE (whether the track's last A:B or FIRST step played).
+    Probability still applies after the condition. Hold Y jumps 4.
+  - **Drum hits** have their own ratchet and condition: on a drum track's
+    STEP page, below the 8 lanes, `<LANE> RATCHET` and `<LANE> COND` edit
+    the last lane row the cursor was on. Hits keep them when they move
+    (shift, reverse, Euclid, evolve, morph); a hand-made new hit starts
+    with none; a kit roll clears them only where a step loses its hit.
+  - **Shown** as thin lines splitting the block (one per repeat) and a
+    small cyan square (condition), on the GRID and the drum grid; the info
+    lines read e.g. `X3 1:2`.
+  - **Transforms RATCHET and VARY** (GENERATE > TRANSFORM): BY +n gives n
+    notes (or hits) a ratchet (x2-x4, mostly x2) or a condition (mostly 1:2
+    or 2:2, sometimes 1:3, 1:4, 3:4, NOT FIRST; never PRE, which needs a
+    partner); -n takes n away; 0 clears them all.
+  - **EVO RATCHET+COND** (new last EVO row, bit 128 of the `e` line's
+    kinds): with the track's evolve amount as the chance each evolve bar,
+    one note gains or loses a ratchet or condition (drums: per lane, at a
+    quarter of the amount). Off by default; EVO_ALL now includes it.
+  - Saved as `r T STEP RAT COND` (`sr`, `atr` for slots and anchor) and
+    `dhr` / `dshr` / `dahr` after the drum hit lines. Older versions skip
+    them; older files load with no ratchets or conditions.
+  - Generators keep a step's ratchet and condition where they are, as they
+    do its OFFSET: they belong to the step position.
+- **Harmony and key changes (2026-11-22, Roy's list item 6).**
+  - **HARMONY** (GENERATE, after RESTS; one setting for all tracks): OFF,
+    I-IV, I-V, I-VI-IV-V, I-V-VI-IV, VI-IV-I-V, II-V-I-I, I-VII-VI-VII,
+    I-III-IV-I, DRIFT. Chords are scale degrees of the current scale (so in
+    a pentatonic scale they are built from its 5 notes). **BARS EACH**: 1,
+    2 (default), 4 or 8 bars per chord, counted from Start. DRIFT picks a
+    nearby chord at random at each change (I most, then IV, V, VI; never
+    the same twice running). The current chord shows in the header.
+  - **FOLLOWS** (per track, the row under BARS EACH): OFF, MOVE (the line
+    moves up the scale by the chord's degree), CHORD TONES (each note to
+    the nearest note of the chord's triad), ROOT (BASS) (each note becomes
+    the chord's root, at or below where it was written). Applied as notes
+    are sent, like CHORD and SWELL: the grid, slots and generators are
+    unchanged, so turning HARMONY off gives the pattern back. A step's
+    chord notes and the CHORD row follow the moved note. Drum tracks and
+    note tracks that play a style's drum part never follow.
+  - Defaults: every track MOVE (only heard once HARMONY is on); NEW FROM
+    STYLE sets parts named BASS or SUB to ROOT and drum parts to OFF.
+  - **KEY CHANGE** (was SNAP NOTES): KEEP NOTES, SNAP INTO KEY (as before),
+    or **MOVE ALL (BAR)**: changing ROOT moves every note track's notes
+    (live, anchor, slots, LOWEST NOTE) by the interval, the shorter way
+    round; while playing it waits for the next bar line (the ROOT row reads
+    `C TO D AT BAR`), stopped it is at once. A SCALE change in MOVE mode
+    snaps, as SNAP does.
+  - Saved as `harm PRESET BARS` and `hf T MODE` (only when not MOVE).
+  - Not built: chord-aware *generation* (the generators still write in the
+    scale; the progression is applied on playback), and a progression
+    editor (presets only).
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -1428,6 +1489,27 @@ The full sheet is `tests/hardware-sheet-8tracks.md`. Short form:
 9. [ ] T5-T8 survive a restart and a song save/load.
 10. [ ] Modulation SEND TO lists T1-T8 and the three groups.
 
+**D12. Ratchets and trig conditions (2026-11-22)**
+
+Full sheet: `tests/hardware-sheet-rhythm.md` part 2 (tests 7-12).
+
+1. [ ] STEP > RATCHET x3 on a note: three quick hits inside the step, in time.
+2. [ ] STEP > CONDITION 1:2 / 2:2 / FIRST / NOT FIRST play on the right passes.
+3. [ ] PRE / NOT PRE make two notes take turns after a 1:2 note.
+4. [ ] Drum STEP page: KICK RATCHET / KICK COND, shown on the drum grid.
+5. [ ] TRANSFORM RATCHET and VARY; BY 0 clears; EVO RATCHET+COND drifts them.
+6. [ ] Saved with slots, anchor and restart.
+
+**D13. Harmony and key changes (2026-11-22)**
+
+Full sheet: `tests/hardware-sheet-rhythm.md` part 3 (tests 13-17).
+
+1. [ ] GENERATE > HARMONY I-VI-IV-V: the set moves through the chords every 2 bars; header shows the chord.
+2. [ ] FOLLOWS: OFF / MOVE / CHORD TONES / ROOT (BASS) each do what they say; drums never move.
+3. [ ] DRIFT wanders between nearby chords.
+4. [ ] KEY CHANGE > MOVE ALL: ROOT C to D moves every note track at the next bar.
+5. [ ] Saved after a restart.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1502,6 +1584,8 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Modulation, MIDI IN and learn (D9, `tests/hardware-sheet-mod.md`) | not tested yet |
 | Polymeter and Euclidean rhythms (D10, `tests/hardware-sheet-rhythm.md` part 1) | not tested yet |
 | Tracks 5-8 (D11, `tests/hardware-sheet-8tracks.md`) | not tested yet |
+| Ratchets and trig conditions (D12, `tests/hardware-sheet-rhythm.md` part 2) | not tested yet |
+| Harmony and key changes (D13, `tests/hardware-sheet-rhythm.md` part 3) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 
