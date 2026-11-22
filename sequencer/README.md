@@ -6,7 +6,7 @@ binary (`./seq4h`) and the saved files (`seq4h.pat`, `seq4h.midi`,
 lost; on Knulli the app is installed as `GENVOLVE.sh` and `genvolve/`. See
 "Moving from seq4h" below.*
 
-A four-track step sequencer for the Anbernic RG40XX-V running Knulli. It sends
+An eight-track step sequencer for the Anbernic RG40XX-V running Knulli. It sends
 MIDI to an M-VAVE FM1 running Felucca firmware (or any other MIDI device). It is inspired by [SEQ-4](https://github.com/devrvega/SEQ-4) but shares
 no code with it.
 
@@ -16,7 +16,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 
 ## Features
 
-- 4 tracks x 16 steps (1/16 notes), each with its own MIDI channel and length (1-16, so tracks can be polymetric)
+- 8 tracks x 16 steps (1/16 notes), each with its own MIDI channel and length (1-16, so tracks can be polymetric). T1-T4 play the FM1 (channels 1-4); T5-T8 start on channels 5-8, for a second instrument such as the Blackbox 2 or the Digitone
 - Per step: on/off, note, velocity, gate length, probability, and a **lock**
 - **MONO or POLY** per track: a POLY track plays up to 4 notes on a step (a
   chord) and lets notes ring on over the next ones
@@ -167,7 +167,11 @@ which track you are on. Keyboard keys are in brackets.
 | Start [Space] | play / stop |
 | Select + Start [Tab + Space, or Esc] | quit (the pattern is saved) |
 
-**GRID page**: all four tracks.
+**GRID page**: four tracks at a time. T1-T4 is the first page of tracks;
+moving down from T4 (D-pad, or R2) shows T5-T8, and up from T5 goes back.
+Top right, `T1-4 / T5-8` shows which page is on screen, with a coloured dot
+for each track on the other page that has notes. T5-T8 start empty, on MIDI
+channels 5-8, so an FM1-only setup is not affected by them.
 
 | Input | Action |
 |---|---|
@@ -176,7 +180,7 @@ which track you are on. Keyboard keys are in brackets.
 | X [C] | edit this step (opens the STEP page) |
 | Y [V] | lock / unlock this step (generators, evolution and transforms leave a locked step alone; on a drum track it locks every lane's hit on that step) |
 | Select [Tab] | open the **piano roll** (note track) or the **drum grid** (drum track); press and let go on its own, so Select + Start still quits |
-| Left from step 1 | move the cursor onto the track label (T1-T4) |
+| Left from step 1 | move the cursor onto the track label (T1-T8) |
 
 On a drum track A and X open the drum grid at that step instead, since a
 drum step has 8 lanes. The grid draws a drum step as thin bars, one per lane
@@ -308,9 +312,11 @@ you were on. Rows:
 
 - *Back to editing*
 - *Music style*: AMBIENT (default), TECHNO, MELODIC, BLANK, DRONE, HIP HOP,
-  DRUM N BASS, HOUSE or TRIP HOP. Changing it sets all four T rows below to
-  that style.
-- *T1, T2, T3, T4*: what each track gets from *New from style*: KEEP AS IT IS,
+  DRUM N BASS, HOUSE or TRIP HOP. Changing it sets the T1-T4 rows below to
+  that style, and the T5-T8 rows of tracks that already have notes (empty
+  T5-T8 stay KEEP, so they are never filled by surprise).
+- *T1 ... T8*: what each track gets from *New from style* (T5-T8 can take any
+  style's parts, e.g. TECHNO KICK on T5 for the Blackbox): KEEP AS IT IS,
   a style's part (each style has four: AMBIENT LOW, ARP, MOTIF, HIGH; TECHNO
   KICK, HATS, BASS, STAB; MELODIC BASS, ARP, CALL, ANSWER; DRONE BASS, PAD,
   DRIFT, BELLS; HIP HOP BASS, KEYS, LEAD, DRUMS; DRUM N BASS SUB, PAD, STAB,
@@ -379,7 +385,7 @@ right side shows the selected slot's pattern. L2/R2 changes track.
 | M [M] | close the menu |
 
 **Song save page** (M > SONG SAVE, A): 8 songs. A song is everything: all
-four tracks with their stored patterns, names and chains, BPM, swing, scale,
+eight tracks with their stored patterns, names and chains, BPM, swing, scale,
 root, style, MIDI channels, mutes, track types and the drum map. Each song is
 its own file next to `seq4h.pat` (`seq4h-song1.pat` to `seq4h-song8.pat`, the
 same format plus a `name` line), so songs can be copied on the Mac; a song
@@ -390,7 +396,7 @@ what the selected song holds.
 | Input | Action |
 |---|---|
 | Up / down | pick a song |
-| A [Z] | load the song; A again confirms, since it replaces all four tracks. While playing, it keeps playing in time with the new song |
+| A [Z] | load the song; A again confirms, since it replaces all eight tracks. While playing, it keeps playing in time with the new song |
 | X [C] | save the whole session as this song (a full song asks for X again) |
 | Y [V] | rename the song (as slot names, start as SONG 1 to SONG 8) |
 | Select [Tab] | COPY TO (left/right picks the song), CLEAR SONG, UNDO LOAD (back to the session before the last load), BACK; A does it, A again confirms replacing or clearing |
@@ -465,7 +471,7 @@ parameter stays where it was.
 |---|---|
 | DEST / STATE | which of the 16, and ON / OFF (A toggles) |
 | LFO | which LFO drives it (several destinations can share one) |
-| SEND TO | T1-T4 (that track's channel, and it follows the track), T1-T4 ALL (every track's channel once), or a fixed CH 1-16 |
+| SEND TO | T1-T8 (that track's channel, and it follows the track), T1-T4, T5-T8 or T1-T8 (the channels of those tracks, once each), or a fixed CH 1-16 |
 | CC | 0-119; the name shown is Felucca's map with the FELUCCA device, else General MIDI. 120-127 are never sent; bank select, data entry and RPN/NRPN say AVOID |
 | LOW / HIGH / MOVE RANGE | the range, see above |
 | INVERT | HIGH when the LFO is low |
@@ -491,7 +497,7 @@ MIDI clock and Start/Stop for the output in use.
 
 | Row | What it does |
 |---|---|
-| DEVICE | left/right picks FELUCCA, JANGADA, DIGITONE or BLACKBOX 2; A twice puts the four tracks' MIDI channels, the DRUM MAP, clock and Start/Stop on it. `*` = the settings match it now. Notes, track types and everything else stay. The right side lists what to set on the device itself |
+| DEVICE | left/right picks FELUCCA, JANGADA, DIGITONE or BLACKBOX 2; A twice puts the eight tracks' MIDI channels (T5-T8 on 5-8 in every preset), the DRUM MAP, clock and Start/Stop on it. `*` = the settings match it now. Notes, track types and everything else stay. The right side lists what to set on the device itself |
 | MIDI CLOCK | SEND (Genvolve is the clock master, also while stopped) or OFF (the device keeps its own tempo) |
 | START/STOP | SEND or OFF. Off: Start on the handheld does not start the device's own sequencer |
 | OUTPUT | the port these settings belong to (pick it on M > MIDI OUTPUT) |

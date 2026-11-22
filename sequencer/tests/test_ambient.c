@@ -377,7 +377,7 @@ static void test_drone_style(void) {
     CHECK(s.track[0].chord == CHORD_FIFTH && s.track[1].chord == CHORD_TRIAD);
     CHECK(s.track[0].evo.every == 32 && s.track[1].evo.every == 16);
     CHECK(s.track[0].swell && s.track[3].rest);
-    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(gen_hits(&s, t) >= 1);
+    for (int t = 0; t < SEQ_BANK; t++) CHECK(gen_hits(&s, t) >= 1);
     /* the bass and the pad start on the root (A) */
     CHECK(pc(&s, s.track[0].step[0].note) == 0 && pc(&s, s.track[1].step[0].note) == 0);
     /* going back to AMBIENT clears the colour again */
@@ -398,7 +398,7 @@ static void test_drone_style(void) {
     seq_start(&s);
     run_bars(&s, 1000);
     seq_stop(&s);
-    for (int t = 0; t < SEQ_TRACKS; t++) CHECK(l.on[t] > 0);
+    for (int t = 0; t < SEQ_BANK; t++) CHECK(l.on[t] > 0);
     CHECK(!held_any(&l));
 }
 

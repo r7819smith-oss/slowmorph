@@ -100,7 +100,7 @@ typedef enum { STYLE_AMBIENT, STYLE_TECHNO, STYLE_MELODIC, STYLE_BLANK, STYLE_DR
  * chord or pad part, a lead, and a drum part on track 4. Each style has its
  * own drum kit, used by any drum track whose style it is. */
 #define STYLE_KEEP (-1)   /* in style_apply_tracks: leave this track as it is */
-#define STYLE_PARTS SEQ_TRACKS   /* every style has one part per track */
+#define STYLE_PARTS 4   /* every style has four parts, one for each of T1-T4 (T5-T8 pick any) */
 /* STYLE_DRONE is an ambient variant: a held bass and a chord pad that move
  * rarely, a drifting line, sparse bells, slow swells and rests, and evolution
  * over 16-32 bars. It uses AMBIENT's generator defaults. */
@@ -111,12 +111,14 @@ const char *style_name(int style);
  * a MANUAL track that has notes is left exactly as it is (it's your own
  * pattern), and if any track is kept the scale and root stay too, so the new
  * tracks fit it. Returns how many tracks were kept.
- * STYLE_BLANK clears all four tracks (keep_manual is ignored): MANUAL, 16
+ * Only T1-T4 get the style's four parts; T5-T8 are left as they are (give
+ * them parts with style_apply_tracks, M > NEW FROM STYLE's T5-T8 rows).
+ * STYLE_BLANK clears T1-T4 (keep_manual is ignored): MANUAL, 16
  * steps, every step off, evolution off, no anchor, chaining off, unmuted.
  * Tempo, swing, scale, root, MIDI channels and stored slots stay as they are.
  * A locked track (SeqTrack.locked) is always kept, with BLANK too. */
 int         style_apply(Seq *s, int style, int keep_manual);
-/* NEW FROM STYLE track by track: track t gets part part[t] (0..3) of style
+/* NEW FROM STYLE track by track: track t gets part part[t] (0..STYLE_PARTS-1) of style
  * style[t], or stays as it is with STYLE_KEEP. A drum track gets the style's
  * drum kit whatever the part; BLANK empties the track. `lead` is the MUSIC
  * STYLE: when no track is kept it sets the tempo, swing, scale and root (BLANK

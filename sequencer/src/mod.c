@@ -43,6 +43,8 @@ const char *mod_wave_name(int w) {
 void mod_to_name(int to, char *out, int n) {
     if (to < TO_ALL) snprintf(out, (size_t)n, "T%d", to + 1);
     else if (to == TO_ALL) snprintf(out, (size_t)n, "T1-T4");
+    else if (to == TO_ALL2) snprintf(out, (size_t)n, "T5-T8");
+    else if (to == TO_ALL8) snprintf(out, (size_t)n, "T1-T8");
     else snprintf(out, (size_t)n, "CH %d", to - TO_CH1 + 1);
 }
 
@@ -111,7 +113,7 @@ void mod_init(Mod *m) {
     };
     for (int l = 0; l < MOD_LFOS; l++) { m->lfo[l] = L[l]; m->lfo[l].r0 = m->lfo[l].r1 = 32768; m->lfo[l].out = 0; }
     for (int d = 0; d < MOD_DESTS; d++) {
-        m->dest[d] = d < 4 ? D[d] : (ModDest){0, (uint8_t)(d % MOD_LFOS), (uint8_t)(TO_T1 + d % MOD_TRACKS), 74, 32, 96, 0, 0, 0};
+        m->dest[d] = d < 4 ? D[d] : (ModDest){0, (uint8_t)(d % MOD_LFOS), (uint8_t)(TO_T1 + d % 4), 74, 32, 96, 0, 0, 0};
         m->dest[d].last = -1;
     }
     for (int l = 0; l < MOD_LFOS; l++) m->lfo[l].out = mod_wave_at(m->lfo[l].wave, m->lfo[l].phase / 100.0, 32768, 32768);
@@ -221,8 +223,8 @@ int mod_channels(const Mod *m, int d, const uint8_t ch[MOD_TRACKS], uint8_t out[
     int to = m->dest[d].to;
     if (to < TO_ALL) { out[0] = ch[to] & 15; return 1; }
     if (to >= TO_CH1) { out[0] = (uint8_t)(to - TO_CH1); return 1; }
-    int n = 0;
-    for (int t = 0; t < MOD_TRACKS; t++) {
+    int n = 0, t0 = to == TO_ALL2 ? 4 : 0, t1 = to == TO_ALL ? 4 : MOD_TRACKS;
+    for (int t = t0; t < t1; t++) {
         int dup = 0;
         for (int k = 0; k < n; k++) dup |= out[k] == (ch[t] & 15);
         if (!dup) out[n++] = ch[t] & 15;
@@ -274,13 +276,37 @@ void mod_tick(Mod *m, int bpm, int playing, const uint8_t ch[MOD_TRACKS], ModSen
         if (v == x->last) continue;                              /* never the same value twice */
         if (x->last >= 0 && m->ticks - x->last_at < gap) continue;  /* not too often */
         uint8_t c[MOD_TRACKS];
-        if (mod_channels(m, d, ch, c) > budget) break;           /* next tick */
+        /* next tick, unless this tick has its whole budget: a group of more
+         * channels than MOD_PER_TICK (T1-T8) still goes out, in one burst */
+        if (mod_channels(m, d, ch, c) > budget && budget < MOD_PER_TICK) break;
         budget -= send_dest(m, d, v, ch, send, ctx);
     }
     m->rr = (uint8_t)((m->rr + 1) % MOD_DESTS);
 }
 
 /* ---- saving ---- */
+
+/* SEND TO as written in a pattern file: the 4-track numbers stay as they were
+ * (0-3 T1-T4, 4 T1-T4 ALL, 5-20 CH 1-16); T5-T8 are 21-24, T5-T8 ALL 25,
+ * T1-T8 ALL 26. So older builds read T1-T4 and channel destinations right. */
+static int to_file(int to) {
+    if (to < 4) return to;
+    if (to < TO_ALL) return 21 + to - 4;
+    if (to == TO_ALL) return 4;
+    if (to == TO_ALL2) return 25;
+    if (to == TO_ALL8) return 26;
+    return 5 + to - TO_CH1;
+}
+
+static int to_mem(int v) {
+    if (v >= 0 && v < 4) return v;
+    if (v == 4) return TO_ALL;
+    if (v >= 5 && v <= 20) return TO_CH1 + v - 5;
+    if (v >= 21 && v <= 24) return 4 + v - 21;
+    if (v == 25) return TO_ALL2;
+    if (v == 26) return TO_ALL8;
+    return v < 0 ? TO_T1 : TO_CH1 + 15;   /* out of range: clamped, as before */
+}
 
 void mod_save(const Mod *m, FILE *f) {
     fprintf(f, "mo %d\n", m->on);
@@ -290,7 +316,7 @@ void mod_save(const Mod *m, FILE *f) {
     }
     for (int d = 0; d < MOD_DESTS; d++) {
         const ModDest *x = &m->dest[d];
-        fprintf(f, "md %d %d %d %d %d %d %d %d\n", d, x->on, x->lfo, x->to, x->cc, x->lo, x->hi, x->inv);
+        fprintf(f, "md %d %d %d %d %d %d %d %d\n", d, x->on, x->lfo, to_file(x->to), x->cc, x->lo, x->hi, x->inv);
     }
 }
 
@@ -317,7 +343,7 @@ int mod_load_line(Mod *m, const char *line) {
             ModDest *x = &m->dest[a];
             x->on = b != 0;
             x->lfo = (uint8_t)clampi(c, 0, MOD_LFOS - 1);
-            x->to = (uint8_t)clampi(d, 0, TO_COUNT - 1);
+            x->to = (uint8_t)to_mem(d);
             x->cc = (uint8_t)clampi(e, 0, 119);
             x->lo = (uint8_t)clampi(g, 0, 127);
             x->hi = (uint8_t)clampi(h, x->lo, 127);
