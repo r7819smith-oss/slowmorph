@@ -187,11 +187,22 @@ static const char *const HISTORY[] = {
     END
 };
 
+static const char *const RECORD[] = {
+    "#LIVE + RECORD",
+    "UP / DOWN|PICK A ROW",
+    "LEFT / RIGHT|CHANGE IT (COUNT-IN, CLICK, SONG LENGTH, STOP, SONG POSITION)",
+    "A|SET MARK NOW / PUT MARK BACK",
+    "START|PLAY (WITH THE COUNT-IN); AGAIN: STOP (AT THE BAR END IF SET)",
+    "B|BACK TO THE MENU",
+    "The header shows BAR n.n / LENGTH while playing.",
+    END
+};
+
 static const HelpPage PAGES[] = {
     {"GRID", GRID}, {"STEP", STEP}, {"TRACK", TRACK}, {"GENERATE", GENERATE}, {"ROLL", ROLL},
     {"DRUMS", DRUMS}, {"ALL STEPS", ALLSTEPS}, {"MENU", MENU}, {"PATTERN SAVE", SLOTS},
     {"SONG SAVE", SONGS}, {"DRUM MAP", DRUMMAP}, {"MIDI", MIDI}, {"DEVICE", DEVICE},
-    {"LFO", MOD}, {"CC DEST", MOD}, {"MIDI IN", MOD}, {"UNDO HISTORY", HISTORY},
+    {"LFO", MOD}, {"CC DEST", MOD}, {"MIDI IN", MOD}, {"UNDO HISTORY", HISTORY}, {"RECORD", RECORD},
 };
 
 int help_lines(const char *page, const char **out, int max) {

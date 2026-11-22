@@ -26,6 +26,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - Clock master: MIDI clock (also while stopped), start and stop output; each can be turned off per output on M > DEVICE + CLOCK (or both with `--no-clock`)
 - Device presets (M > DEVICE + CLOCK): FELUCCA, JANGADA, DIGITONE and BLACKBOX 2 set the channels, drum map, clock and start/stop in one go
 - Modulation (M > MODULATION): 4 LFOs (sine, triangle, ramp up/down, square, sample and hold, smooth random; synced to the BPM or free running from 0.1 s to 10 minutes) driving up to 16 MIDI CC destinations, each with its own channel or track, CC number and LOW-HIGH range. A MIDI IN monitor shows what the device sends back, and LEARN takes an incoming CC
+- Live and recording (M > LIVE + RECORD): a count-in (1, 2 or 4 bars, with an optional click) before MIDI Start, a SONG LENGTH that stops on a bar line, Start-to-stop at the bar end, Song Position before Start, and a start mark so evolving takes repeat exactly
 - Everything (all 8 slots per track, chains, generators, evolution, mutes,
   scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
   each edit, once a minute while playing, and at quit, so it survives the
@@ -429,6 +430,21 @@ FM1 track n). If the sounds are wrong, that is the first thing to check.
 | A [Z] | play the lane's note; on PRESET left/right picks FELUCCA, GM or BLACKBOX and A twice applies it to all 8 lanes |
 | X [C] | rename the lane (as slot names; an empty name gives the Felucca name back) |
 | B [X] | back to the main menu |
+
+**Live + record** (M > LIVE + RECORD, A): the **RECORD** page. Up/down row,
+left/right change (hold Y: 16 bars a step on SONG LENGTH), A on the mark
+rows, B back to the menu. These settings belong to the session and stay
+when you load a song.
+
+| RECORD row | What it does |
+|---|---|
+| COUNT-IN | OFF, 1, 2 or 4 bars of MIDI clock before Start; the receiver only gets MIDI Start when it ends, so it starts on bar 1 with you. The header counts down **IN 8 ... IN 1**. Start during the count-in stops |
+| CLICK | a short note each count-in beat (louder on beat 1): the first drum track's closed hat, or a high C on T1 |
+| SONG LENGTH | stops by itself at the end of this bar (1-999, counted from Start); the row shows the time at this BPM and the header **BAR 12.3 / 64** |
+| STOP | AT ONCE, or AT BAR END: Start while playing waits for the bar line (header **ENDING**); press again to stop at once |
+| SONG POSITION | sends Song Position 0 just before MIDI Start, so a DAW always starts at its bar 1 |
+| START FROM MARK | every Start puts the mark back first, so an evolving take is the same each time |
+| SET MARK NOW / PUT MARK BACK | A remembers every track's pattern and the random state / puts them back (the mark is not saved) |
 
 **Modulation** (M > MODULATION, A): three pages, **LFO**, **CC DEST** and
 **MIDI IN**; L1/R1 moves between them, L2/R2 picks the previous / next LFO

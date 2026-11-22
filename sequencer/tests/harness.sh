@@ -160,7 +160,7 @@ screenshots)
     done <<'EOF'
 grid-demo|
 jump-panel|+m,Down
-jump-to-song-save|+m,Down,Right,-m
+jump-pick-go|+m,Down,Right,-m
 jump-cancelled|+m,Down,x,-m
 help-grid|+m,Up,Up,Right,-m
 help-step|w,m,Up,Up,Up,z
@@ -280,6 +280,9 @@ track-realign|w,w,Up,Right,Right,Right
 generate-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right
 drums-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Tab
 mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
+grid-count-in|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,m,m,space
 EOF
     unset SEQ4H_TEST_PORTS SEQ4H_TEST_IN
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -319,8 +322,9 @@ EOF
         --differ drums-page drums-step-locked --differ all-steps all-steps-drums \
         --differ grid-demo grid-stick-vel --differ grid-demo grid-select-tempo --differ grid-demo grid-select-lock \
         --differ grid-demo grid-stick-roll \
-        --differ grid-demo jump-panel --differ jump-panel jump-to-song-save --differ grid-demo help-grid --differ help-grid help-step \
+        --differ grid-demo jump-panel --differ jump-panel jump-pick-go --differ grid-demo help-grid --differ help-grid help-step \
         --differ undo-history undo-history-redo --differ grid-undo-twice grid-undo-redo \
+        --differ record-page record-set --differ grid-demo grid-count-in \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"
