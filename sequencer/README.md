@@ -181,7 +181,7 @@ between two pages. Keyboard: hold M.
 then the ones that work everywhere. Up/down scrolls, A or B goes back.
 
 **Undo history**: every pattern edit (notes, step settings, drum hits, track
-length, rolls, transforms, slot and scene loads, NEW FROM STYLE, ALL STEPS)
+length, rolls, transforms, slot loads, NEW FROM STYLE, ALL STEPS)
 can be taken back, up to 32 of them, on every track. Hold Select + X to undo,
 Select + B to redo (a new edit drops the redo list). Holding a button that
 repeats the same change (e.g. right on VELOCITY) is one undo. **M > UNDO
