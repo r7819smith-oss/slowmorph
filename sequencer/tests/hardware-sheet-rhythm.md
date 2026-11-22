@@ -159,3 +159,67 @@ change. Works on drum tracks too.
 slot and the anchor, for notes and drum hits.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
+
+---
+
+## Part 3: harmony and key changes
+
+HARMONY starts **OFF**, so nothing changes until you pick one. Every note
+track is set to follow it (**MOVE**); NEW FROM STYLE sets bass parts to
+**ROOT (BASS)** and drum parts to not follow.
+
+### 13. A chord progression
+1. Play a pattern with notes on T1-T3 (AMBIENT or MELODIC).
+2. Go to **GENERATE** and press **up** three times from **TRACK**: **HARMONY**.
+   Press **right** three times: **I-VI-IV-V**. **BARS EACH** (one down) reads **2**.
+3. Listen for 8 bars. Try **BARS EACH 1** and **4**.
+
+**Expected:** every 2 bars the whole set moves together to the next chord
+(I, VI, IV, V, then round). The header shows the chord after the scale,
+e.g. **C MIN PENT  IV**, and the HARMONY row reads **NOW IV**. The
+patterns on the grid don't change: only what is sent does.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 14. How each track follows
+1. On the row under BARS EACH, **T1 FOLLOWS**, try each value on a bass-ish
+   T1 (L2/R2 picks the track): **OFF**, **MOVE**, **CHORD TONES**, **ROOT (BASS)**.
+2. Set a melodic track to **CHORD TONES**.
+
+**Expected:** OFF plays as written. MOVE moves the whole line up the
+scale with each chord. ROOT makes every note the chord's root, at or just
+below where it was written (a bass that follows the changes). CHORD TONES
+keeps the melody's shape but moves each note to the nearest note of the
+chord, so it always fits. Drum tracks show **- (DRUMS)** and never move.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 15. DRIFT
+1. **HARMONY** > **DRIFT** (the last one), **BARS EACH 4**.
+
+**Expected:** every 4 bars the chord changes to a nearby one at random
+(home on I most often, then IV, V, VI), never the same chord twice in a
+row. Good for long ambient takes.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 16. A key change every track follows
+1. **KEY CHANGE** (under ROOT) reads **SNAP INTO KEY**. Press **right**: **MOVE ALL (BAR)**.
+2. While playing, go up to **ROOT** and press **right** twice (C to D).
+3. Stop, change ROOT again, and look at the grid.
+
+**Expected:** 2: the ROOT row reads **C TO D AT BAR** and on the next bar
+line every note track jumps up a whole tone together, in time; drum tracks
+and drum parts stay. 3: stopped, it moves at once; the grid's notes now
+read in the new key (e.g. NOTE D2 where it was C2). It always takes the
+shorter way (up to 6 semitones up or 5 down). Slots and the anchor move too.
+**KEEP NOTES** and **SNAP INTO KEY** work as before.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### 17. Saved
+1. Quit and start again.
+
+**Expected:** HARMONY, BARS EACH and each track's FOLLOWS are as you left them.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________

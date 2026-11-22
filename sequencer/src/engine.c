@@ -62,6 +62,8 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
     s->transport_out = 1;
     s->style = STYLE_AMBIENT;
     s->rng = 0x2545F491u;
+    s->harm_bars = 2;
+    s->key_next = -1;
     s->send = send;
     s->ctx = ctx;
     seq_drum_map_gm(s);
@@ -80,6 +82,7 @@ void seq_init(Seq *s, SeqSend send, void *ctx) {
         tr->part = (uint8_t)(t % STYLE_PARTS);
         tr->drum_busy = 50;
         tr->rate = SEQ_RATE_16;
+        tr->harm_mode = HARM_MOVE;   /* follows HARMONY once one is chosen (it starts OFF) */
         for (int l = 0; l < SEQ_LANES; l++)
             for (int i = 0; i < SEQ_STEPS; i++) tr->drum.prob[l][i] = tr->drum_anchor.prob[l][i] = 100;
         for (int k = 0; k < SEQ_SLOTS; k++) tr->slot[k].drum = tr->drum;
@@ -120,6 +123,7 @@ void seq_start(Seq *s) {
         s->track[t].rest_left = 0;
         s->track[t].origin = 0;
         s->track[t].pre = 0;
+        s->harm_drift = 0;
         cancel_ratchets(&s->track[t]);
         memset(s->track[t].played, 0, sizeof s->track[t].played);
         if (live_offset(&s->track[t])) seq_reshuffle(s, t);
@@ -236,6 +240,12 @@ static uint32_t rat_at(int tps, int k, int r) { return (uint32_t)(k * tps / r); 
 /* Sound one step's note (and its chord notes) for gl ticks. */
 static void sound_step(Seq *s, int t, uint32_t now, const SeqStep *st, uint32_t gl) {
     SeqTrack *tr = &s->track[t];
+    SeqStep hs;
+    if (s->harm && tr->harm_mode && tr->type == TRACK_NOTES && !style_part_is_drums(tr->style, tr->part)) {   /* FOLLOW HARMONY: the note moves, its chord notes follow it */
+        hs = *st;
+        hs.note = (uint8_t)gen_harm_note(s, st->note, gen_harm_degree(s, now), tr->harm_mode);
+        st = &hs;
+    }
     if (tr->poly) {
         uint32_t off = now + (gl ? gl : 1);
         int vel = seq_swell_vel(s, t, now, st->vel);
@@ -427,6 +437,8 @@ void seq_tick(Seq *s) {
             else if (tr->rest && (int)(seq_rand(s) % 100) < tr->rest) tr->rest_left = (uint8_t)(1 + seq_rand(s) % 4);
         }
         if (s->realign && bar % (uint32_t)s->realign == 0) seq_realign_now(s);
+        if (s->key_next >= 0) gen_key_move(s, s->key_next);   /* KEY MOVE waits for the bar line */
+        gen_harm_bar(s, bar);
         for (int t = 0; t < SEQ_TRACKS; t++) {
             uint8_t e = s->track[t].evo.every;
             if (e && bar % e == 0) gen_evolve_bar(s, t);
@@ -1046,6 +1058,7 @@ void seq_save(const Seq *s, FILE *f) {
     live_save(s, f);         /* M > LIVE settings; older versions skip it */
     live_arr_save(s, f);     /* ARRANGE; older versions skip it */
     if (s->realign) fprintf(f, "realign %d\n", s->realign);   /* REALIGN; older versions skip it */
+    fprintf(f, "harm %d %d\n", s->harm, s->harm_bars);        /* HARMONY; older versions skip it */
     fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */
         char nm[SEQ_LANE_NAME + 1];
@@ -1062,6 +1075,7 @@ void seq_save(const Seq *s, FILE *f) {
         fprintf(f, "pc %d %d %d %d %d\n", t, tr->chord, tr->swell, tr->swell_depth, tr->rest);
         if (tr->shuffle || tr->offgrid) fprintf(f, "sf %d %d %d\n", t, tr->shuffle, tr->offgrid);   /* older versions skip it */
         if (tr->poly) fprintf(f, "vo %d %d\n", t, tr->poly);   /* VOICES POLY; older versions skip it */
+        if (tr->harm_mode != HARM_MOVE) fprintf(f, "hf %d %d\n", t, tr->harm_mode);       /* FOLLOW HARMONY; older versions skip it */
         if (tr->rate != SEQ_RATE_16) fprintf(f, "rt %d %d\n", t, tr->rate);              /* STEP RATE; older versions skip it */
         for (int l = 0; l < SEQ_LANES; l++)                                               /* Euclidean drum lanes; older versions skip it */
             if (tr->euc_hits[l]) fprintf(f, "eu %d %d %d %d\n", t, l, tr->euc_hits[l], tr->euc_rot[l]);
@@ -1203,6 +1217,13 @@ int seq_load(Seq *s, FILE *f) {
             s->track[a].type = b == TRACK_DRUMS ? TRACK_DRUMS : TRACK_NOTES;
             s->track[a].drum_lock = (uint8_t)c;
             s->track[a].drum_busy = (uint8_t)clampi(d, 0, 100);
+        }
+        else if (sscanf(line, "harm %d %d", &a, &b) == 2) {
+            s->harm = a < 0 || a >= HP_COUNT ? 0 : a;
+            s->harm_bars = b <= 1 ? 1 : b <= 2 ? 2 : b <= 4 ? 4 : 8;
+        }
+        else if (sscanf(line, "hf %d %d", &a, &b) == 2) {
+            if (a >= 0 && a < SEQ_TRACKS) s->track[a].harm_mode = (uint8_t)(b < 0 || b >= HARM_COUNT ? 0 : b);
         }
         else if (sscanf(line, "rt %d %d", &a, &b) == 2) {
             if (a >= 0 && a < SEQ_TRACKS) s->track[a].rate = (uint8_t)clampi(b, 0, SEQ_RATES - 1);

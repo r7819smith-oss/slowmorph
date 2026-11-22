@@ -276,6 +276,10 @@ grid-ratchet-cond|c,Up,Up,Right,Right,Down,Right,Right,Right,Right,Right,x
 step-drums-ratchet|w,w,Down,Right,w,z,x,w,Up,Up,Right,Right,Down,Right
 generate-evo-trig|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
 grid-after-ratchet|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right,Right,Right,Right,Right,Down,Right,Right,Right,Up,z,x
+generate-harmony|w,w,w,Up,Up,Up,Right,Right,Right
+generate-follow-root|w,w,w,Up,Up,Up,Right,Right,Right,Down,Down,Right,Right
+generate-key-move|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Up,Right,Right
+grid-after-key-move|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Up,Right,Right,x
 mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
 record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
