@@ -326,6 +326,50 @@ int main(void) {
         CHECK(notes == 16 && high == 4);
     }
 
+    /* ARRANGE: sections switch scenes on their bar lines, fill their last bar, loop or stop. */
+    {
+        fresh();
+        s.track[3].type = TRACK_DRUMS;
+        live_scene_store(&s, 0);                 /* scene 1: the demo */
+        for (int k = 0; k < SEQ_TRACKS; k++) memset(s.track[k].step, 0, sizeof s.track[k].step);
+        memset(s.track[3].drum.vel, 0, sizeof s.track[3].drum.vel);
+        live_scene_store(&s, 1);                 /* scene 2: silence */
+        s.arr.on = 1;
+        live_arr_insert(&s, 0, (ArrSection){0, 2, ARR_FILL_DRUMS});
+        live_arr_insert(&s, 1, (ArrSection){1, 1, ARR_FILL_OFF});
+        live_arr_insert(&s, 1, (ArrSection){0, 200, 9});   /* clamped: 64 bars, fill ALL */
+        CHECK(s.arr.n == 3 && s.arr.sec[1].bars == 64 && s.arr.sec[1].fill == ARR_FILL_ALL);
+        live_arr_delete(&s, 1);
+        CHECK(s.arr.n == 2 && s.arr.sec[1].scene == 1 && live_arr_total(&s) == 3);
+        s.arr.end = ARR_STOP;
+        seq_start(&s);                            /* section 1 (the demo) before the first note */
+        CHECK(s.track[0].step[0].on && s.live.fill_auto == 0);
+        int bar;
+        run(&s, &lg, BAR + 5);
+        CHECK(live_arr_where(&s, &bar) == 0 && bar == 1 && s.live.fill_auto == (1u << 3));   /* its last bar: drum fill */
+        run(&s, &lg, BAR);
+        CHECK(live_arr_where(&s, &bar) == 1 && bar == 0 && !s.track[0].step[0].on && s.live.fill_auto == 0);
+        int before = count(&lg, 0x90);
+        run(&s, &lg, BAR);
+        CHECK(!s.playing && count(&lg, 0x90) == before && lg.msg[first(&lg, 0xFC, 0)].at == 3 * BAR);   /* STOP after 3 bars */
+        /* LOOP: back to section 1 */
+        s.arr.end = ARR_LOOP;
+        seq_start(&s);
+        run(&s, &lg, 3 * BAR + 5);
+        CHECK(s.playing && live_arr_where(&s, &bar) == 0 && s.track[0].step[0].on);
+        seq_stop(&s);
+        CHECK(live_arr_where(&s, &bar) == -1);
+        /* saved with the song */
+        FILE *f = tmpfile();
+        seq_save(&s, f); rewind(f);
+        seq_init(&t, NULL, NULL);
+        CHECK(seq_load(&t, f) == 0);
+        fclose(f);
+        CHECK(t.arr.on && t.arr.end == ARR_LOOP && t.arr.n == 2 && t.arr.sec[0].bars == 2 && t.arr.sec[0].fill == ARR_FILL_DRUMS && t.arr.sec[1].scene == 1);
+        for (int k = 0; k < ARR_MAX + 2; k++) live_arr_insert(&t, 0, (ArrSection){0, 1, 0});
+        CHECK(t.arr.n == ARR_MAX);
+    }
+
     puts("live tests passed");
     return 0;
 }

@@ -891,6 +891,7 @@ void seq_save(const Seq *s, FILE *f) {
     fprintf(f, "seq4h 1\nbpm %d\nswing %d\nclock %d\ntransport %d\nscale %d %d\nstyle %d\n", s->bpm, s->swing, s->clock_out, s->transport_out, s->scale, s->root, s->style);
     mod_save(&s->mod, f);   /* M > MODULATION; older versions skip these lines */
     live_save(s, f);         /* M > LIVE settings; older versions skip it */
+    live_arr_save(s, f);     /* ARRANGE; older versions skip it */
     if (s->realign) fprintf(f, "realign %d\n", s->realign);   /* REALIGN; older versions skip it */
     fprintf(f, "dmv 2\n");   /* DRUM MAP version: 2 = FELUCCA is the default (see seq_load) */
     for (int l = 0; l < SEQ_LANES; l++) {   /* DRUM MAP: "dm LANE NOTE NAME", spaces as '_'; older versions skip these lines */

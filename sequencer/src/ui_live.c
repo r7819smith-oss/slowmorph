@@ -43,7 +43,6 @@ static void draw_live_header(SDL_Renderer *r, const Seq *s) {
 
 /* ---- RECORD page ------------------------------------------------------ */
 
-static int live_rows(int page);
 
 enum { RR_COUNT, RR_CLICK, RR_LENGTH, RR_STOP, RR_SPP, RR_FROM_MARK, RR_MARK, RR_RESTORE, REC_ROWS };
 static const int COUNT_BARS[4] = {0, 1, 2, 4};
@@ -146,7 +145,7 @@ static void draw_rec_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
     snprintf(buf, sizeof buf, "MARK: %s", s->live.has_mark ? "SET" : "NONE");
     text(r, 392, 300, 1, s->live.has_mark ? (Col){90, 220, 120} : DIM, buf);
     text(r, 20, H - 34, 1, DIM, "UP/DOWN ROW  LEFT/RIGHT CHANGE (HOLD Y = BIG)  A DO THE ROW");
-    text(r, 20, H - 20, 1, DIM, "B BACK TO MENU  L1/R1 PERFORM PAGE  M CLOSE MENU  START PLAY/STOP");
+    text(r, 20, H - 20, 1, DIM, "B BACK TO MENU  L1/R1 OTHER LIVE PAGES  M CLOSE MENU  START PLAY/STOP");
 }
 
 /* ---- PERFORM page ------------------------------------------------------
@@ -383,7 +382,126 @@ static void draw_perform(SDL_Renderer *r, const Seq *s, const Ui *u) {
                    : sel == PR_SONG ? "LEFT/RIGHT SONG  A SWITCH AT THE NEXT SWITCH BAR (NOW IF STOPPED)  B CANCEL"
                    : "LEFT/RIGHT: HOW OFTEN SCENES AND SONGS MAY SWITCH";
     text(r, 20, H - 34, 1, DIM, h1);
-    text(r, 20, H - 20, 1, DIM, "UP/DOWN ROW  L1/R1 RECORD PAGE  M CLOSE MENU  START PLAY/STOP");
+    text(r, 20, H - 20, 1, DIM, "UP/DOWN ROW  L1/R1 ARRANGE AND RECORD PAGES  M CLOSE MENU  START PLAY/STOP");
 }
 
-static int live_rows(int page) { return page == P_PERFORM ? PERF_ROWS : REC_ROWS; }
+
+/* ---- ARRANGE page ------------------------------------------------------
+ * Rows: ARRANGE on/off, AT THE END loop/stop, then the sections, then
+ * + ADD SECTION. On a section: left/right bars, hold Y + left/right scene,
+ * X fill (OFF, DRUMS, ALL), A adds a copy below, Select removes it. */
+enum { AR_ON, AR_END, AR_FIRST };
+static const int ARR_BARS[] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64};
+#define N_ARR_BARS ((int)(sizeof ARR_BARS / sizeof ARR_BARS[0]))
+static const char *ARR_FILL_NAME[3] = {"", "+DRUM FILL", "+FILL ALL"};
+static const Col SCENE_COL[8] = {{235, 90, 80}, {240, 180, 60}, {90, 200, 130}, {90, 150, 240},
+                                 {200, 110, 220}, {80, 200, 210}, {210, 210, 90}, {170, 130, 240}};
+
+static int arr_rows(const Seq *s) { return AR_FIRST + s->arr.n + (s->arr.n < ARR_MAX); }
+
+static void arr_row_text(const Seq *s, int row, char *label, char *val) {
+    const Arrange *a = &s->arr;
+    if (row == AR_ON) { snprintf(label, 24, "ARRANGE"); snprintf(val, 24, "%s", a->on ? "ON" : "OFF"); return; }
+    if (row == AR_END) { snprintf(label, 24, "AT THE END"); snprintf(val, 24, "%s", a->end == ARR_STOP ? "STOP" : "LOOP"); return; }
+    int i = row - AR_FIRST;
+    if (i >= a->n) { snprintf(label, 24, "+ ADD SECTION"); snprintf(val, 24, "A"); return; }
+    const ArrSection *x = &a->sec[i];
+    snprintf(label, 24, "%2d SCENE %d", i + 1, x->scene + 1);
+    if (x->fill) snprintf(val, 24, "%d %s", x->bars, ARR_FILL_NAME[x->fill % 3]);
+    else snprintf(val, 24, "%d BAR%s", x->bars, x->bars > 1 ? "S" : "");
+}
+
+static void arr_press(Seq *s, Ui *u, Btn b, int dx, int dy) {
+    Arrange *a = &s->arr;
+    int *row = &u->row[P_ARRANGE], n = arr_rows(s);
+    if (*row >= n) *row = n - 1;
+    if (dy) { *row = wrap(*row + dy, n); return; }
+    int r = *row, i = r - AR_FIRST;
+    if (r == AR_ON && (dx || b == B_A)) {
+        a->on ^= 1;
+        if (a->on && !a->n) live_arr_insert(s, 0, (ArrSection){(uint8_t)(s->live.scene > 0 ? s->live.scene : 0), 8, ARR_FILL_OFF});
+        say(u, a->on ? "ARRANGE ON: START PLAYS FROM SECTION 1" : "ARRANGE OFF");
+        return;
+    }
+    if (r == AR_END && (dx || b == B_A)) { a->end = a->end == ARR_STOP ? ARR_LOOP : ARR_STOP; return; }
+    if (r < AR_FIRST) return;
+    if (i >= a->n) {   /* + ADD SECTION */
+        if (b != B_A) return;
+        ArrSection x = a->n ? a->sec[a->n - 1] : (ArrSection){0, 8, ARR_FILL_OFF};
+        if (a->n) x.scene = (uint8_t)((x.scene + 1) % LIVE_SCENES);
+        live_arr_insert(s, a->n, x);
+        if (a->n == ARR_MAX) *row = AR_FIRST + a->n - 1;
+        return;
+    }
+    ArrSection *x = &a->sec[i];
+    if (dx && u->held[B_Y]) { x->scene = (uint8_t)wrap(x->scene + dx, LIVE_SCENES); u->y_used = 1; }
+    else if (dx) {
+        int k = 0;
+        while (k < N_ARR_BARS - 1 && ARR_BARS[k] < x->bars) k++;
+        x->bars = (uint8_t)ARR_BARS[clampi(k + dx, 0, N_ARR_BARS - 1)];
+    }
+    else if (b == B_X) x->fill = (uint8_t)((x->fill + 1) % 3);
+    else if (b == B_A) {
+        if (a->n >= ARR_MAX) { say(u, "16 SECTIONS IS THE MOST"); return; }
+        live_arr_insert(s, i + 1, *x);
+        *row = r + 1;
+    }
+    else if (b == B_B) u->page = P_MENU;
+    if (!live_scene_tracks(s, x->scene) && (dx || b == B_A)) say(u, "SCENE EMPTY: SAVE IT ON PERFORM");
+}
+
+/* Select on ARRANGE: remove the section under the cursor. */
+static void arr_select(Ui *u) {
+    player_lock(u->p);
+    Seq *s = &u->p->seq;
+    int i = u->row[P_ARRANGE] - AR_FIRST;
+    if (i >= 0 && i < s->arr.n) {
+        live_arr_delete(s, i);
+        snprintf(u->msg_buf, sizeof u->msg_buf, "SECTION %d REMOVED", i + 1);
+        say(u, u->msg_buf);
+        if (u->row[P_ARRANGE] >= arr_rows(s)) u->row[P_ARRANGE] = arr_rows(s) - 1;
+        if (!u->save_due) u->save_due = SDL_GetTicks() + 2000;
+    }
+    player_unlock(u->p);
+}
+
+static void draw_arr_side(SDL_Renderer *r, const Seq *s, const Ui *u) {
+    char buf[64], tm[12];
+    const Arrange *a = &s->arr;
+    int total = live_arr_total(s), bar, at = live_arr_where(s, &bar);
+    text(r, 392, 62, 2, YELLOW, "ARRANGE");
+    bars_time(s, total, tm, sizeof tm);
+    snprintf(buf, sizeof buf, "%d SECTION%s, %d BARS, %s", a->n, a->n == 1 ? "" : "S", total, tm);
+    text(r, 392, 86, 1, WHITE, buf);
+    if (total) {   /* the timeline: one block per section, as wide as its bars, coloured by scene */
+        int x = 392, w = 232, played = 0;
+        for (int i = 0; i < a->n; i++) {
+            int bw = a->sec[i].bars * w / total;
+            if (bw < 2) bw = 2;
+            Col c = SCENE_COL[a->sec[i].scene % 8];
+            if (!a->on) c = (Col){(uint8_t)(c.r / 2), (uint8_t)(c.g / 2), (uint8_t)(c.b / 2)};
+            rect(r, x, 102, bw - 1, 18, c);
+            if (a->sec[i].fill) rect(r, x + bw - 1 - (bw > 8 ? 4 : 1), 102, bw > 8 ? 4 : 1, 18, WHITE);
+            if (u->row[P_ARRANGE] - AR_FIRST == i) frame(r, x - 1, 100, bw + 1, 22, 1, YELLOW);
+            if (i < at) played += a->sec[i].bars;
+            x += bw;
+        }
+        if (at >= 0) {
+            int px = 392 + (played + bar) * w / total;
+            rect(r, px, 96, 2, 30, WHITE);
+        }
+    }
+    if (at >= 0) snprintf(buf, sizeof buf, "NOW: SECTION %d, BAR %d OF %d", at + 1, bar + 1, a->sec[at].bars);
+    else snprintf(buf, sizeof buf, a->on ? "START PLAYS FROM SECTION 1" : "OFF: START PLAYS AS USUAL");
+    text(r, 392, 134, 1, at >= 0 ? (Col){90, 220, 120} : DIM, buf);
+    static const char *HELP[] = {
+        "EACH SECTION PLAYS A SCENE (SLOT N", "OF EVERY TRACK) FOR ITS BARS, THEN", "THE NEXT SECTION'S SCENE COMES IN",
+        "ON THE BAR LINE. A FILL PLAYS IN A", "SECTION'S LAST BAR.", "",
+        "MAKE SCENES ON PERFORM: SCENE ROW,", "X SAVES EVERY TRACK INTO IT.", "",
+        "WITH SONG LENGTH ON RECORD, OR", "AT THE END: STOP, A TAKE ENDS", "BY ITSELF. SAVED WITH THE SONG."};
+    for (unsigned k = 0; k < sizeof HELP / sizeof HELP[0]; k++) text(r, 392, 158 + 12 * (int)k, 1, DIM, HELP[k]);
+    text(r, 20, H - 34, 1, DIM, "SECTION: LEFT/RIGHT BARS  HOLD Y+L/R SCENE  X FILL  A ADD A COPY  SELECT REMOVE");
+    text(r, 20, H - 20, 1, DIM, "UP/DOWN ROW  B BACK TO MENU  L1/R1 OTHER LIVE PAGES  M CLOSE MENU  START PLAY/STOP");
+}
+
+static int live_rows(const Seq *s, int page) { return page == P_PERFORM ? PERF_ROWS : page == P_ARRANGE ? arr_rows(s) : REC_ROWS; }

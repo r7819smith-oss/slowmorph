@@ -88,6 +88,18 @@ int  live_drum_step(Seq *s, int t, int idx, uint8_t vel[SEQ_LANES]);
 void live_fill(Seq *s, int t, int on);
 int  live_busy(const Seq *s, int t);   /* DENSITY (or later a fill) changes what track t plays */
 
+/* ARRANGE. With it on, Start begins at section 1 (its scene recalled before
+ * the first note), and at each bar line the arrangement moves on: after a
+ * section's bars the next section's scene comes in; after the last one it
+ * loops or stops (ARR_STOP). A section with a fill plays FILL on its last bar
+ * (drum tracks, or every track). */
+int  live_arr_total(const Seq *s);                 /* bars in the whole arrangement */
+void live_arr_insert(Seq *s, int i, ArrSection sec); /* at position i (0..n); ignored when full */
+void live_arr_delete(Seq *s, int i);
+/* Where it is: section index and bar within it (from 0); -1 when not playing it. */
+int  live_arr_where(const Seq *s, int *bar);
+void live_arr_save(const Seq *s, FILE *f);         /* called by seq_save (song data) */
+
 void live_save(const Seq *s, FILE *f);
 int  live_load_line(Seq *s, const char *line);   /* 1 if it was a live line */
 

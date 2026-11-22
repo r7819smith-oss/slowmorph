@@ -178,3 +178,47 @@ bar line without a stop, no stuck notes, the FM1 keeps its clock. The
 header briefly says NOW PLAYING SONG 2. RECORD settings are unchanged.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
+
+---
+
+## Arranger
+
+### A1. Build an arrangement
+1. Make three scenes on PERFORM (SCENE 1, 2, 3: change the patterns between, X on each).
+2. **R1** to ARRANGE. **A** on ARRANGE (it turns ON and adds section 1).
+3. On section 1: **right** until 4 BARS. **A** (adds a copy). On section 2 hold **Y** + **right** (SCENE 2), **X** (DRUM FILL).
+4. **+ ADD SECTION**, **A** (section 3, SCENE 3). **AT THE END**: STOP.
+
+**Expected:** the side timeline shows three coloured blocks sized by bars,
+with a white edge on the section that has a fill; the total bars and time
+are right (12 bars at 120 = 0:24).
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### A2. Play it
+1. Press **Start** and listen to the whole thing.
+
+**Expected:** scene 1 for 4 bars, scene 2 for 4 bars with a drum fill in its
+4th bar, scene 3 for 4 bars, then it stops by itself on the bar line. The
+white playhead moves along the timeline, NOW: SECTION n, BAR n OF n.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### A3. Loop, remove, and saved with the song
+1. AT THE END: LOOP. Start: after section 3 it goes back to section 1.
+2. On section 2 press **Select**: it is removed.
+3. Save the song (M > SONG SAVE, X), load another song, then load this one again.
+
+**Expected:** 1 loops seamlessly. 2 leaves sections 1 and 3. 3: the
+arrangement comes back with the song.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### A4. Record a whole arrangement
+1. RECORD: COUNT-IN 1 BAR, ARRANGE AT THE END: STOP. DAW / Blackbox armed and following clock.
+2. Press **Start**.
+
+**Expected:** one take from bar 1 to the last section's last bar, with MIDI
+Start after the count-in and Stop at the end.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
