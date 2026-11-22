@@ -41,6 +41,8 @@ typedef enum {
     XF_SPREAD,      /* give every unlocked note a different offset, none on the grid, up to `amount` ticks (0 = the most) */
     XF_GRID,        /* put every unlocked note back on the grid (offset 0) */
     XF_CHORD,       /* write the CHORD row's chord into every unlocked note (OFF: single notes again); sets POLY */
+    XF_EUCLID,      /* space the unlocked notes (drums: each lane's hits) evenly, keeping how many there are and their order;
+                       `amount` turns the result by that many steps */
     XF_COUNT
 } XformType;
 
