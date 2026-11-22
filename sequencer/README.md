@@ -26,7 +26,7 @@ MIDI hardware**, and nothing has been run on the RG40XX-V yet.
 - Clock master: MIDI clock (also while stopped), start and stop output; each can be turned off per output on M > DEVICE + CLOCK (or both with `--no-clock`)
 - Device presets (M > DEVICE + CLOCK): FELUCCA, JANGADA, DIGITONE and BLACKBOX 2 set the channels, drum map, clock and start/stop in one go
 - Modulation (M > MODULATION): 4 LFOs (sine, triangle, ramp up/down, square, sample and hold, smooth random; synced to the BPM or free running from 0.1 s to 10 minutes) driving up to 16 MIDI CC destinations, each with its own channel or track, CC number and LOW-HIGH range. A MIDI IN monitor shows what the device sends back, and LEARN takes an incoming CC
-- Live and recording (M > LIVE + RECORD): a count-in (1, 2 or 4 bars, with an optional click) before MIDI Start, a SONG LENGTH that stops on a bar line, Start-to-stop at the bar end, Song Position before Start, and a start mark so evolving takes repeat exactly
+- Live and recording (M > LIVE + RECORD): a PERFORM page (mute, solo, DENSITY and EVOLVE for every track, scenes and songs that switch on the next bar line), a count-in (1, 2 or 4 bars, with an optional click) before MIDI Start, a SONG LENGTH that stops on a bar line, Start-to-stop at the bar end, Song Position before Start, and a start mark so evolving takes repeat exactly
 - Everything (all 8 slots per track, chains, generators, evolution, mutes,
   scale, tempo) is kept in `seq4h.pat` (plain text): saved two seconds after
   each edit, once a minute while playing, and at quit, so it survives the
@@ -431,7 +431,20 @@ FM1 track n). If the sounds are wrong, that is the first thing to check.
 | X [C] | rename the lane (as slot names; an empty name gives the Felucca name back) |
 | B [X] | back to the main menu |
 
-**Live + record** (M > LIVE + RECORD, A): the **RECORD** page. Up/down row,
+**Live + record** (M > LIVE + RECORD, A) opens the **PERFORM** page; L1/R1
+switches to **RECORD** and back.
+
+| PERFORM row | Buttons |
+|---|---|
+| T1-T8 | A mute, B solo, hold X a FILL (drums: snare roll and hats; notes: every step, last beat an octave up; let go and it is back), left/right DENSITY (-100 thinner .. +100 busier; the pattern is not changed), hold Y + left/right or stick up/down EVOLVE amount |
+| ALL TRACKS | the same on every track: A mutes all (or turns all back on), B clears solos, hold X fills every track |
+| SCENE | left/right picks 1-8; A switches every track to that slot at the next switch bar (at once when stopped); X saves every track's pattern into it; B cancels. A track with no pattern in that slot, or with a chain, keeps playing |
+| SONG | left/right picks 1-8; A switches to that saved song at the next switch bar, in time; B cancels |
+| SWITCH AT | every 1, 2, 4 or 8 bars (counted from Start) |
+
+A waiting switch counts down on the row and in the header on every page.
+
+The **RECORD** page: Up/down row,
 left/right change (hold Y: 16 bars a step on SONG LENGTH), A on the mark
 rows, B back to the menu. These settings belong to the session and stay
 when you load a song.

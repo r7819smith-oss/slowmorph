@@ -85,10 +85,13 @@ seq4h-render: tools/render.c src/engine.c src/gen.c src/drum.c src/mod.c src/liv
 	$(CC) $(CFLAGS) -o $@ tools/render.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c src/midi_capture.c
 
 # Engine tests under AddressSanitizer and UndefinedBehaviorSanitizer.
-test-asan: tests/test_engine.c tests/test_song.c tests/test_mod.c src/song.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c $(wildcard src/*.h)
+test-asan: tests/test_live.c tests/test_engine.c tests/test_song.c tests/test_mod.c src/song.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c $(wildcard src/*.h)
 	$(CC) -O1 -g -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all \
 	    -o tests/test_engine_asan tests/test_engine.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
 	./tests/test_engine_asan
+	$(CC) -O1 -g -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all \
+	    -o tests/test_live_asan tests/test_live.c src/song.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
+	./tests/test_live_asan
 	$(CC) -O1 -g -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all \
 	    -o tests/test_drum_asan tests/test_drum.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
 	./tests/test_drum_asan
