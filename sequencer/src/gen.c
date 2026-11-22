@@ -602,7 +602,7 @@ static void blank_track(Seq *s, int t) {
     tr->gen.span = 2;
     gen_set_type(s, t, GEN_NONE);
     int note = gen_snap_note(s, base[t % SEQ_BANK] + 12);
-    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0, {0}};
+    for (int i = 0; i < SEQ_STEPS; i++) tr->step[i] = (SeqStep){0, (uint8_t)note, 100, 50, 100, 0, 0, 0, {0}, 0, 0};
     tr->evo = (EvolveSettings){0, 20, EVO_PITCH | EVO_RHYTHM, 0, 0, 0};
     tr->has_anchor = 0;
     memset(tr->drum.vel, 0, sizeof tr->drum.vel);   /* a drum track stays one, with empty lanes */
@@ -655,7 +655,7 @@ int style_apply_tracks(Seq *s, int lead, const int style[SEQ_TRACKS], const int 
         tr->gen.base = pr->base;
         tr->gen.span = pr->span;
         for (int i = 0; i < SEQ_STEPS; i++)
-            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold, 0, {0}};
+            tr->step[i] = (SeqStep){0, (uint8_t)gen_snap_note(s, pr->base), pr->vel, pr->gate, pr->prob, 0, pr->hold, 0, {0}, 0, 0};
         gen_set_type(s, t, pr->gen);
         for (int k = 0; k < gen_param_count(pr->gen); k++)
             if (pr->setp & (1 << k))
@@ -1187,6 +1187,26 @@ static void keep_density(Seq *s, int t) {
     }
 }
 
+int gen_pick_ratchet(Seq *s) { static const uint8_t R[6] = {2, 2, 2, 3, 3, 4}; return R[pick(s, 6)]; }
+int gen_pick_cond(Seq *s) {
+    /* mostly every other pass, sometimes rarer; never PRE (it needs a partner step) */
+    const int C[8] = {seq_cond_make(1, 2), seq_cond_make(2, 2), seq_cond_make(1, 2), seq_cond_make(2, 2),
+                      seq_cond_make(1, 4), seq_cond_make(3, 4), seq_cond_make(1, 3), COND_NOT_FIRST};
+    return C[pick(s, 8)];
+}
+
+/* EVO TRIG: one note gains, or loses, a ratchet or a condition. */
+static void evolve_trig(Seq *s, int t) {
+    SeqTrack *tr = &s->track[t];
+    int cand[SEQ_STEPS], n = 0;
+    for (int i = 0; i < tr->len; i++) if (tr->step[i].on && !tr->step[i].lock) cand[n++] = i;
+    if (!n) return;
+    SeqStep *st = &tr->step[cand[pick(s, n)]];
+    if ((st->ratchet || st->cond) && pick(s, 2)) { if (st->ratchet && (!st->cond || pick(s, 2))) st->ratchet = 0; else st->cond = 0; }
+    else if (pick(s, 2)) st->ratchet = (uint8_t)gen_pick_ratchet(s);
+    else st->cond = (uint8_t)gen_pick_cond(s);
+}
+
 void gen_evolve_bar(Seq *s, int t) {
     SeqTrack *tr = &s->track[t];
     const EvolveSettings *e = &tr->evo;
@@ -1242,6 +1262,7 @@ void gen_evolve_bar(Seq *s, int t) {
     }
 
     if ((e->kinds & EVO_ROTATE) && chance(s, e->amount)) gen_transform(s, t, XF_SHIFT, pick(s, 2) ? 1 : -1);
+    if ((e->kinds & EVO_TRIG) && chance(s, e->amount)) evolve_trig(s, t);
 
     keep_density(s, t);
 }
@@ -1304,7 +1325,7 @@ int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX
 
 const char *gen_xform_name(int op) {
     static const char *N[XF_COUNT] = {"REVERSE", "INVERT", "TRANSPOSE", "SHIFT", "THIN", "FILL", "HUMANIZE", "CLEAR", "SPREAD", "ON GRID",
-                                      "WRITE CHORD", "EUCLID"};
+                                      "WRITE CHORD", "EUCLID", "RATCHET", "VARY"};
     return op >= 0 && op < XF_COUNT ? N[op] : "?";
 }
 
@@ -1396,6 +1417,27 @@ void gen_transform(Seq *s, int t, int op, int amount) {
     case XF_GRID:
         for (int k = 0; k < np; k++) tr->step[pos[k]].nudge = 0;
         break;
+    case XF_RATCHET:
+    case XF_VARY: {
+        int rat = op == XF_RATCHET;
+        if (amount == 0) {   /* clear them all */
+            for (int k = 0; k < np; k++) { if (rat) tr->step[pos[k]].ratchet = 0; else tr->step[pos[k]].cond = 0; }
+            break;
+        }
+        for (int r = 0; r < (amount < 0 ? -amount : amount); r++) {
+            int cand[SEQ_STEPS], nc = 0;
+            for (int k = 0; k < np; k++) {
+                const SeqStep *st = &tr->step[pos[k]];
+                int has = rat ? st->ratchet != 0 : st->cond != 0;
+                if (st->on && (amount > 0 ? !has : has)) cand[nc++] = pos[k];
+            }
+            if (!nc) break;
+            SeqStep *st = &tr->step[cand[pick(s, nc)]];
+            if (rat) st->ratchet = amount > 0 ? (uint8_t)gen_pick_ratchet(s) : 0;
+            else st->cond = amount > 0 ? (uint8_t)gen_pick_cond(s) : 0;
+        }
+        break;
+    }
     case XF_EUCLID: {   /* the same notes, in the same order, on evenly spaced steps */
         int n = 0, rot = ((amount % np) + np) % np;
         for (int k = 0; k < np; k++) if (tr->step[pos[k]].on) tmp[n++] = tr->step[pos[k]];

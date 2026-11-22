@@ -117,7 +117,7 @@ static void test_mono_poly_playback(void) {
     SeqStep *st = &s.track[0].step[0];
     st->on = 1; st->note = 60; st->gate = 100; st->hold = 3;   /* four steps long */
     seq_step_set_chord(&s, 0, 0, CHORD_TRIAD);
-    s.track[0].step[1] = (SeqStep){1, 72, 100, 50, 100, 0, 0, 0, {0}};
+    s.track[0].step[1] = (SeqStep){1, 72, 100, 50, 100, 0, 0, 0, {0}, 0, 0};
     /* MONO: only the step's note, and the next note cuts it */
     seq_start(&s);
     ticks(&s, 1);
@@ -158,7 +158,7 @@ static void test_retrigger_and_cap(void) {
     setup(&s, &c);
     seq_track_poly(&s, 0, 1);
     /* the same note on every step, held long: it restarts, never doubles */
-    for (int i = 0; i < 16; i++) s.track[0].step[i] = (SeqStep){1, 60, 100, 100, 100, 0, 8, 0, {0}};
+    for (int i = 0; i < 16; i++) s.track[0].step[i] = (SeqStep){1, 60, 100, 100, 100, 0, 8, 0, {0}, 0, 0};
     seq_start(&s);
     ticks(&s, 24 * 64);
     CHECK(c.double_on == 0 && c.max_down[0] == 1);
@@ -167,7 +167,7 @@ static void test_retrigger_and_cap(void) {
 
     /* four-note chords on every step, each held 8 steps: never more than 8 at once */
     for (int i = 0; i < 16; i++) {
-        s.track[0].step[i] = (SeqStep){1, (uint8_t)(48 + (i % 7) * 2), 100, 100, 100, 0, 8, 0, {0}};
+        s.track[0].step[i] = (SeqStep){1, (uint8_t)(48 + (i % 7) * 2), 100, 100, 100, 0, 8, 0, {0}, 0, 0};
         seq_step_set_chord(&s, 0, i, CHORD_SEVENTH);
     }
     memset(c.max_down, 0, sizeof c.max_down);
@@ -185,7 +185,7 @@ static void test_release(void) {
     setup(&s, &c);
     seq_track_poly(&s, 0, 1);
     for (int i = 0; i < 16; i += 4) {
-        s.track[0].step[i] = (SeqStep){1, (uint8_t)gen_snap_note(&s, 50 + i), 100, 100, 100, 0, 6, 0, {0}};
+        s.track[0].step[i] = (SeqStep){1, (uint8_t)gen_snap_note(&s, 50 + i), 100, 100, 100, 0, 6, 0, {0}, 0, 0};
         seq_step_set_chord(&s, 0, i, CHORD_SEVENTH);
     }
     #define PLAYING() do { seq_start(&s); ticks(&s, 24 * 5 + 3); CHECK(down_count(&c, s.track[0].channel) > 4); } while (0)
@@ -220,7 +220,7 @@ static void test_save_load(void) {
     Seq s, l; Cap c;
     setup(&s, &c);
     seq_track_poly(&s, 2, 1);
-    s.track[2].step[3] = (SeqStep){1, 60, 90, 50, 100, 0, 0, 0, {0}};
+    s.track[2].step[3] = (SeqStep){1, 60, 90, 50, 100, 0, 0, 0, {0}, 0, 0};
     seq_step_set_chord(&s, 2, 3, CHORD_SEVENTH);
     seq_step_add_note(&s, 2, 5, 50);
     seq_step_add_note(&s, 2, 5, 43);   /* a chord note below */
@@ -314,7 +314,7 @@ static void test_transforms(void) {
     Seq s; Cap c;
     setup(&s, &c);
     SeqTrack *tr = &s.track[0];
-    for (int i = 0; i < 16; i += 2) tr->step[i] = (SeqStep){1, (uint8_t)(60 + i), 100, 50, 100, 0, 0, 0, {0}};
+    for (int i = 0; i < 16; i += 2) tr->step[i] = (SeqStep){1, (uint8_t)(60 + i), 100, 50, 100, 0, 0, 0, {0}, 0, 0};
     for (int i = 0; i < 16; i += 2) tr->step[i].note = (uint8_t)gen_snap_note(&s, tr->step[i].note);
     tr->chord = CHORD_TRIAD;
     gen_transform(&s, 0, XF_CHORD, 0);

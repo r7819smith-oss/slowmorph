@@ -286,12 +286,296 @@ static void test_save(void) {
     CHECK(t.track[0].rate == SEQ_RATE_16 && t.realign == 0);
 }
 
+static int all_down(const Cap *c) {
+    int n = 0;
+    for (int ch = 0; ch < 16; ch++) for (int k = 0; k < 128; k++) n += c->down[ch][k];
+    return n;
+}
+
+static void test_cond_names(void) {
+    char b[12];
+    int a, bb;
+    CHECK(seq_cond_make(1, 2) == COND_AB_FIRST);
+    CHECK(seq_cond_make(8, 8) == COND_AB_LAST);
+    for (int B = 2; B <= 8; B++)
+        for (int A = 1; A <= B; A++) {
+            int c = seq_cond_make(A, B);
+            CHECK(seq_cond_ab(c, &a, &bb) && a == A && bb == B);
+        }
+    seq_cond_name(seq_cond_make(3, 4), b); CHECK(strcmp(b, "3:4") == 0);
+    seq_cond_name(COND_ALWAYS, b); CHECK(strcmp(b, "ALWAYS") == 0);
+    seq_cond_name(COND_NOT_PRE, b); CHECK(strcmp(b, "NOT PRE") == 0);
+    CHECK(!seq_cond_ab(COND_FIRST, &a, &bb));
+    CHECK(seq_cond_make(3, 2) == COND_ALWAYS);
+}
+
+static void test_ratchets(void) {
+    Seq s; Cap c;
+    /* x3 on a 1/16: notes on ticks 0, 8, 16, each 50% of 8 ticks long */
+    setup(&s, &c);
+    SeqTrack *tr = &s.track[0];
+    tr->len = 4;
+    tr->step[0].on = 1; tr->step[0].note = 60; tr->step[0].ratchet = 3;
+    seq_start(&s);
+    ticks(&s, 3);
+    CHECK(c.n == 1 && c.down[0][60] == 1);
+    ticks(&s, 2);
+    CHECK(c.down[0][60] == 0);   /* 50% of the repeat's 8 ticks */
+    ticks(&s, 20);
+    CHECK(c.n == 3);
+    CHECK(c.on[0].tick == 0 && c.on[1].tick == 8 && c.on[2].tick == 16);
+    ticks(&s, 71);   /* rest of the bar: nothing more */
+    CHECK(c.n == 3);
+    CHECK(all_down(&c) == 0);
+    ticks(&s, 1);    /* step 1 again */
+    CHECK(c.n == 4);
+    seq_stop(&s);
+
+    /* at 1/8 the repeats spread over the longer step; the last one keeps the hold */
+    setup(&s, &c);
+    tr = &s.track[0];
+    tr->len = 2; tr->rate = SEQ_RATE_8;
+    tr->step[0].on = 1; tr->step[0].note = 62; tr->step[0].ratchet = 2; tr->step[0].hold = 1; tr->step[0].gate = 50;
+    seq_start(&s);
+    ticks(&s, 24 + 1);
+    CHECK(c.n == 2 && c.on[1].tick == 24);
+    ticks(&s, 12 + 48 - 2);
+    CHECK(c.down[0][62] == 1);   /* 12 (half of 24) + 48 (hold) after tick 24 */
+    ticks(&s, 2);
+    CHECK(c.down[0][62] == 0);
+    seq_stop(&s);
+
+    /* chance is decided once: 0% plays no repeat either */
+    setup(&s, &c);
+    tr = &s.track[0];
+    tr->step[0].on = 1; tr->step[0].ratchet = 4; tr->step[0].prob = 0;
+    seq_start(&s);
+    ticks(&s, SEQ_PPQN * 4);
+    CHECK(c.n == 0);
+    seq_stop(&s);
+
+    /* POLY: each repeat plays the whole chord */
+    setup(&s, &c);
+    tr = &s.track[0];
+    seq_track_poly(&s, 0, 1);
+    tr->step[0].on = 1; tr->step[0].note = 60; tr->step[0].more[0] = 2; tr->step[0].ratchet = 2;
+    seq_start(&s);
+    ticks(&s, 24);
+    CHECK(c.n == 4);
+    ticks(&s, 24);
+    CHECK(all_down(&c) == 0);
+    seq_stop(&s);
+
+    /* stop in the middle of a ratchet: nothing hangs, nothing plays later */
+    setup(&s, &c);
+    tr = &s.track[0];
+    tr->step[0].on = 1; tr->step[0].ratchet = 8;
+    seq_start(&s);
+    ticks(&s, 7);
+    seq_stop(&s);
+    int n = c.n;
+    ticks(&s, 50);
+    CHECK(c.n == n && all_down(&c) == 0);
+    /* a mute does the same */
+    seq_start(&s);
+    ticks(&s, 4);
+    seq_track_mute_toggle(&s, 0);
+    n = c.n;
+    ticks(&s, 30);
+    CHECK(c.n == n);
+    seq_stop(&s);
+
+    /* drum hits ratchet too, each lane on its own */
+    setup(&s, &c);
+    seq_track_type(&s, 1, TRACK_DRUMS);
+    tr = &s.track[1];
+    tr->drum.vel[2][0] = 90; tr->drum.rat[2][0] = 4;
+    tr->drum.vel[0][0] = 100;
+    seq_start(&s);
+    ticks(&s, 24);
+    CHECK(ons_on(&c, 1) == 5);
+    for (int k = 0; k < c.n; k++) if (c.on[k].note == s.lane_note[2]) CHECK(c.on[k].tick % 6 == 0);
+    ticks(&s, 24);
+    CHECK(all_down(&c) == 0);
+    seq_stop(&s);
+
+    /* setters */
+    setup(&s, &c);
+    seq_step_ratchet(&s, 0, 3, 1);
+    CHECK(s.track[0].step[3].ratchet == 2);
+    seq_step_ratchet(&s, 0, 3, 20);
+    CHECK(s.track[0].step[3].ratchet == SEQ_MAX_RATCHET);
+    seq_step_ratchet(&s, 0, 3, -20);
+    CHECK(s.track[0].step[3].ratchet == 0);
+    seq_step_cond(&s, 0, 3, 1);
+    CHECK(s.track[0].step[3].cond == COND_AB_FIRST);
+    seq_step_cond(&s, 0, 3, -5);
+    CHECK(s.track[0].step[3].cond == COND_ALWAYS);
+    seq_drum_ratchet(&s, 0, 0, 0, 1);   /* no hit: nothing */
+    CHECK(s.track[0].drum.rat[0][0] == 0);
+}
+
+/* Which passes (of 8) a one-step, one-step-long track plays with condition c. */
+static int passes(int cond) {
+    Seq s; Cap c;
+    setup(&s, &c);
+    SeqTrack *tr = &s.track[0];
+    tr->len = 1;
+    tr->step[0].on = 1;
+    tr->step[0].cond = (uint8_t)cond;
+    seq_start(&s);
+    ticks(&s, 24 * 8);
+    int bits = 0;
+    for (int k = 0; k < c.n; k++) bits |= 1 << (c.on[k].tick / 24);
+    return bits;
+}
+
+static void test_conditions(void) {
+    CHECK(passes(COND_ALWAYS) == 0xFF);
+    CHECK(passes(seq_cond_make(1, 2)) == 0x55);
+    CHECK(passes(seq_cond_make(2, 2)) == 0xAA);
+    CHECK(passes(seq_cond_make(1, 4)) == 0x11);
+    CHECK(passes(seq_cond_make(3, 4)) == 0x44);
+    CHECK(passes(seq_cond_make(1, 8)) == 0x01);
+    CHECK(passes(COND_FIRST) == 0x01);
+    CHECK(passes(COND_NOT_FIRST) == 0xFE);
+
+    /* passes count the track's own pattern: a 4-step track's 1:2 step plays bars 1, 3 ... of its own */
+    Seq s; Cap c;
+    setup(&s, &c);
+    SeqTrack *tr = &s.track[0];
+    tr->len = 4;
+    tr->step[2].on = 1; tr->step[2].cond = (uint8_t)seq_cond_make(2, 2);
+    seq_start(&s);
+    ticks(&s, 24 * 16);
+    CHECK(c.n == 2 && c.on[0].tick == 24 * 6 && c.on[1].tick == 24 * 14);
+    seq_stop(&s);
+
+    /* PRE / NOT PRE follow the last A:B step: 1:2 on step 1, PRE on step 2, NOT PRE on step 3 */
+    setup(&s, &c);
+    tr = &s.track[0];
+    tr->len = 3;
+    for (int i = 0; i < 3; i++) { tr->step[i].on = 1; tr->step[i].note = (uint8_t)(60 + i); }
+    tr->step[0].cond = (uint8_t)seq_cond_make(1, 2);
+    tr->step[1].cond = COND_PRE;
+    tr->step[2].cond = COND_NOT_PRE;
+    seq_start(&s);
+    ticks(&s, 24 * 12);   /* 4 passes */
+    char got[16] = "";
+    for (int k = 0; k < c.n && k < 15; k++) got[k] = (char)('a' + c.on[k].note - 60);
+    /* pass 1: a, b (PRE: a played); pass 2: c (a didn't); pass 3: a, b; pass 4: c */
+    CHECK(strcmp(got, "abcabc") == 0);
+    CHECK(c.n == 6 && c.on[2].tick == 24 * 5 && c.on[5].tick == 24 * 11);
+    seq_stop(&s);
+
+    /* drum hits have their own conditions */
+    setup(&s, &c);
+    seq_track_type(&s, 1, TRACK_DRUMS);
+    tr = &s.track[1];
+    tr->len = 1;
+    tr->drum.vel[0][0] = 100;
+    tr->drum.vel[1][0] = 100; tr->drum.cond[1][0] = (uint8_t)seq_cond_make(2, 2);
+    seq_start(&s);
+    ticks(&s, 24 * 4);
+    int kick = 0, snare = 0;
+    for (int k = 0; k < c.n; k++) { kick += c.on[k].note == s.lane_note[0]; snare += c.on[k].note == s.lane_note[1]; }
+    CHECK(kick == 4 && snare == 2);
+    seq_stop(&s);
+}
+
+static void test_ratchet_tools(void) {
+    Seq s; Cap c;
+    setup(&s, &c);
+    SeqTrack *tr = &s.track[0];
+    tr->len = 16;
+    for (int i = 0; i < 16; i += 2) tr->step[i].on = 1;
+    tr->step[4].lock = 1;
+    gen_transform(&s, 0, XF_RATCHET, 3);
+    int n = 0;
+    for (int i = 0; i < 16; i++) if (tr->step[i].ratchet) { n++; CHECK(tr->step[i].on && tr->step[i].ratchet >= 2 && tr->step[i].ratchet <= 4); }
+    CHECK(n == 3);
+    CHECK(tr->step[4].ratchet == 0);
+    gen_transform(&s, 0, XF_RATCHET, -1);
+    n = 0;
+    for (int i = 0; i < 16; i++) n += tr->step[i].ratchet != 0;
+    CHECK(n == 2);
+    gen_transform(&s, 0, XF_RATCHET, 0);
+    for (int i = 0; i < 16; i++) CHECK(tr->step[i].ratchet == 0);
+    gen_transform(&s, 0, XF_VARY, 20);   /* every unlocked note, no more */
+    n = 0;
+    for (int i = 0; i < 16; i++) if (tr->step[i].cond) { n++; CHECK(tr->step[i].cond != COND_PRE && tr->step[i].cond != COND_NOT_PRE); }
+    CHECK(n == 7);
+    gen_transform(&s, 0, XF_VARY, 0);
+    for (int i = 0; i < 16; i++) CHECK(tr->step[i].cond == 0);
+    CHECK(strcmp(gen_xform_name(XF_VARY), "VARY") == 0);
+
+    /* EVO TRIG: ratchets and conditions come and go over bars, locked steps never change */
+    tr->step[4].ratchet = 3;
+    tr->evo = (EvolveSettings){.every = 1, .amount = 100, .kinds = EVO_TRIG};
+    int seen_r = 0, seen_c = 0;
+    for (int b = 0; b < 40; b++) {
+        gen_evolve_bar(&s, 0);
+        for (int i = 0; i < 16; i++) { seen_r |= i != 4 && tr->step[i].ratchet; seen_c |= tr->step[i].cond != 0; }
+        CHECK(tr->step[4].ratchet == 3 && tr->step[4].cond == 0);
+    }
+    CHECK(seen_r && seen_c);
+    for (int i = 0; i < 16; i++) CHECK(tr->step[i].on == (i % 2 == 0));   /* the rhythm itself stays */
+
+    /* drums */
+    seq_track_type(&s, 1, TRACK_DRUMS);
+    SeqTrack *d = &s.track[1];
+    for (int i = 0; i < 16; i += 4) d->drum.vel[2][i] = 80;
+    gen_transform(&s, 1, XF_RATCHET, 2);
+    n = 0;
+    for (int i = 0; i < 16; i++) n += d->drum.rat[2][i] != 0;
+    CHECK(n == 2);
+    /* a ratchet moves with its hit */
+    int at = -1;
+    for (int i = 0; i < 16; i++) if (d->drum.rat[2][i]) { at = i; break; }
+    int rv = d->drum.rat[2][at];
+    gen_transform(&s, 1, XF_SHIFT, 1);
+    CHECK(d->drum.rat[2][(at + 1) % 16] == rv && d->drum.vel[2][(at + 1) % 16]);
+}
+
+static void test_trig_save(void) {
+    Seq s, t; Cap c, c2;
+    setup(&s, &c);
+    s.track[0].step[5].on = 1;
+    s.track[0].step[5].ratchet = 3;
+    s.track[0].step[5].cond = (uint8_t)seq_cond_make(2, 4);
+    s.track[0].step[6].cond = COND_NOT_PRE;
+    gen_set_anchor(&s, 0);
+    seq_slot_store(&s, 0, 2);
+    seq_track_type(&s, 3, TRACK_DRUMS);
+    s.track[3].drum.vel[4][7] = 70;
+    s.track[3].drum.rat[4][7] = 2;
+    s.track[3].drum.cond[4][7] = COND_FIRST;
+    gen_set_anchor(&s, 3);
+    seq_slot_store(&s, 3, 1);
+    FILE *f = tmpfile();
+    seq_save(&s, f);
+    rewind(f);
+    setup(&t, &c2);
+    CHECK(seq_load(&t, f) == 0);
+    fclose(f);
+    CHECK(t.track[0].step[5].ratchet == 3 && t.track[0].step[5].cond == seq_cond_make(2, 4));
+    CHECK(t.track[0].step[6].cond == COND_NOT_PRE && t.track[0].step[6].ratchet == 0);
+    CHECK(t.track[0].anchor[5].ratchet == 3 && t.track[0].slot[2].step[5].cond == seq_cond_make(2, 4));
+    CHECK(t.track[3].drum.rat[4][7] == 2 && t.track[3].drum.cond[4][7] == COND_FIRST);
+    CHECK(t.track[3].drum_anchor.rat[4][7] == 2 && t.track[3].slot[1].drum.cond[4][7] == COND_FIRST);
+}
+
 int main(void) {
     test_rates();
     test_polymeter_and_realign();
     test_euclid_lanes();
     test_euclid_transform();
     test_save();
+    test_cond_names();
+    test_ratchets();
+    test_conditions();
+    test_ratchet_tools();
+    test_trig_save();
     if (fails) { fprintf(stderr, "%d rhythm test(s) failed\n", fails); return 1; }
     printf("rhythm tests passed\n");
     return 0;

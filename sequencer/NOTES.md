@@ -750,6 +750,39 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     already there for note tracks.
   - Not built: a per-track clock *multiplier* beyond 1/32, and odd rates
     such as 1/16 dotted (5/4 of a step does not divide a bar evenly).
+- **Ratchets and trig conditions (2026-11-22, Roy's list item 7).**
+  - **RATCHET** (STEP page, 2 up from STEP): x2 to x8 repeats inside the
+    step, evenly spread over the step's length at the track's STEP RATE.
+    Each repeat sounds for GATE % of its share; the last also gets the
+    HOLD. Chance and condition are decided once for the whole step. A POLY
+    step repeats its whole chord. A new note on the track, Stop, mute or a
+    rest ends the repeats.
+  - **CONDITION** (STEP page, 1 up from STEP): ALWAYS; A:B for B = 2..8
+    (plays on pass A of every B passes of the track's own pattern, counted
+    from Start or the REALIGN that last moved the track); FIRST; NOT FIRST;
+    PRE / NOT PRE (whether the track's last A:B or FIRST step played).
+    Probability still applies after the condition. Hold Y jumps 4.
+  - **Drum hits** have their own ratchet and condition: on a drum track's
+    STEP page, below the 8 lanes, `<LANE> RATCHET` and `<LANE> COND` edit
+    the last lane row the cursor was on. Hits keep them when they move
+    (shift, reverse, Euclid, evolve, morph); a hand-made new hit starts
+    with none; a kit roll clears them only where a step loses its hit.
+  - **Shown** as thin lines splitting the block (one per repeat) and a
+    small cyan square (condition), on the GRID and the drum grid; the info
+    lines read e.g. `X3 1:2`.
+  - **Transforms RATCHET and VARY** (GENERATE > TRANSFORM): BY +n gives n
+    notes (or hits) a ratchet (x2-x4, mostly x2) or a condition (mostly 1:2
+    or 2:2, sometimes 1:3, 1:4, 3:4, NOT FIRST; never PRE, which needs a
+    partner); -n takes n away; 0 clears them all.
+  - **EVO RATCHET+COND** (new last EVO row, bit 128 of the `e` line's
+    kinds): with the track's evolve amount as the chance each evolve bar,
+    one note gains or loses a ratchet or condition (drums: per lane, at a
+    quarter of the amount). Off by default; EVO_ALL now includes it.
+  - Saved as `r T STEP RAT COND` (`sr`, `atr` for slots and anchor) and
+    `dhr` / `dshr` / `dahr` after the drum hit lines. Older versions skip
+    them; older files load with no ratchets or conditions.
+  - Generators keep a step's ratchet and condition where they are, as they
+    do its OFFSET: they belong to the step position.
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -1428,6 +1461,17 @@ The full sheet is `tests/hardware-sheet-8tracks.md`. Short form:
 9. [ ] T5-T8 survive a restart and a song save/load.
 10. [ ] Modulation SEND TO lists T1-T8 and the three groups.
 
+**D12. Ratchets and trig conditions (2026-11-22)**
+
+Full sheet: `tests/hardware-sheet-rhythm.md` part 2 (tests 7-12).
+
+1. [ ] STEP > RATCHET x3 on a note: three quick hits inside the step, in time.
+2. [ ] STEP > CONDITION 1:2 / 2:2 / FIRST / NOT FIRST play on the right passes.
+3. [ ] PRE / NOT PRE make two notes take turns after a 1:2 note.
+4. [ ] Drum STEP page: KICK RATCHET / KICK COND, shown on the drum grid.
+5. [ ] TRANSFORM RATCHET and VARY; BY 0 clears; EVO RATCHET+COND drifts them.
+6. [ ] Saved with slots, anchor and restart.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1502,6 +1546,7 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Modulation, MIDI IN and learn (D9, `tests/hardware-sheet-mod.md`) | not tested yet |
 | Polymeter and Euclidean rhythms (D10, `tests/hardware-sheet-rhythm.md` part 1) | not tested yet |
 | Tracks 5-8 (D11, `tests/hardware-sheet-8tracks.md`) | not tested yet |
+| Ratchets and trig conditions (D12, `tests/hardware-sheet-rhythm.md` part 2) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 

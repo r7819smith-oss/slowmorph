@@ -173,8 +173,8 @@ step-offset|c,Down,Down,Down,Down,Down,Down,Left,Left,Left,Left,Left
 grid-hold-offset|c,Down,Down,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Right,Right,Right,Right,c,Left,Left,Left,Left,Left,Left,Left,Left,x,Right,Right,Right,Right,c,Up,Right,Right,Right,Right,Right,Right,x
 track-page|w,w
 track-shuffle|w,w,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Down,Right
-generate-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right
-grid-after-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right,z,x
+generate-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right
+grid-after-spread|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right,z,x
 track-length-12|w,w,Down,Down,Down,Left,Left,Left,Left
 track2-muted|2,w,w,Down,Down,Down,Down,Right
 generate-page|w,w,w
@@ -204,7 +204,7 @@ grid-blank|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down
 menu-style-drone|m,Down,Right,Right,Right,Right
 grid-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z
 generate-drone|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,w,w,w
-generate-drone-chord|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+generate-drone-chord|m,Down,Right,Right,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,m,Up,Up,Up,Up,Up,Up,Up,Up,Up,Right,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,z,w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
 slots-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 slots-saved|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,Down,c,c,c
 slots-rename|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,c,v,Up,Up,Up,Up,Right,Up,Up
@@ -270,6 +270,12 @@ grid-rate|w,w,Up,Up,Right,Right,x
 track-realign|w,w,Up,Right,Right,Right
 generate-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right
 drums-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Tab
+step-ratchet|c,Up,Up,Right,Right
+step-cond|c,Up,Right,Right,Right
+grid-ratchet-cond|c,Up,Up,Right,Right,Down,Right,Right,Right,Right,Right,x
+step-drums-ratchet|w,w,Down,Right,w,z,x,w,Up,Up,Right,Right,Down,Right
+generate-evo-trig|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down
+grid-after-ratchet|w,w,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Right,Right,Right,Right,Right,Right,Right,Right,Right,Right,Right,Right,Down,Right,Right,Right,Up,z,x
 mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
 record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
@@ -336,7 +342,7 @@ persist)
     # Generate page (w,w,w), down to SAVE TO SLOT, store slots 1-8 on track 1,
     # then slot 8 on track 2 (R2 = 2): nine stored slots.
     keys="w,w,w"
-    i=0; while [ $i -lt 24 ]; do keys="$keys,Down"; i=$((i + 1)); done
+    i=0; while [ $i -lt 25 ]; do keys="$keys,Down"; i=$((i + 1)); done
     keys="$keys,z"
     i=0; while [ $i -lt 7 ]; do keys="$keys,Right,z"; i=$((i + 1)); done
     keys="$keys,2,z"

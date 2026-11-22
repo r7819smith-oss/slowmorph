@@ -284,7 +284,7 @@ const SeqStep *live_note_step(Seq *s, int t, int idx, const SeqStep *st, SeqStep
             if (!src) return NULL;
             *tmp = *src;
             tmp->vel = (uint8_t)(src->vel * 4 / 5 < 1 ? 1 : src->vel * 4 / 5);
-            tmp->hold = 0; tmp->nudge = st->nudge; tmp->lock = 0;
+            tmp->hold = 0; tmp->nudge = st->nudge; tmp->lock = 0; tmp->ratchet = 0; tmp->cond = 0;
             tmp->gate = (uint8_t)(src->gate > 80 ? 80 : src->gate);
         }
         tmp->prob = 100;

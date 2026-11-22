@@ -83,6 +83,22 @@ static void text(SDL_Renderer *r, int x, int y, int sc, Col c, const char *s) {
 
 static Col scale(Col c, int pct) { return (Col){(uint8_t)(c.r * pct / 100), (uint8_t)(c.g * pct / 100), (uint8_t)(c.b * pct / 100)}; }
 
+/* Ratchet and condition marks on a note or hit block (x, y, w, h): a ratchet
+ * splits the block with thin dark lines, one per repeat; a condition is a
+ * small cyan square in the bottom left corner. */
+static void trig_marks(SDL_Renderer *r, int x, int y, int w, int h, int ratchet, int cond) {
+    for (int k = 1; ratchet >= 2 && k < ratchet; k++) rect(r, x + w * k / ratchet, y + 2, 1, h - 4, (Col){16, 17, 24});
+    if (cond) rect(r, x + 1, y + h - 6, 5, 5, (Col){80, 220, 235});
+}
+
+/* "x3", "1:2", "x3 1:2" or "" for a step's ratchet and condition. */
+static void trig_text(int ratchet, int cond, char *out, int n) {
+    char cb[12] = "";
+    if (cond) seq_cond_name(cond, cb);
+    if (ratchet >= 2) snprintf(out, (size_t)n, "x%d%s%s", ratchet, cond ? " " : "", cb);
+    else snprintf(out, (size_t)n, "%s", cb);
+}
+
 /* Pages, in L1/R1 order. GRID shows four tracks at a time (T1-T4, or T5-T8
  * once the cursor moves below T4); the others are lists of
  * values for the current track: up/down picks a row, left/right changes it. */
@@ -198,14 +214,15 @@ static int live_rows(const Seq *s, int page);   /* rows of the M > LIVE pages (u
 /* Generate page rows. */
 enum {
     GR_TRACK, GR_GEN, GR_P0, GR_P1, GR_P2, GR_P3, GR_BASE, GR_SPAN,
-    GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 6, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
+    GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 7, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
     GR_XFORM, GR_XAMOUNT, GR_SLOT, GR_STORE, GR_CHAIN, GR_CHAIN_BARS, GR_MORPH,
     GR_SCALE, GR_ROOT, GR_SNAP, GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST, GEN_ROWS
 };
 static const int EVERY[8] = {0, 1, 2, 4, 8, 16, 32, 64};
 static const int SWELL_BARS[6] = {0, 2, 4, 8, 16, 32};
 static const int CHAIN_BARS[5] = {1, 2, 4, 8, 16};
-static const uint8_t EVO_BITS[7] = {EVO_PITCH, EVO_RHYTHM, EVO_VEL, EVO_ROTATE, EVO_REGEN, EVO_PROB, EVO_OFFSET};
+#define EVO_ROWS 8
+static const uint8_t EVO_BITS[EVO_ROWS] = {EVO_PITCH, EVO_RHYTHM, EVO_VEL, EVO_ROTATE, EVO_REGEN, EVO_PROB, EVO_OFFSET, EVO_TRIG};
 
 static int wrap(int v, int n) { return (v % n + n) % n; }
 
@@ -227,7 +244,8 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     int t = u->track;
     const SeqTrack *tr = &s->track[t];
     const GenSettings *g = &tr->gen;
-    static const char *EVO_NAMES[7] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN", "EVO PROB", "EVO OFFSET"};
+    static const char *EVO_NAMES[EVO_ROWS] = {"EVO PITCH", "EVO RHYTHM", "EVO VELOCITY", "EVO ROTATE", "EVO REGEN", "EVO PROB", "EVO OFFSET",
+                                              "EVO RATCHET+COND"};
     label[0] = val[0] = 0;
     if (row == GR_TRACK) { snprintf(label, 24, "TRACK"); snprintf(val, 24, "%d", t + 1); }
     else if (row == GR_GEN) { snprintf(label, 24, "GENERATOR"); snprintf(val, 24, "%s", tr->type == TRACK_DRUMS ? "DRUM KIT" : gen_name(g->type)); }
@@ -287,6 +305,8 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     else if (row == GR_XAMOUNT) {
         snprintf(label, 24, "  BY");
         if (u->xf_op == XF_REVERSE || u->xf_op == XF_INVERT || u->xf_op == XF_CLEAR || u->xf_op == XF_GRID) snprintf(val, 24, "-");
+        else if ((u->xf_op == XF_RATCHET || u->xf_op == XF_VARY) && u->xf_amt == 0) snprintf(val, 24, "0 (CLEAR ALL)");
+        else if (u->xf_op == XF_RATCHET || u->xf_op == XF_VARY) snprintf(val, 24, "%s %d", u->xf_amt > 0 ? "ADD TO" : "TAKE FROM", abs(u->xf_amt) % 100);
         else if (u->xf_op == XF_CHORD) snprintf(val, 24, "%s", gen_chord_name(tr->chord));   /* the CHORD row's chord */
         else if (u->xf_op == XF_SPREAD) {   /* range in ticks, shown as a share of a step; below 2 = the most */
             int a = abs(u->xf_amt) < SEQ_OFFGRID_MIN ? SEQ_MAX_NUDGE : abs(u->xf_amt) > SEQ_MAX_NUDGE ? SEQ_MAX_NUDGE : abs(u->xf_amt);
@@ -418,7 +438,10 @@ static void plan_style_row(const Seq *s, Ui *u, int t) {
     u->plan_part[t] = t % STYLE_PARTS;
 }
 
-#define STEP_ROWS 10
+#define STEP_ROWS 12          /* note step rows; a drum step has STEP, 8 lanes, then RATCHET and CONDITION of the current lane */
+#define STEP_RATCHET_ROW 10
+#define STEP_COND_ROW 11
+#define DRUM_STEP_ROWS (SEQ_LANES + 3)
 #define TRACK_ROWS 13
 #define TRACK_BPM_ROW 7
 #define TRACK_VOICES_ROW 10
@@ -427,15 +450,30 @@ static void plan_style_row(const Seq *s, Ui *u, int t) {
 
 static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
     const SeqStep *st = &s->track[u->track].step[u->step];
+    if (is_drums(s, u->track) && row > SEQ_LANES) {   /* the current lane's hit: ratchet and condition */
+        const SeqDrums *d = &s->track[u->track].drum;
+        int l = u->lane, v = d->vel[l][u->step];
+        snprintf(label, 24, "%s %s", s->lane_name[l], row == SEQ_LANES + 1 ? "RATCHET" : "COND");
+        if (!v) snprintf(val, 24, "- (NO HIT)");
+        else if (row == SEQ_LANES + 1) {
+            if (d->rat[l][u->step] >= 2) snprintf(val, 24, "x%d", d->rat[l][u->step]); else snprintf(val, 24, "OFF");
+        } else { char cb[12]; seq_cond_name(d->cond[l][u->step], cb); snprintf(val, 24, "%s", cb); }
+        return;
+    }
     if (is_drums(s, u->track) && row > 0) {   /* a drum step: one row per lane */
         const SeqDrums *d = &s->track[u->track].drum;
         int l = row - 1;
         snprintf(label, 24, "%s", s->lane_name[l]);
-        if (d->vel[l][u->step]) snprintf(val, 24, "VEL %d  %d%%", d->vel[l][u->step], d->prob[l][u->step]);
+        if (d->vel[l][u->step]) {
+            char tb[16];
+            trig_text(d->rat[l][u->step], d->cond[l][u->step], tb, sizeof tb);
+            snprintf(val, 24, "VEL %d  %d%%%s%.9s", d->vel[l][u->step], d->prob[l][u->step], tb[0] ? " " : "", tb);
+        }
         else snprintf(val, 24, "-");
         return;
     }
-    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "OFFSET", "PROBABILITY", "LOCK", "CHORD"};
+    static const char *L[STEP_ROWS] = {"STEP", "ON", "NOTE", "VELOCITY", "GATE", "HOLD", "OFFSET", "PROBABILITY", "LOCK", "CHORD",
+                                       "RATCHET", "CONDITION"};
     snprintf(label, 24, "%s", L[row]);
     switch (row) {
     case 0: snprintf(val, 24, "%d", u->step + 1); break;
@@ -450,6 +488,15 @@ static void step_row_text(const Seq *s, const Ui *u, int row, char *label, char 
         break;
     case 7: snprintf(val, 24, "%d%%", st->prob); break;
     case 8: snprintf(val, 24, "%s", st->lock ? "LOCKED" : "OFF"); break;
+    case STEP_RATCHET_ROW: if (st->ratchet >= 2) snprintf(val, 24, "x%d IN THE STEP", st->ratchet); else snprintf(val, 24, "OFF"); break;
+    case STEP_COND_ROW: {
+        char cb[12];
+        int a, b;
+        seq_cond_name(st->cond, cb);
+        if (seq_cond_ab(st->cond, &a, &b)) snprintf(val, 24, "%.5s  PASS %d OF %d", cb, a % 10, b % 10);
+        else snprintf(val, 24, "%s", cb);
+        break;
+    }
     default: {   /* the step's own chord notes */
         int sh = seq_step_chord_shape(s, st), m = seq_step_more_count(st);
         if (!m) snprintf(val, 24, "OFF");
@@ -469,6 +516,12 @@ static void chord_needs_poly(Seq *s, Ui *u) {
 
 static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     SeqStep *st = &s->track[u->track].step[u->step];
+    if (is_drums(s, u->track) && row > SEQ_LANES) {
+        if (!s->track[u->track].drum.vel[u->lane][u->step]) { say(u, "NO HIT HERE: A ON A LANE ROW ADDS ONE"); return; }
+        if (row == SEQ_LANES + 1) seq_drum_ratchet(s, u->track, u->lane, u->step, d);
+        else seq_drum_cond(s, u->track, u->lane, u->step, d * (big ? 4 : 1));
+        return;
+    }
     if (is_drums(s, u->track) && row > 0) {   /* left/right velocity; below 1 the hit goes */
         uint8_t *v = &s->track[u->track].drum.vel[row - 1][u->step];
         if (!*v) { if (d > 0) seq_drum_toggle(s, u->track, row - 1, u->step); }
@@ -489,6 +542,8 @@ static void step_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
     case 6: seq_step_nudge(s, u->track, u->step, d * (big ? 4 : 1)); break;
     case 7: seq_step_adjust(s, u->track, u->step, 0, 0, 0, d * (big ? 25 : 5)); break;
     case 8: st->lock ^= 1; break;
+    case STEP_RATCHET_ROW: seq_step_ratchet(s, u->track, u->step, d); break;
+    case STEP_COND_ROW: seq_step_cond(s, u->track, u->step, d * (big ? 4 : 1)); break;
     default: {   /* chord shapes on this step's note; a hand-made chord counts as OFF */
         int sh = seq_step_chord_shape(s, st);
         seq_step_set_chord(s, u->track, u->step, wrap((sh < 0 ? 0 : sh) + d, CHORD_COUNT));
@@ -741,6 +796,7 @@ enum { IR_LISTEN, IR_CLEAR, IN_ROWS };
 
 static int page_rows(const Ui *u, int page) {
     if (page == P_ALLSTEPS) return all_rows(&u->p->seq, u);
+    if (page == P_STEP && is_drums(&u->p->seq, u->track)) return DRUM_STEP_ROWS;
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
          : page == P_SLOTS ? SEQ_SLOTS : page == P_SONGS ? SEQ_SONGS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : page == P_DEVICE ? DEVICE_ROWS
          : page == P_RECORD || page == P_PERFORM || page == P_ARRANGE ? live_rows(&u->p->seq, page) : page == P_LFO ? LFO_ROWS : page == P_DEST ? DEST_ROWS : page == P_MIDIIN ? IN_ROWS : GEN_ROWS;
@@ -1940,7 +1996,11 @@ static void press(Ui *u, Btn b) {
         else if (dx || dy) { u->step = wrap(u->step + dx, grid_steps(s)); u->track = wrap(u->track + dy, SEQ_TRACKS); }
     } else {
         int *row = &u->row[u->page], big = u->held[B_Y];
-        if (dy) { *row = wrap(*row + dy, page_rows(u, u->page)); u->confirm_new = 0; }
+        if (dy) {
+            *row = wrap(*row + dy, page_rows(u, u->page));
+            u->confirm_new = 0;
+            if (u->page == P_STEP && is_drums(s, u->track) && *row >= 1 && *row <= SEQ_LANES) u->lane = *row - 1;   /* RATCHET/COND rows follow it */
+        }
         else if (dx && u->page == P_STEP && u->held[B_X])   /* hold X: previous / next step, the row stays */
             u->step = wrap(u->step + dx, s->track[u->track].len);
         else if (dx && u->page == P_STEP) step_row_adjust(s, u, *row, dx, big);
@@ -2253,6 +2313,7 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
                     snprintf(buf, sizeof buf, "+%d", st->hold);
                     text(r, bx + 1, y + h - 16, 1, WHITE, buf);
                 }
+                trig_marks(r, bx, y + 3, bw, h - 6, st->ratchet, st->cond);
                 int nm = tr->poly ? seq_step_more_count(st) : 0;
                 for (int c = 0; c < nm; c++) rect(r, bx + 2, y + 6 + c * 5, 3, 3, WHITE);   /* a dot per chord note */
             }
@@ -2313,7 +2374,9 @@ static void draw_grid(SDL_Renderer *r, const Seq *sp, const Ui *u) {
         if (st->hold) snprintf(hb, sizeof hb, " +%d", st->hold);
         char cb[8] = "";
         if (tr->poly && seq_step_more_count(st)) snprintf(cb, sizeof cb, "+%d", seq_step_more_count(st));   /* chord notes */
-        snprintf(buf, sizeof buf, "NOTE %s%s  VEL %d  GATE %d%s  PROB %d", nn, cb, st->vel, st->gate, hb, st->prob);
+        char tb[16];
+        trig_text(st->ratchet, st->cond, tb, sizeof tb);
+        snprintf(buf, sizeof buf, "NOTE %s%s  VEL %d  GATE %d%s  PROB %d%s%s", nn, cb, st->vel, st->gate, hb, st->prob, tb[0] ? "  " : "", tb);
     }
     text(r, 20, y + 22, 2, WHITE, buf);
     if (tr->evo.every) snprintf(buf, sizeof buf, "GEN %s%s  EVOLVE EVERY %d BAR%s %d%%", gen_name(tr->gen.type), tr->poly ? "  POLY" : "", tr->evo.every, tr->evo.every > 1 ? "S" : "", tr->evo.amount);
@@ -2861,10 +2924,12 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 392, 252, 1, DIM, "LEFT/RIGHT CHANGES THE HIT'S");
         text(r, 392, 264, 1, DIM, "VELOCITY; DOWN PAST 1 REMOVES IT.");
         text(r, 392, 276, 1, DIM, "A PUTS A HIT ON OR OFF.");
-        text(r, 392, 300, 1, DIM, "CHANCE AND LANE LOCKS ARE IN THE");
-        text(r, 392, 312, 1, DIM, "DRUM GRID (SELECT ON THE GRID).");
-        text(r, 392, 336, 1, YELLOW, "HOLD X + LEFT/RIGHT, OR THE STICK:");
-        text(r, 392, 348, 1, YELLOW, "PREVIOUS / NEXT STEP, SAME ROW.");
+        text(r, 392, 288, 1, DIM, "CHANCE AND LANE LOCKS ARE IN THE");
+        text(r, 392, 300, 1, DIM, "DRUM GRID (SELECT ON THE GRID).");
+        text(r, 392, 320, 1, DIM, "RATCHET / COND: THE LAST LANE ROW");
+        text(r, 392, 332, 1, DIM, "YOU WERE ON. COND 1:2 = 1ST OF 2 PASSES.");
+        text(r, 392, 356, 1, YELLOW, "HOLD X + LEFT/RIGHT, OR THE STICK:");
+        text(r, 392, 368, 1, YELLOW, "PREVIOUS / NEXT STEP, SAME ROW.");
     } else if (u->page == P_STEP) {
         text(r, 392, 240, 1, DIM, "NOTE MOVES BY SCALE DEGREE;");
         text(r, 392, 252, 1, DIM, "HOLD Y TO MOVE BY OCTAVE.");
@@ -3016,6 +3081,7 @@ static void draw_drums(SDL_Renderer *r, const Seq *s, const Ui *u) {
             if (v) {
                 rect(r, x + 3, y + 3, w - 6, h - 6, scale(lane_col, 35 + 65 * v / 127));
                 if (tr->drum.prob[l][i] < 100) rect(r, x + 3, y + 3, (w - 6) * tr->drum.prob[l][i] / 100, 3, WHITE);
+                trig_marks(r, x + 3, y + 3, w - 6, h - 6, tr->drum.rat[l][i], tr->drum.cond[l][i]);
             }
             if (locked) rect(r, x + w - 6, y + 2, 4, 4, YELLOW);
             if (i == head) frame(r, x - 1, y - 1, w + 2, h + 2, 1, WHITE);
@@ -3029,7 +3095,11 @@ static void draw_drums(SDL_Renderer *r, const Seq *s, const Ui *u) {
     if (u->drum_label) snprintf(buf, sizeof buf, "T%d %s  NOTE %d %s%s%s%s", u->track + 1, s->lane_name[l], s->lane_note[l], nn,
                                 tr->drum_mute & (1 << l) ? "  MUTED" : "", tr->drum_solo & (1 << l) ? "  SOLO" : "",
                                 tr->drum_lock & (1 << l) ? "  LOCKED" : "");
-    else if (v) snprintf(buf, sizeof buf, "STEP %02d %s  VEL %d  CHANCE %d%%", u->step + 1, s->lane_name[l], v, tr->drum.prob[l][u->step]);
+    else if (v) {
+        char tb[16];
+        trig_text(tr->drum.rat[l][u->step], tr->drum.cond[l][u->step], tb, sizeof tb);
+        snprintf(buf, sizeof buf, "STEP %02d %s  VEL %d  CHANCE %d%%%s%s", u->step + 1, s->lane_name[l], v, tr->drum.prob[l][u->step], tb[0] ? "  " : "", tb);
+    }
     else snprintf(buf, sizeof buf, "STEP %02d %s  NO HIT", u->step + 1, s->lane_name[l]);
     text(r, 20, y, 2, WHITE, buf);
     snprintf(buf, sizeof buf, "T%d DRUMS  CH %d  LEN %d  %d HITS  BUSY %d%%", u->track + 1, tr->channel + 1, tr->len, seq_drum_hits(tr), tr->drum_busy);
