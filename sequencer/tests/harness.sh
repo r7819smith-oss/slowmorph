@@ -280,9 +280,17 @@ track-realign|w,w,Up,Right,Right,Right
 generate-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right
 drums-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Tab
 mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
-record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
-grid-count-in|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,m,m,space
+record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
+record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
+grid-count-in|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q,Right,Right,m,m,space
+perform-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
+perform-edited|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Right,Right,Down,z,Down,x,Down,Left,Left,Left,Left,Left,+v,Right,Right,Right,-v,Down,Down
+perform-scene-queued|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,Down,Down,Down,Down,Down,Down,c,Right,c,Left,space,z
+perform-record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
+perform-fill|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,space,+c
+arrange-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w
+arrange-built|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,Down,Down,Down,Down,Down,Down,c,q,q,z,Down,Down,Right,Right,c,z,+v,Right,-v,Down,z
+arrange-playing|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Down,Down,Down,Down,Down,Down,Down,Down,Down,c,q,q,z,Down,Down,Right,Right,c,z,+v,Right,-v,Down,z,space
 EOF
     unset SEQ4H_TEST_PORTS SEQ4H_TEST_IN
     "$PY" tools/shotcheck.py "$OUT"/shots/*.bmp \
@@ -325,6 +333,7 @@ EOF
         --differ grid-demo jump-panel --differ jump-panel jump-pick-go --differ grid-demo help-grid --differ help-grid help-step \
         --differ undo-history undo-history-redo --differ grid-undo-twice grid-undo-redo \
         --differ record-page record-set --differ grid-demo grid-count-in \
+        --differ perform-page perform-edited --differ perform-page perform-scene-queued --differ perform-page perform-record-page --differ perform-page perform-fill --differ arrange-page arrange-built --differ arrange-built arrange-playing \
         > "$OUT/shots/shotcheck.txt" 2>&1
     rc=$?
     cat "$OUT/shots/shotcheck.txt"

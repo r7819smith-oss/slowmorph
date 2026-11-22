@@ -193,8 +193,35 @@ static const char *const RECORD[] = {
     "LEFT / RIGHT|CHANGE IT (COUNT-IN, CLICK, SONG LENGTH, STOP, SONG POSITION)",
     "A|SET MARK NOW / PUT MARK BACK",
     "START|PLAY (WITH THE COUNT-IN); AGAIN: STOP (AT THE BAR END IF SET)",
+    "L1 / R1|PERFORM, ARRANGE",
     "B|BACK TO THE MENU",
     "The header shows BAR n.n / LENGTH while playing.",
+    END
+};
+
+static const char *const PERFORM[] = {
+    "#PERFORM: PLAYING LIVE",
+    "UP / DOWN|PICK A TRACK ROW, ALL, SCENE, SONG OR SWITCH",
+    "A / B|TRACK: MUTE / SOLO (ALL: MUTE ALL, CLEAR SOLOS)",
+    "HOLD X|FILL WHILE HELD (ALL: EVERY TRACK)",
+    "LEFT / RIGHT|TRACK: DENSITY; SCENE/SONG: PICK; SWITCH: HOW OFTEN",
+    "HOLD Y + L/R, STICK|EVOLVE AMOUNT",
+    "A ON SCENE / SONG|SWITCH AT THE NEXT SWITCH BAR (B CANCELS)",
+    "X ON SCENE|SAVE EVERY TRACK INTO THE SCENE",
+    "L1 / R1|ARRANGE, RECORD",
+    "Switching songs clears the undo history.",
+    END
+};
+
+static const char *const ARRANGE[] = {
+    "#ARRANGE: A SONG FROM SCENES",
+    "UP / DOWN|PICK A ROW OR SECTION",
+    "LEFT / RIGHT|SECTION: BARS",
+    "HOLD Y + LEFT/RIGHT|SECTION: SCENE",
+    "X|SECTION: FILL",
+    "A|ADD A COPY OF THE SECTION (ON / END ROWS: CHANGE)",
+    "SELECT|REMOVE THE SECTION",
+    "L1 / R1|PERFORM, RECORD",
     END
 };
 
@@ -202,7 +229,7 @@ static const HelpPage PAGES[] = {
     {"GRID", GRID}, {"STEP", STEP}, {"TRACK", TRACK}, {"GENERATE", GENERATE}, {"ROLL", ROLL},
     {"DRUMS", DRUMS}, {"ALL STEPS", ALLSTEPS}, {"MENU", MENU}, {"PATTERN SAVE", SLOTS},
     {"SONG SAVE", SONGS}, {"DRUM MAP", DRUMMAP}, {"MIDI", MIDI}, {"DEVICE", DEVICE},
-    {"LFO", MOD}, {"CC DEST", MOD}, {"MIDI IN", MOD}, {"UNDO HISTORY", HISTORY}, {"RECORD", RECORD},
+    {"LFO", MOD}, {"CC DEST", MOD}, {"MIDI IN", MOD}, {"UNDO HISTORY", HISTORY}, {"RECORD", RECORD}, {"PERFORM", PERFORM}, {"ARRANGE", ARRANGE},
 };
 
 int help_lines(const char *page, const char **out, int max) {

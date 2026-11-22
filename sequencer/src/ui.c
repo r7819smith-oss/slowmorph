@@ -94,9 +94,9 @@ typedef enum { P_GRID, P_STEP, P_TRACK, P_GEN, P_TABS,   /* P_TABS = pages on L1
                P_HIST, P_HELP,                                       /* M > UNDO HISTORY and M > HELP */
                P_ROLL, P_DRUMS,                                 /* Select on the GRID: piano roll or drum grid */
                P_ALLSTEPS,                                           /* Select on the GRID's track box: ALL STEPS */
-               P_RECORD,                                             /* M > LIVE: RECORD (ui_live.c) */
+               P_PERFORM, P_ARRANGE, P_RECORD,                       /* M > LIVE: PERFORM, ARRANGE and RECORD, L1/R1 between them (ui_live.c) */
                P_COUNT } Page;
-static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "DEVICE", "LFO", "CC DEST", "MIDI IN", "UNDO HISTORY", "HELP", "ROLL", "DRUMS", "ALL STEPS", "RECORD"};
+static const char *PAGE_NAMES[P_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "MENU", "PATTERN SAVE", "SONG SAVE", "DRUM MAP", "MIDI", "DEVICE", "LFO", "CC DEST", "MIDI IN", "UNDO HISTORY", "HELP", "ROLL", "DRUMS", "ALL STEPS", "PERFORM", "ARRANGE", "RECORD"};
 #define MAX_PORTS 8   /* M > MIDI lists this many output ports */
 #define MAX_USB 8     /* ...and this many USB devices */
 #define MAP_ROWS (SEQ_LANES + 1)   /* DRUM MAP: the 8 lanes, then RESET TO GM */
@@ -197,7 +197,13 @@ typedef struct {
     Uint32 next_listen;       /* next try to open it */
     char in_desc[128];        /* the input, or why there is none */
     MidiMon mon;              /* what came in */
+    /* M > LIVE (ui_live.c) */
+    int perf_scene, perf_song;   /* PERFORM: scene and song picked on their rows */
+    int perf_confirm;            /* PERFORM: X was pressed once on a scene that has patterns */
+    int perf_song_due;           /* PERFORM: read and queue perf_song after the press */
 } Ui;
+
+static int live_rows(const Seq *s, int page);   /* rows of the M > LIVE pages (ui_live.c) */
 
 /* Generate page rows. */
 enum {
@@ -736,7 +742,7 @@ static void menu_row_select(Seq *s, Ui *u, int row) {
         u->dev_confirm = 0;
     }
     else if (row == MENU_MOD) { u->page = P_LFO; u->learn = -1; }
-    else if (row == MENU_LIVE) u->page = P_RECORD;
+    else if (row == MENU_LIVE) { u->page = P_PERFORM; u->song_scan_due = 1; }
     else if (row == MENU_HIST) { u->page = P_HIST; u->row[P_HIST] = u->hist ? u->hist->nredo : 0; }   /* the cursor starts on NOW */
     else if (row == MENU_HELP) { u->page = P_HELP; u->help_from = u->menu_from; u->row[P_HELP] = 0; }
     else if (row == MENU_CODES) toggle_codes(u);
@@ -750,13 +756,11 @@ enum { LR_LFO, LR_STATE, LR_WAVE, LR_TIMING, LR_RATE, LR_PHASE, LR_STOPPED, LR_A
 enum { DW_DEST, DW_STATE, DW_LFO, DW_TO, DW_CC, DW_LOW, DW_HIGH, DW_MOVE, DW_INV, DW_LEARN, DW_SEND, DEST_ROWS };
 enum { IR_LISTEN, IR_CLEAR, IN_ROWS };
 
-#include "ui_live.c"   /* M > LIVE pages */
-
 static int page_rows(const Ui *u, int page) {
     if (page == P_ALLSTEPS) return all_rows(&u->p->seq, u);
     return page == P_STEP ? STEP_ROWS : page == P_TRACK ? TRACK_ROWS : page == P_MENU ? MENU_ROWS
          : page == P_SLOTS ? SEQ_SLOTS : page == P_SONGS ? SEQ_SONGS : page == P_DRUMMAP ? MAP_ROWS : page == P_MIDI ? 1 + u->nports : page == P_DEVICE ? DEVICE_ROWS
-         : page == P_RECORD ? REC_ROWS : page == P_LFO ? LFO_ROWS : page == P_DEST ? DEST_ROWS : page == P_MIDIIN ? IN_ROWS
+         : page == P_RECORD || page == P_PERFORM || page == P_ARRANGE ? live_rows(&u->p->seq, page) : page == P_LFO ? LFO_ROWS : page == P_DEST ? DEST_ROWS : page == P_MIDIIN ? IN_ROWS
          : page == P_HIST ? (u->hist ? u->hist->nredo + 1 + u->hist->nundo : 1) : GEN_ROWS;
 }
 
@@ -1723,6 +1727,8 @@ static void midiin_press(Ui *u, Btn b, int dx, int dy) {
 /* Every frame: open the MIDI input while the MIDI IN page listens or a LEARN
  * waits, close it otherwise; log what comes in and hand a CC to LEARN.
  * Nothing received is sent anywhere. */
+#include "ui_live.c"   /* M > LIVE pages */
+
 static void service_input(Ui *u, Uint32 now) {
     Player *p = u->p;
     int want = (u->page == P_MIDIIN && u->listen_on) || u->learn >= 0;
@@ -1840,6 +1846,7 @@ static void select_combo(Seq *s, Ui *u, Btn b) {
 /* Select pressed and released on its own: the GRID opens the piano roll (note
  * track) or drum grid (drum track); from either, back to the GRID. */
 static void select_tap(Ui *u) {
+    if (u->page == P_ARRANGE) { arr_select(u); return; }   /* remove the section */
     player_lock(u->p);
     Seq *s = &u->p->seq;
     if (u->page == P_GRID && u->on_label) open_all(u);   /* the track box: ALL STEPS */
@@ -1911,12 +1918,12 @@ static void help_press(Ui *u, Btn b, int dy) {
 
 /* The jump panel (hold M): every page as a tile. D-pad picks, letting go of
  * M (or A) goes there, B cancels, L2/R2 picks the track. */
-enum { J_GRID, J_STEP, J_TRACK, J_GEN, J_ROLL, J_ALL, J_MENU, J_SLOTS, J_SONGS, J_MAP, J_MIDI, J_DEVICE, J_MOD, J_RECORD,
-       J_HIST, J_HELP, J_COUNT };
+enum { J_GRID, J_STEP, J_TRACK, J_GEN, J_ROLL, J_ALL, J_MENU, J_SLOTS, J_SONGS, J_MAP, J_MIDI, J_DEVICE, J_MOD, J_PERFORM, J_ARRANGE,
+       J_RECORD, J_HIST, J_HELP, J_COUNT };
 #define JUMP_COLS 4
 #define JUMP_HOLD_MS 300
 static const char *const JUMP_NAMES[J_COUNT] = {"GRID", "STEP", "TRACK", "GENERATE", "ROLL", "ALL STEPS", "MAIN MENU", "PATTERNS",
-                                                "SONGS", "DRUM MAP", "MIDI OUT", "DEVICE", "MODULATION", "RECORD", "HISTORY", "HELP"};   /* 10 letters at most */
+                                                "SONGS", "DRUM MAP", "MIDI OUT", "DEVICE", "MODULATION", "PERFORM", "ARRANGE", "RECORD", "HISTORY", "HELP"};   /* 10 letters at most */
 
 static int page_jump(int page) {   /* the tile a page belongs to */
     switch (page) {
@@ -1924,13 +1931,13 @@ static int page_jump(int page) {   /* the tile a page belongs to */
     case P_ROLL: case P_DRUMS: return J_ROLL; case P_ALLSTEPS: return J_ALL; case P_MENU: return J_MENU;
     case P_SLOTS: return J_SLOTS; case P_SONGS: return J_SONGS; case P_DRUMMAP: return J_MAP; case P_MIDI: return J_MIDI;
     case P_DEVICE: return J_DEVICE; case P_LFO: case P_DEST: case P_MIDIIN: return J_MOD; case P_HIST: return J_HIST;
-    case P_HELP: return J_HELP; case P_RECORD: return J_RECORD;
+    case P_HELP: return J_HELP; case P_RECORD: return J_RECORD; case P_PERFORM: return J_PERFORM; case P_ARRANGE: return J_ARRANGE;
     }
     return J_GRID;
 }
 
 static int is_menu_page(int page) {   /* pages that open from the main menu; M closes them */
-    return (page >= P_MENU && page <= P_HELP) || page == P_RECORD;
+    return (page >= P_MENU && page <= P_HELP) || page == P_PERFORM || page == P_ARRANGE || page == P_RECORD;
 }
 
 static void jump_open(Ui *u) {
@@ -1948,10 +1955,12 @@ static void jump_go(Seq *s, Ui *u, int j) {
     if (!is_menu_page(from) && from != P_ROLL && from != P_DRUMS && from != P_ALLSTEPS) u->menu_from = from;
     else if (!is_menu_page(from)) u->menu_from = P_GRID;
     static const int ROW[J_COUNT] = {[J_SLOTS] = MENU_SLOTS, [J_SONGS] = MENU_SONGS, [J_MAP] = MENU_DRUMMAP, [J_MIDI] = MENU_MIDI,
-                                     [J_DEVICE] = MENU_DEVICE, [J_MOD] = MENU_MOD, [J_RECORD] = MENU_LIVE, [J_HIST] = MENU_HIST, [J_HELP] = MENU_HELP};
+                                     [J_DEVICE] = MENU_DEVICE, [J_MOD] = MENU_MOD, [J_PERFORM] = MENU_LIVE, [J_ARRANGE] = MENU_LIVE, [J_RECORD] = MENU_LIVE, [J_HIST] = MENU_HIST, [J_HELP] = MENU_HELP};
     if (ROW[j]) {
         menu_row_select(s, u, ROW[j]);
         if (j == J_HELP) u->help_from = from == P_HELP ? u->help_from : from;
+        if (j == J_ARRANGE) u->page = P_ARRANGE;
+        else if (j == J_RECORD) u->page = P_RECORD;
     }
     else if (j == J_MENU) { u->page = P_MENU; if (!u->plan_init) plan_from_tracks(s, u); }
     else if (j == J_ROLL) { u->on_label = 0; if (is_drums(s, u->track)) open_drums(s, u); else open_roll(s, u); }
@@ -2029,7 +2038,7 @@ static void press(Ui *u, Btn b) {
     int page0 = u->page, track0 = u->track, step0 = u->step, row0 = u->row[u->page];
     hist_begin(u);
     int modp = u->page == P_LFO || u->page == P_DEST || u->page == P_MIDIIN;
-    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI || u->page == P_DEVICE || u->page == P_RECORD || modp
+    int in_menu = u->page == P_MENU || u->page == P_SLOTS || u->page == P_SONGS || u->page == P_DRUMMAP || u->page == P_MIDI || u->page == P_DEVICE || u->page == P_RECORD || u->page == P_PERFORM || u->page == P_ARRANGE || modp
                || u->page == P_HIST || u->page == P_HELP;
     int was_midi = u->page == P_MIDI;
     int sub = u->page == P_ROLL || u->page == P_DRUMS || u->page == P_ALLSTEPS;   /* opened from the GRID */
@@ -2053,7 +2062,15 @@ static void press(Ui *u, Btn b) {
     else if (u->page == P_DRUMMAP && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) map_press(s, u, b, dx, dy);
     else if (u->page == P_MIDI && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) midi_press(u, b, dy);
     else if (u->page == P_DEVICE && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) device_press(s, u, b, dx, dy);
-    else if (u->page == P_RECORD && b != B_L && b != B_R && b != B_PAGE && b != B_L2 && b != B_R2) rec_press(s, u, b, dx, dy);
+    else if ((u->page == P_RECORD || u->page == P_PERFORM || u->page == P_ARRANGE) && (b == B_L || b == B_R || b == B_PAGE)) {   /* L1/R1: PERFORM, ARRANGE, RECORD */
+        u->page = P_PERFORM + wrap(u->page - P_PERFORM + (b == B_L ? -1 : 1), 3);
+        if (u->page == P_PERFORM) u->song_scan_due = 1;
+    }
+    else if (u->page == P_PERFORM && (b == B_VUP || b == B_VDOWN)) perf_stick(s, u, b == B_VUP ? 1 : -1);
+    else if (u->page == P_PERFORM && b != B_L2 && b != B_R2) perf_press(s, u, b, dx, dy);
+    else if (u->page == P_RECORD && b != B_L2 && b != B_R2) rec_press(s, u, b, dx, dy);
+    else if (u->page == P_ARRANGE && (b == B_VUP || b == B_VDOWN)) { /* nothing */ }
+    else if (u->page == P_ARRANGE && b != B_L2 && b != B_R2) arr_press(s, u, b, dx, dy);
     else if (modp && (b == B_L || b == B_R || b == B_PAGE)) {   /* L1/R1: LFO, CC DEST, MIDI IN */
         u->page = P_LFO + wrap(u->page - P_LFO + (b == B_L ? -1 : 1), 3);
         if (u->page == P_DEST && u->dest_sel != u->learn) u->learn = -1;
@@ -2154,6 +2171,7 @@ static void press(Ui *u, Btn b) {
     player_unlock(p);
     if (u->page == P_MIDI && !was_midi) scan_midi(u);   /* list the ports as the page opens */
     if (u->song_op) song_do(u);
+    if (u->perf_song_due) perf_song_do(u);
     if (u->song_scan_due) { u->song_scan_due = 0; song_scan(u); }
 }
 
@@ -2176,6 +2194,7 @@ static void set_button(Ui *u, Btn b, int down) {
         if (b == B_Y && was && !u->y_used && !u->quit) y_tap(u);
         if (b == B_X && was) label_x_release(u);
         if (b == B_MENU && was && !u->quit) menu_release(u);
+        if (b == B_X && was) perf_x_release(u);
     }
 }
 
@@ -2996,6 +3015,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         else if (u->page == P_MIDIIN) midiin_row_text(u, row, label, val);
         else if (u->page == P_HIST) { hist_page_text(u, row, label, val); head = row >= (u->hist ? u->hist->nredo : 0); }
         else if (u->page == P_RECORD) { rec_row_text(&s, row, label, val); head = row < RR_MARK; }
+        else if (u->page == P_ARRANGE) { arr_row_text(&s, row, label, val); head = row < AR_FIRST || row - AR_FIRST < s.arr.n; }
         else { gen_row_text(&s, u, row, label, val); head = gen_row_is_head(row); }
         int sel = row == u->row[u->page];
         if (sel) rect(r, 14, y - 3, 352, 20, (Col){40, 44, 64});
@@ -3024,6 +3044,7 @@ static void draw_list(SDL_Renderer *r, const Seq *sp, const Ui *u, const char *m
         text(r, 20, H - 20, 1, DIM, "M CLOSE  HOLD M JUMP  START PLAY/STOP");
         return;
     }
+    if (u->page == P_ARRANGE) { draw_arr_side(r, &s, u); return; }
     if (u->page != P_MENU) draw_preview(r, &s, u);
     else {
         text(r, 392, 62, 2, YELLOW, "MAIN MENU");
@@ -3310,6 +3331,7 @@ static void draw(SDL_Renderer *r, Player *p, const Ui *u) {
     else if (u->page == P_ROLL) draw_roll(r, &s, u);
     else if (u->page == P_DRUMS) draw_drums(r, &s, u);
     else if (u->page == P_HELP) draw_help(r, u);
+    else if (u->page == P_PERFORM) draw_perform(r, &s, u);
     else draw_list(r, &s, u, midi_desc);
     if (u->page == P_GRID || u->page == P_DRUMS)   /* stick and Select shortcuts (the other pages have no room; README lists them) */
         text(r, 20, u->page == P_GRID && u->on_label ? H - 62 : H - 48, 1, (Col){150, 155, 175},
@@ -3425,6 +3447,7 @@ int ui_run(Player *p, const UiOptions *opt) {
         Uint32 now = SDL_GetTicks();
         label_x_hold(&u, now);
         jump_hold(&u, now);
+        live_ui_poll(&u);
         service_input(&u, now);
         for (int b = 0; b < B_COUNT; b++)
             if (u.held[b] && repeats((Btn)b) && now >= u.next_rep[b]) {

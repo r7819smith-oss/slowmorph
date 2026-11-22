@@ -663,8 +663,8 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     Start until the count-in ends**, so a DAW, the Blackbox or the FM1
     starts on bar 1 with us; the clock keeps its even spacing across the end
     of the count-in. CLICK plays a short note each beat (louder on beat 1)
-    on the first drum track's closed hat (a lane named HAT with CL or CH,
-    else lane 4), or C7 on T1 with no drum track. SONG LENGTH 1-999 bars
+    on the first drum track's closed hat (a lane named HAT with CL or CH, or CH 909,
+    else lane 3), or C7 on T1 with no drum track. SONG LENGTH 1-999 bars
     stops on that bar line, counted from Start (after the count-in). STOP AT
     BAR END makes Start-while-playing wait for the bar line (header ENDING);
     a second press stops at once. SONG POSITION sends SPP 0 just before
@@ -678,6 +678,51 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Header: **IN n** (count-in beats to go), **ENDING**, and **BAR b.b**
     (/ length) under the play state. The grid playhead hides during the
     count-in.
+  - **PERFORM page** (M > LIVE + RECORD opens it; L1/R1 to RECORD): one
+    row per track (all 8), then ALL TRACKS, SCENE, SONG, SWITCH AT. A mute,
+    B solo, left/right **DENSITY** (-100..+100), hold Y + left/right or the
+    stick up/down the track's **EVOLVE** amount (raising it from OFF turns
+    evolution on every 4 bars). ALL TRACKS: A mutes all (or unmutes all if
+    any is muted), B clears solos.
+  - **DENSITY** changes what plays, not the pattern: below 0 notes and hits
+    drop out by chance (steps 1, 9, 17, 25 and kick lanes at half the
+    chance); above 0, empty steps play a softer ghost of the track's last
+    note before them (chance = DENSITY/2 %), and drum lanes that already
+    play (not the kick) get soft ghost hits (DENSITY/3 %). Session setting,
+    saved as `ld T N`; 0 leaves playback exactly as before.
+  - **FILL** (hold X on a track row, or on ALL TRACKS for every track):
+    lasts while X is held, nothing is saved, the pattern is not changed.
+    A drum track keeps its hits, adds closed hats on every step and a snare
+    roll over the second half of each bar rising from velocity 50 to 120
+    (lanes found by name: SNARE / SD / SN, then CLAP; hats HAT+CL/CH or CH;
+    else lanes 2 and 3); the kick stays as written. A note track plays every
+    step (empty ones as a softer ghost of its last note) and lifts the last
+    beat of each bar an octave: the "busier version" from Roy's list.
+  - **Scenes** = slot k of every track (PATTERN SAVE slots), so no new data:
+    X on the SCENE row stores every track into slot k (X twice if used), A
+    switches. Tracks with an empty slot k, or a chain of 2+ slots, keep
+    playing. **Queued switches** happen on the next bar line that is a
+    multiple of SWITCH AT (1/2/4/8 bars from Start; saved as `lq`); stopped,
+    they happen at once. The countdown shows on the row and in the header
+    on every page (SCENE 3 IN 2 BARS ... IN 1). B cancels.
+  - **ARRANGE page** (L1/R1 from PERFORM; Roy's item 5): up to 16
+    sections, each a scene played for 1-64 bars (1 2 3 4 6 8 12 16 24 32 48
+    64), with an optional fill in its last bar (DRUM FILL = drum tracks, or
+    FILL ALL). ARRANGE ON makes Start begin at section 1 (its scene recalled
+    before the first note); after the last section it LOOPs or STOPs on the
+    bar line. Left/right bars, Y + left/right scene, X fill, A adds a copy
+    below, Select removes, + ADD SECTION appends (next scene). The side
+    shows a timeline coloured by scene with the playhead. It belongs to the
+    **song** (`ar ON END N` + `as I SCENE BARS FILL` lines, saved with SONG
+    SAVE); a queued song brings its own arrangement, from its section 1.
+    Scene queue and SONG LENGTH still work on top (SONG LENGTH can cut an
+    arrangement short). Turning ARRANGE on with no sections adds one (the
+    current scene, 8 bars).
+  - **Song queue:** A on the SONG row reads the song file (player unlocked)
+    and hands it to the engine, which swaps it in at the switch bar with
+    `song_apply` (in time, clock not restarted; the LIVE settings stay).
+    Stopped, it loads at once. No UNDO LOAD for this path (SONG SAVE's own
+    load still has it).
 - **Polymeter and Euclidean rhythms (2026-11-21, Roy's list item 8).**
   Per-track LENGTH already gave polymeter at 1/16; this adds the rest:
   - **STEP RATE** (TRACK page, second-last row): how long the track's steps

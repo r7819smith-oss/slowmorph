@@ -28,3 +28,4 @@ tests/test_history
 tests/test_live
 tests/test_rhythm
 tests/test_rhythm_asan
+tests/test_live_asan
