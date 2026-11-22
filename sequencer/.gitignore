@@ -25,3 +25,5 @@ seq4h-song*.pat
 tests/test_mod
 tests/test_mod_asan
 tests/test_live
+tests/test_rhythm
+tests/test_rhythm_asan

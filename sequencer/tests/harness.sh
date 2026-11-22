@@ -256,6 +256,11 @@ mod-dest|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w
 mod-dest-on|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down
 mod-dest-range|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,z,Down,Down,Down,Down,Down,Down,Right,Right,Right
 mod-in-monitor|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,q
+track-rate|w,w,Up,Up,Right,Right
+grid-rate|w,w,Up,Up,Right,Right,x
+track-realign|w,w,Up,Right,Right,Right
+generate-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right
+drums-euclid-lane|w,w,Down,Right,w,Down,Down,Down,Right,Right,Down,Right,Right,Right,Right,Right,x,Tab
 mod-in-learned|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,w,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 record-page|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z
 record-set|m,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,Down,z,Right,Down,Right,Down,Right,Right,Right,Right,+v,Right,-v,Down,Right,Down,Right
