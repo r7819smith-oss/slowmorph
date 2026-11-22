@@ -182,11 +182,20 @@ typedef struct {
     uint8_t stop_mode;    /* STOP_NOW or STOP_AT_BAR */
     uint8_t spp;          /* send Song Position Pointer 0 just before Start */
     uint8_t from_mark;    /* every Start puts the start mark back first */
+    uint8_t quant;        /* queued scenes and songs switch at a bar line that is a multiple of this: 1, 2, 4 or 8 */
+    int8_t density[SEQ_TRACKS];   /* PERFORM: -100 (thinner) .. +100 (busier); 0 = as written */
     /* Running state (not saved). */
     uint32_t count_left;  /* ticks of count-in still to go; 0 = not counting in */
     int16_t click_note;   /* click note sounding, or -1 */
     uint8_t click_ch, click_left;
     uint8_t stop_pending; /* Start was pressed: stop at the next bar line */
+    uint16_t fill;        /* bit per track: a fill plays while it is set (held X on PERFORM; not saved) */
+    int8_t scene;         /* scene last recalled, -1 = none */
+    int8_t scene_q;       /* scene waiting for the switch bar, -1 = none */
+    int8_t song_q;        /* song waiting for the switch bar, -1 = none */
+    int8_t song_now;      /* song the engine switched to, -1 = none (the UI reads and clears it) */
+    void *song_next;      /* ...its contents (a Seq the UI read from the file) */
+    void (*song_swap)(void *seq, void *song);   /* puts song_next in, and frees it (the UI's song_apply) */
     uint8_t has_mark;
     uint32_t mark_rng;
     LiveTake mark[SEQ_TRACKS];

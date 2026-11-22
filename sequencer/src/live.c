@@ -1,5 +1,6 @@
 #include "live.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #define BAR (SEQ_PPQN * 4)
@@ -16,6 +17,8 @@ static void out1(Seq *s, uint8_t a) {
 void live_init(Live *l) {
     memset(l, 0, sizeof *l);
     l->click_note = -1;
+    l->quant = 1;
+    l->scene = l->scene_q = l->song_q = l->song_now = -1;
 }
 
 void live_send_start(Seq *s) {
@@ -24,17 +27,28 @@ void live_send_start(Seq *s) {
     out1(s, 0xFA);
 }
 
-/* The click plays on the first drum track, as its closed hat (a lane whose
- * name has HAT and CL or CH in it, else lane 4); with no drum track, a high C
- * on track 1. */
+/* The lane to roll on (SNARE, else SN or CLAP, else lane 2) and the closed hat
+ * (HAT with CL or CH, or a name starting CH; else lane 3). */
+static int snare_lane(const Seq *s) {
+    for (int l = 0; l < SEQ_LANES; l++) if (strstr(s->lane_name[l], "SNARE")) return l;
+    for (int l = 0; l < SEQ_LANES; l++) if (!strncmp(s->lane_name[l], "SD", 2) || strstr(s->lane_name[l], "SN")) return l;
+    for (int l = 0; l < SEQ_LANES; l++) if (strstr(s->lane_name[l], "CLAP")) return l;
+    return 1;
+}
+static int hat_lane(const Seq *s) {
+    for (int l = 0; l < SEQ_LANES; l++) {
+        const char *n = s->lane_name[l];
+        if ((strstr(n, "HAT") && (strstr(n, "CL") || strstr(n, "CH"))) || !strncmp(n, "CH", 2)) return l;
+    }
+    return 2;   /* FELUCCA and GM: lane 3 */
+}
+
+/* The click plays on the first drum track, as its closed hat (hat_lane);
+ * with no drum track, a high C on track 1. */
 static void click_target(const Seq *s, uint8_t *ch, uint8_t *note) {
     for (int t = 0; t < SEQ_TRACKS; t++) {
         if (s->track[t].type != TRACK_DRUMS) continue;
-        int lane = 3;
-        for (int l = 0; l < SEQ_LANES; l++) {
-            const char *n = s->lane_name[l];
-            if (strstr(n, "HAT") && (strstr(n, "CL") || strstr(n, "CH"))) { lane = l; break; }
-        }
+        int lane = hat_lane(s);
         *ch = s->track[t].channel;
         *note = s->lane_note[lane];
         return;
@@ -50,10 +64,28 @@ static void click_off(Seq *s) {
     l->click_left = 0;
 }
 
+static void switch_song(Seq *s) {
+    Live *l = &s->live;
+    void *song = l->song_next;
+    void (*swap)(void *, void *) = l->song_swap;
+    int k = l->song_q;
+    l->song_next = NULL;
+    l->song_swap = NULL;
+    l->song_q = -1;
+    if (!song || !swap) return;
+    swap(s, song);   /* song_apply keeps s->live */
+    s->live.song_now = (int8_t)k;
+    s->live.scene = -1;
+}
+
+void live_start_song_now(Seq *s) { if (s->live.song_q >= 0) switch_song(s); }
+
 int live_start(Seq *s) {
     Live *l = &s->live;
     l->stop_pending = 0;
     click_off(s);
+    if (l->song_q >= 0) switch_song(s);   /* queued while stopped: in before bar 1 */
+    if (l->scene_q >= 0) { live_scene_recall(s, l->scene_q); l->scene_q = -1; }
     if (l->from_mark) live_restore_mark(s);
     l->count_left = (uint32_t)l->count_in * BAR;
     return l->count_left > 0;
@@ -92,7 +124,182 @@ int live_bar(Seq *s, uint32_t bar) {
         seq_stop(s);
         return 1;
     }
+    if (bar % (l->quant ? l->quant : 1) == 0) {   /* a switch bar */
+        if (l->song_q >= 0) switch_song(s);
+        if (l->scene_q >= 0) { live_scene_recall(s, l->scene_q); l->scene_q = -1; }
+    }
     return 0;
+}
+
+/* ---- scenes ---- */
+
+static int chained(const SeqTrack *tr) { return tr->chain_len > 1; }
+
+int live_scene_tracks(const Seq *s, int k) {
+    int n = 0;
+    if (k < 0 || k >= LIVE_SCENES) return 0;
+    for (int t = 0; t < SEQ_TRACKS; t++) n += s->track[t].slot[k].used != 0;
+    return n;
+}
+
+void live_scene_store(Seq *s, int k) {
+    if (k < 0 || k >= LIVE_SCENES) return;
+    for (int t = 0; t < SEQ_TRACKS; t++) seq_slot_store(s, t, k);
+    s->live.scene = (int8_t)k;
+}
+
+int live_scene_recall(Seq *s, int k) {
+    int n = 0;
+    if (k < 0 || k >= LIVE_SCENES) return 0;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        if (chained(&s->track[t]) || !s->track[t].slot[k].used) continue;
+        if (seq_slot_recall(s, t, k) == 0) n++;
+    }
+    s->live.scene = (int8_t)k;
+    return n;
+}
+
+int live_queue_scene(Seq *s, int k) {
+    Live *l = &s->live;
+    if (k < 0 || k >= LIVE_SCENES) { l->scene_q = -1; return 0; }
+    if (!s->playing || l->count_left) {
+        live_scene_recall(s, k);
+        l->scene_q = -1;
+        return 0;
+    }
+    l->scene_q = (int8_t)k;
+    return 1;
+}
+
+void live_queue_song(Seq *s, int k, void *song, void (*swap)(void *, void *)) {
+    Live *l = &s->live;
+    if (l->song_next) {   /* replace one already waiting */
+        void *old = l->song_next;
+        l->song_next = NULL;
+        free(old);
+    }
+    l->song_q = -1;
+    l->song_next = NULL;
+    l->song_swap = NULL;
+    if (k < 0 || !song || !swap) { free(song); return; }
+    l->song_q = (int8_t)k;
+    l->song_next = song;
+    l->song_swap = swap;
+}
+
+int live_switch_in(const Seq *s, int *bars, int *beats) {
+    const Live *l = &s->live;
+    *bars = *beats = 0;
+    if (!s->playing || l->count_left || (l->scene_q < 0 && l->song_q < 0)) return 0;
+    uint32_t q = (uint32_t)(l->quant ? l->quant : 1) * BAR;
+    uint32_t now = s->tick, next = (now / q + 1) * q;
+    if (now % q == 0 && now) next = now;   /* this tick is the switch bar */
+    uint32_t b = (next - now + SEQ_PPQN - 1) / SEQ_PPQN;   /* beats to go, rounded up */
+    *bars = (int)(b / 4);
+    *beats = (int)(b % 4);
+    return 1;
+}
+
+void live_set_quant(Seq *s, int bars) {
+    s->live.quant = (uint8_t)(bars <= 1 ? 1 : bars <= 2 ? 2 : bars <= 4 ? 4 : 8);
+}
+
+/* ---- DENSITY ---- */
+
+static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+void live_density(Seq *s, int t, int d) {
+    if (t < 0 || t >= SEQ_TRACKS) return;
+    s->live.density[t] = (int8_t)clampi(s->live.density[t] + d, -100, 100);
+}
+
+void live_fill(Seq *s, int t, int on) {
+    if (t < 0 || t >= SEQ_TRACKS) return;
+    if (on) s->live.fill |= (uint16_t)(1u << t);
+    else s->live.fill &= (uint16_t)~(1u << t);
+}
+
+static int filling(const Seq *s, int t) { return (s->live.fill >> t) & 1; }
+
+int live_busy(const Seq *s, int t) { return s->live.density[t] != 0 || filling(s, t); }
+
+/* Sixteenth of the bar being played, 0..15. */
+static int bar16(const Seq *s) { return (int)(s->tick % BAR / (BAR / 16)); }
+
+static int pct(Seq *s, int chance) { return chance > 0 && (int)(seq_rand(s) % 100) < chance; }
+
+const SeqStep *live_note_step(Seq *s, int t, int idx, const SeqStep *st, SeqStep *tmp) {
+    const SeqTrack *tr = &s->track[t];
+    int d = s->live.density[t];
+    if (filling(s, t)) {   /* every step; the last beat of the bar an octave up */
+        int lift = bar16(s) >= 12 ? 12 : 0;
+        if (st->on) { *tmp = *st; tmp->vel = (uint8_t)(st->vel + 10 > 127 ? 127 : st->vel + 10); }
+        else {
+            const SeqStep *src = NULL;
+            for (int k = 1; k <= tr->len && !src; k++)
+                if (tr->step[(idx - k + tr->len) % tr->len].on) src = &tr->step[(idx - k + tr->len) % tr->len];
+            if (!src) return NULL;
+            *tmp = *src;
+            tmp->vel = (uint8_t)(src->vel * 4 / 5 < 1 ? 1 : src->vel * 4 / 5);
+            tmp->hold = 0; tmp->nudge = st->nudge; tmp->lock = 0;
+            tmp->gate = (uint8_t)(src->gate > 80 ? 80 : src->gate);
+        }
+        tmp->prob = 100;
+        if (tmp->note + lift <= 127) tmp->note = (uint8_t)(tmp->note + lift);
+        return tmp;
+    }
+    if (st->on) {
+        if (d >= 0) return st;
+        return pct(s, idx % 8 == 0 ? -d / 2 : -d) ? NULL : st;   /* beats 1 and 3 hold on longest */
+    }
+    if (d <= 0 || !pct(s, d / 2)) return NULL;
+    for (int k = 1; k < tr->len; k++) {   /* the track's last note before this step */
+        const SeqStep *src = &tr->step[(idx - k + tr->len) % tr->len];
+        if (!src->on) continue;
+        *tmp = *src;
+        tmp->vel = (uint8_t)(src->vel * 3 / 5 < 1 ? 1 : src->vel * 3 / 5);
+        tmp->hold = 0;
+        tmp->prob = 100;
+        tmp->nudge = st->nudge;
+        tmp->lock = 0;
+        return tmp;
+    }
+    return NULL;
+}
+
+static int is_kick(const Seq *s, int l) { return strstr(s->lane_name[l], "KICK") || strstr(s->lane_name[l], "BD"); }
+
+
+int live_drum_step(Seq *s, int t, int idx, uint8_t vel[SEQ_LANES]) {
+    const SeqTrack *tr = &s->track[t];
+    int d = s->live.density[t], n = 0;
+    for (int l = 0; l < SEQ_LANES; l++) {
+        vel[l] = 0;
+        if (!seq_lane_audible(tr, l)) continue;
+        int v = tr->drum.vel[l][idx];
+        if (v) {
+            int p = tr->drum.prob[l][idx];
+            if (p < 100 && (int)(seq_rand(s) % 100) >= p) continue;
+            if (d < 0 && pct(s, is_kick(s, l) ? -d / 2 : -d)) continue;
+            vel[l] = (uint8_t)v;
+            n++;
+        } else if (d > 0 && !is_kick(s, l)) {   /* ghost hits on lanes that already play */
+            int hits = 0, sum = 0;
+            for (int i = 0; i < tr->len; i++) if (tr->drum.vel[l][i]) { hits++; sum += tr->drum.vel[l][i]; }
+            if (!hits || !pct(s, d / 3)) continue;
+            vel[l] = (uint8_t)clampi(sum / hits / 2, 1, 127);
+            n++;
+        }
+    }
+    if (filling(s, t)) {
+        int p = bar16(s), sn = snare_lane(s), hh = hat_lane(s);
+        if (p >= 8 && seq_lane_audible(tr, sn)) {   /* snare roll, rising */
+            int v = 50 + (p - 8) * 10;
+            if (vel[sn] < v) { n += !vel[sn]; vel[sn] = (uint8_t)v; }
+        }
+        if (seq_lane_audible(tr, hh) && !vel[hh]) { vel[hh] = (uint8_t)(p % 2 ? 55 : 80); n++; }
+    }
+    return n;
 }
 
 int live_stop_request(Seq *s) {
@@ -164,12 +371,18 @@ void live_save(const Seq *s, FILE *f) {
     const Live *l = &s->live;
     /* "lv COUNT CLICK LENGTH STOPMODE SPP FROMMARK"; older versions skip it */
     fprintf(f, "lv %d %d %d %d %d %d\n", l->count_in, l->click, l->length, l->stop_mode, l->spp, l->from_mark);
+    fprintf(f, "lq %d\n", l->quant);   /* scene and song switch bars */
+    for (int t = 0; t < SEQ_TRACKS; t++)
+        if (l->density[t]) fprintf(f, "ld %d %d\n", t, l->density[t]);
 }
-
-static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 int live_load_line(Seq *s, const char *line) {
     int a, b, c, d, e, g;
+    if (sscanf(line, "lq %d", &a) == 1) { live_set_quant(s, a); return 1; }
+    if (sscanf(line, "ld %d %d", &a, &b) == 2) {
+        if (a >= 0 && a < SEQ_TRACKS) s->live.density[a] = (int8_t)clampi(b, -100, 100);
+        return 1;
+    }
     if (strncmp(line, "lv ", 3) != 0) return 0;
     if (sscanf(line, "lv %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g) == 6) {
         Live *l = &s->live;

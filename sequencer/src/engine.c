@@ -254,6 +254,22 @@ static void play_drums(Seq *s, int t, uint32_t now, int idx) {
     }
 }
 
+/* Drum hits already chosen (DENSITY, fills): vel[lane], 0 = none. */
+static void play_hits(Seq *s, int t, uint32_t now, const uint8_t *vel) {
+    SeqTrack *tr = &s->track[t];
+    for (int l = 0; l < SEQ_LANES; l++) {
+        if (!vel[l]) continue;
+        release_lane(s, tr, l);
+        uint8_t note = s->lane_note[l];
+        for (int m = 0; m < SEQ_LANES; m++)
+            if (m != l && (tr->drum_down & (1 << m)) && tr->drum_note[m] == note) release_lane(s, tr, m);
+        emit3(s, 0x90 | tr->channel, note, (uint8_t)seq_swell_vel(s, t, now, vel[l]));
+        tr->drum_note[l] = note;
+        tr->drum_down |= (uint8_t)(1 << l);
+        tr->drum_off[l] = now + SEQ_DRUM_GATE;
+    }
+}
+
 /* The UI's auditioned note: its note-off, playing or stopped. */
 static void audition_tick(Seq *s) {
     if (s->aud_left && --s->aud_left == 0) emit3(s, 0x80 | s->aud_ch, (uint8_t)s->aud_note, 0);
@@ -320,7 +336,7 @@ void seq_tick(Seq *s) {
             if ((int32_t)(now - tr->pv_off[k]) >= 0) release_pv(s, tr, k);
         for (int l = 0; tr->drum_down && l < SEQ_LANES; l++)
             if ((tr->drum_down & (1 << l)) && (int32_t)(now - tr->drum_off[l]) >= 0) release_lane(s, tr, l);
-        int drums = tr->type == TRACK_DRUMS;
+        int drums = tr->type == TRACK_DRUMS, busy = live_busy(s, t);   /* busy: PERFORM's DENSITY */
         if (!seq_track_audible(s, t) || tr->rest_left) continue;   /* a rest lets held notes ring out */
 
         /* A step plays at its grid time + swing + its own offset. A track's
@@ -341,7 +357,7 @@ void seq_tick(Seq *s) {
             uint32_t g = gstep + (uint32_t)ahead;
             int idx = (int)(g % tr->len);
             const SeqStep *st = &tr->step[idx];
-            if (!(drums ? seq_drum_column(tr, idx) : st->on) || tr->played[idx] == g + 1) continue;
+            if ((!busy && !(drums ? seq_drum_column(tr, idx) : st->on)) || tr->played[idx] == g + 1) continue;
             int live = live_offset(tr);
             int when = ((g & 1) ? swing : 0) + (live ? tr->jit[idx] : drums ? 0 : st->nudge);   /* drum steps have no OFFSET */
             when = clampi(when, 1 - tps, tps - 1);
@@ -350,7 +366,15 @@ void seq_tick(Seq *s) {
             if (!due) continue;
             tr->played[idx] = g + 1;
             if (live) tr->jit[idx] = draw_offset(s, tr, st);   /* where it lands next time round */
-            if (drums) play_drums(s, t, now, idx);
+            if (busy && drums) {
+                uint8_t vel[SEQ_LANES];
+                if (live_drum_step(s, t, idx, vel)) play_hits(s, t, now, vel);
+            } else if (busy) {
+                SeqStep ghost;
+                const SeqStep *p = live_note_step(s, t, idx, st, &ghost);
+                if (p) play_step(s, t, now, p);
+            }
+            else if (drums) play_drums(s, t, now, idx);
             else play_step(s, t, now, st);
         }
     }

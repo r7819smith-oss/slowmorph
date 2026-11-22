@@ -17,7 +17,7 @@ with T4 a drum track (TRACK > TYPE > DRUMS) if you can.
 ## Recording helpers
 
 ### R1. Find the page
-1. Press **M**, go down to **LIVE + RECORD** and press **A**.
+1. Press **M**, go down to **LIVE + RECORD**, press **A** (PERFORM opens), then **R1**.
 
 **Expected:** the **RECORD** page: COUNT-IN OFF, CLICK OFF, SONG LENGTH OFF
 (ENDLESS), STOP AT ONCE, SONG POSITION OFF, START FROM MARK OFF, SET MARK
@@ -93,5 +93,88 @@ the marked patterns back at any time.
 **Expected:** recording starts on bar 1 together with Genvolve (not during
 the count-in), and it stops when Genvolve stops. Write down if the device
 got confused by SONG POSITION (then leave it OFF).
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+---
+
+## Performance page and scenes
+
+### P1. The page
+1. **M** > **LIVE + RECORD** > **A**.
+
+**Expected:** PERFORM: rows T1-T8 (unused T5-T8 dim, EMPTY), ALL, SCENE,
+SONG, SWITCH AT. While playing, a green square lights next to tracks that
+are sounding. **R1** goes to RECORD, **R1** again back.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P2. Mute, solo, all
+1. Play. On T1 press **A** (mute), then **A** again. On T2 press **B** (solo), then **B** again.
+2. On ALL press **A**, then **A** again. Solo two tracks, then **B** on ALL.
+
+**Expected:** 1: T1 drops out and comes back; only T2 plays while soloed.
+2: everything mutes, then everything plays; B on ALL clears both solos.
+Same mutes show on the GRID's track boxes.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P3. Density
+1. Play. On a melodic track press **left** five times (DENSITY -50), listen; then **right** ten times (+50).
+2. Do the same on the drum track.
+
+**Expected:** -50: noticeably fewer notes, the first beat mostly kept. +50:
+extra softer notes in the gaps, using the track's own notes. Drums: fewer
+hits / soft extra hats and snares, the kick never gets extras. The GRID
+pattern itself does not change. Back at 0 it plays exactly as written.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P3b. Fills
+1. Play. On the drum track's row **hold X** for a bar, then let go.
+2. On a melodic track hold **X**; then on **ALL** hold **X**.
+
+**Expected:** 1: hats on every 16th and a snare roll rising through the
+second half of each bar while held; the kick stays as it was; letting go
+puts the beat straight back. 2: the track plays every step, the last beat
+of each bar an octave higher; ALL does it on every track at once. **FILL**
+shows next to the track while held.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P4. Evolve from the page
+1. On a track with EVOLVE OFF, hold **Y** and press **right** twice (or push the stick up).
+
+**Expected:** EVOLVE reads 20% (stick: 5% a push) and the pattern starts
+changing every 4 bars (GENERATE shows EVERY 4 BARS).
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P5. Save a scene and switch at the bar
+1. On **SCENE 1** press **X** (saves every track into slot 1).
+2. Change a few steps on the GRID, or roll a track. Back on PERFORM, **SCENE 2**, **X**.
+3. Play. Pick **SCENE 1**, press **A** in the middle of a bar.
+
+**Expected:** the row and the header show **SCENE 1 IN 4 ... IN 1**; on the
+next bar line every track switches to its scene-1 pattern together. **B**
+before the bar line cancels.
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P6. Switch every 4 bars
+1. **SWITCH AT** 4 BARS. Play, queue SCENE 2 in bar 2.
+
+**Expected:** the countdown shows **IN 3 BARS**, then **IN 2 BARS**, then
+beats, and the switch happens on the bar-5 line (counted from Start).
+
+[ ] PASS  [ ] FAIL   Note: ______________________________
+
+### P7. Queue a song
+1. Save two different songs on M > SONG SAVE (say 1 and 2).
+2. With song 1 playing, PERFORM > **SONG 2** > **A**.
+
+**Expected:** **SONG 2 IN ...** counts down, then song 2 comes in on the
+bar line without a stop, no stuck notes, the FM1 keeps its clock. The
+header briefly says NOW PLAYING SONG 2. RECORD settings are unchanged.
 
 [ ] PASS  [ ] FAIL   Note: ______________________________
