@@ -275,7 +275,7 @@ static void live_ui_poll(Ui *u) {
     player_unlock(u->p);
     if (k < 0) return;
     u->cur_song = k;
-    u->undo_track = -1;   /* GENERATE's X must not undo into another song */
+    if (u->hist) hist_clear(u->hist);   /* undo must not step back into the old song */
     u->on_label = u->drum_label = 0;
     song_say(u, "NOW PLAYING", k);
 }

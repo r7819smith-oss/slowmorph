@@ -811,6 +811,41 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
   - Not built: chord-aware *generation* (the generators still write in the
     scale; the progression is applied on playback), and a progression
     editor (presets only).
+- **Quicker navigation, HELP and a multi-step undo (2026-11-22, Roy's list
+  item 9).**
+  - **M acts on release.** A tap opens / closes the main menu as before.
+    Held for 300 ms (or with the d-pad pressed while held) it shows the
+    **jump panel**: 18 tiles (GRID, STEP, TRACK, GENERATE, PIANO ROLL / DRUM
+    GRID, ALL STEPS, MAIN MENU, PATTERNS, SONGS, DRUM MAP, MIDI OUT, DEVICE,
+    MODULATION, PERFORM, ARRANGE, RECORD, HISTORY, HELP), 4 columns. D-pad
+    picks, letting go of M goes there, A goes at once, B cancels, L2/R2
+    changes the track. It starts on the page before this one, so a hold and
+    let go flips between two pages. Decisions made without asking: hold
+    time 300 ms; a page opened from the panel returns (B / M) like one
+    opened from the menu; Start still plays/stops while M is held.
+  - **HELP** (new menu row and tile): the controls of the page you came
+    from, then EVERYWHERE. Text lives in `src/help.c`, keyed by page name;
+    add a page there when you add one to the UI.
+  - **Undo history** (`src/history.c`): before each button press the UI
+    snapshots every track's pattern (steps incl. ratchet/condition, drum
+    lanes incl. their ratchets/conditions, drum step locks, length, CHORD
+    row, MONO/POLY); if the press changed it, the old snapshot goes on a
+    32-deep history. Select + X undo, Select + B redo (new), and every old
+    undo button (GENERATE X, hold X on the track box) now uses it.
+    Repeats of the same change (same page, track, row/step and button kind
+    within 1.5 s) merge into one entry; grid A toggles and rolls never
+    merge. Entries are labelled (`ROLL T2`, `REVERSE T3`, `STEP S5 T1`,
+    `VELOCITY S3 T1`). **M > UNDO HISTORY** lists them with NOW and the
+    redo lines above it; A on a line goes back or forward to it.
+    Decisions made without asking: settings (channel, mute, tempo,
+    generator rows, harmony, modulation) are not in the history; evolution
+    and chain changes made while playing are dropped by an undo (undo goes
+    back to the pattern as it was before the edit); loading a song, or a
+    song switch from PERFORM, clears the history; the history is not saved.
+    Memory: about 7 KB per entry with 8 tracks, 0.5 MB in all.
+  - Tests: `tests/test_history.c` (undo/redo, merging, depth, fields);
+    harness screenshots `jump-*`, `help-*`, `undo-history*`, `grid-undo-*`.
+    On-device: `tests/hardware-sheet-nav.md` (checklist D14).
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -852,6 +887,10 @@ Works and tested on desktop Linux:
 
 ## Next steps (suggested order)
 
+0. **Run the combined overnight sheet first:** `tests/hardware-sheet-overnight.md`
+   (59 tests in four parts: A tracks 5-8, B polymeter / ratchets / harmony,
+   C live and recording, D navigation and undo). It holds the four sheets
+   below in one file.
 0. Run `tests/hardware-sheet-8tracks.md` (checklist D11, 10 tests: page 2
    of tracks, T5-T8 on a second instrument, saves and songs).
 0. Run `tests/hardware-sheet-live.md` (live playing and recording,
@@ -1510,6 +1549,19 @@ Full sheet: `tests/hardware-sheet-rhythm.md` part 3 (tests 13-17).
 4. [ ] KEY CHANGE > MOVE ALL: ROOT C to D moves every note track at the next bar.
 5. [ ] Saved after a restart.
 
+**D14. Quick navigation, HELP and undo history (2026-11-22)**
+
+Full sheet: `tests/hardware-sheet-nav.md`, also part D of the combined
+overnight sheet `tests/hardware-sheet-overnight.md`.
+
+1. [ ] A tap of M opens and closes the menu as before.
+2. [ ] Holding M shows the jump panel; letting go goes to the picked page.
+3. [ ] Hold-and-let-go flips back to the last page; B cancels; L2/R2 changes track.
+4. [ ] HELP shows the current page's buttons, then EVERYWHERE.
+5. [ ] Select + X undoes several edits in turn; Select + B redoes.
+6. [ ] M > UNDO HISTORY: A on a line goes back (or forward) to it.
+7. [ ] Loading a song clears the history.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1586,6 +1638,7 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Tracks 5-8 (D11, `tests/hardware-sheet-8tracks.md`) | not tested yet |
 | Ratchets and trig conditions (D12, `tests/hardware-sheet-rhythm.md` part 2) | not tested yet |
 | Harmony and key changes (D13, `tests/hardware-sheet-rhythm.md` part 3) | not tested yet |
+| Quick navigation, HELP, undo history (D14, `tests/hardware-sheet-nav.md`) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 
@@ -2083,6 +2136,10 @@ Esc = quit. `./seq4h --dump-input` prints the whole map.
 - `src/live.c`, `live.h`: M > LIVE + RECORD engine side (count-in, song length, stop at the bar, Song Position, start mark); `tests/test_live.c`
 - `src/ui_live.c`: the M > LIVE pages, included by `ui.c`
 - `tests/hardware-sheet-live.md`: on-device tests for M > LIVE + RECORD
+- `src/history.c`, `history.h`: the undo history (pattern snapshots, undo/redo, merging); `tests/test_history.c`
+- `src/help.c`, `help.h`: the HELP page text, per page
+- `tests/hardware-sheet-nav.md`: on-device tests for the jump panel, HELP and undo
+- `tests/hardware-sheet-overnight.md`: the 2026-11-22 overnight build's four sheets in one (8 tracks, rhythm, live, navigation)
 - `src/mod.c`, `mod.h`: M > MODULATION: LFOs, CC destinations, the MIDI input parser, monitor and learn; `tests/test_mod.c`
 - `tests/hardware-sheet-mod.md`: 10 on-device tests for the modulation module
 - `src/player.c`: timing thread and lock

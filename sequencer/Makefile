@@ -15,7 +15,7 @@ else
   $(warning ALSA not found: building without MIDI hardware output)
 endif
 
-SRC := src/main.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c src/song.c src/player.c src/midi_null.c src/midi_capture.c src/ui.c src/device.c src/input.c src/battery.c src/usbinfo.c $(MIDI_SRC)
+SRC := src/main.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c src/song.c src/player.c src/midi_null.c src/midi_capture.c src/ui.c src/history.c src/help.c src/device.c src/input.c src/battery.c src/usbinfo.c $(MIDI_SRC)
 
 all: seq4h
 
@@ -38,6 +38,7 @@ test: tests/test_engine tests/test_mod tests/test_gen tests/test_ambient tests/t
 	./tests/test_input
 	./tests/test_battery
 	./tests/test_usbinfo
+	./tests/test_history
 
 tests/test_engine: tests/test_engine.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_engine.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
@@ -74,6 +75,11 @@ tests/test_live: tests/test_live.c src/song.c src/engine.c src/gen.c src/drum.c 
 
 tests/test_song: tests/test_song.c src/song.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c $(wildcard src/*.h)
 	$(CC) $(CFLAGS) -o $@ tests/test_song.c src/song.c src/engine.c src/gen.c src/drum.c src/mod.c src/live.c
+
+test: tests/test_history   # the undo history (see test: above for the rest)
+
+tests/test_history: tests/test_history.c src/history.c src/live.c src/engine.c src/gen.c src/drum.c src/mod.c $(wildcard src/*.h)
+	$(CC) $(CFLAGS) -o $@ tests/test_history.c src/history.c src/live.c src/engine.c src/gen.c src/drum.c src/mod.c
 
 tests/test_battery: tests/test_battery.c src/battery.c src/battery.h
 	$(CC) $(CFLAGS) -o $@ tests/test_battery.c src/battery.c
@@ -125,6 +131,7 @@ screenshots: seq4h
 
 clean:
 	rm -f seq4h seq4h-render tests/test_engine tests/test_mod tests/test_mod_asan tests/test_engine_asan tests/test_drum_asan tests/test_song_asan tests/test_poly_asan tests/test_rhythm tests/test_rhythm_asan tests/test_harmony tests/test_harmony_asan tests/test_gen tests/test_ambient tests/test_poly tests/test_drum tests/test_lock tests/test_input tests/test_battery tests/test_usbinfo tests/test_song tests/test_device
+	rm -f tests/test_history
 	rm -rf out
 
 .PHONY: all test test-asan check screenshots clean

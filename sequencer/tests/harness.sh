@@ -159,6 +159,15 @@ screenshots)
         [ -f "$OUT/shots/$name.bmp" ] || note "- **FAIL** $name: no screenshot written"
     done <<'EOF'
 grid-demo|
+jump-panel|+m,Down
+jump-pick-go|+m,Down,Right,-m
+jump-cancelled|+m,Down,x,-m
+help-grid|+m,Up,Up,Right,-m
+help-step|w,m,Up,Up,Up,z
+undo-history|Right,z,Right,z,Right,Right,v,c,Down,Down,Right,Right,Right,x,m,Up,Up,Up,Up,z
+undo-history-redo|Right,z,Right,z,Right,Right,v,c,Down,Down,Right,Right,Right,x,m,Up,Up,Up,Up,z,+Tab,c,c,-Tab
+grid-undo-twice|Right,z,Right,z,Right,z,+Tab,c,c,-Tab
+grid-undo-redo|Right,z,Right,z,Right,z,+Tab,c,c,x,-Tab
 grid-tracks-5-8|Up
 grid-t5-step-on|Down,Down,Down,Down,Right,z,Right,Right,z
 grid-t5-label|Down,Down,Down,Down,Left
@@ -331,6 +340,8 @@ EOF
         --differ drums-page drums-step-locked --differ all-steps all-steps-drums \
         --differ grid-demo grid-stick-vel --differ grid-demo grid-select-tempo --differ grid-demo grid-select-lock \
         --differ grid-demo grid-stick-roll \
+        --differ grid-demo jump-panel --differ jump-panel jump-pick-go --differ grid-demo help-grid --differ help-grid help-step \
+        --differ undo-history undo-history-redo --differ grid-undo-twice grid-undo-redo \
         --differ record-page record-set --differ grid-demo grid-count-in \
         --differ perform-page perform-edited --differ perform-page perform-scene-queued --differ perform-page perform-record-page --differ perform-page perform-fill --differ arrange-page arrange-built --differ arrange-built arrange-playing \
         > "$OUT/shots/shotcheck.txt" 2>&1
