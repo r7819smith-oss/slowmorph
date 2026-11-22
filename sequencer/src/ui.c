@@ -143,7 +143,7 @@ typedef struct {
     int undo_track;           /* -1 = nothing to undo */
     int xf_op, xf_amt;        /* transform chosen on the generate page, and its amount */
     int slot;                 /* slot chosen on the generate page */
-    int snap;                 /* changing scale moves notes into it */
+    int snap;                 /* KEY CHANGE: 0 keep notes, 1 snap them into the new scale/root, 2 move every note with the root (at the bar) */
     int confirm_new;          /* NEW FROM STYLE was pressed once */
     int plan_style[SEQ_TRACKS];   /* M menu T1-T8 rows: the style each track gets from NEW FROM STYLE, or STYLE_KEEP */
     int plan_part[SEQ_TRACKS];    /* ...and which of that style's parts */
@@ -216,7 +216,8 @@ enum {
     GR_TRACK, GR_GEN, GR_P0, GR_P1, GR_P2, GR_P3, GR_BASE, GR_SPAN,
     GR_EVOLVE, GR_AMOUNT, GR_EVO0, GR_EVO_LAST = GR_EVO0 + 7, GR_MIN, GR_MAX, GR_ANCHOR, GR_PULL,
     GR_XFORM, GR_XAMOUNT, GR_SLOT, GR_STORE, GR_CHAIN, GR_CHAIN_BARS, GR_MORPH,
-    GR_SCALE, GR_ROOT, GR_SNAP, GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST, GEN_ROWS
+    GR_SCALE, GR_ROOT, GR_SNAP, GR_CHORD, GR_SWELL, GR_SWELL_DEPTH, GR_REST,
+    GR_HARM, GR_HARM_BARS, GR_FOLLOW, GEN_ROWS
 };
 static const int EVERY[8] = {0, 1, 2, 4, 8, 16, 32, 64};
 static const int SWELL_BARS[6] = {0, 2, 4, 8, 16, 32};
@@ -237,7 +238,7 @@ static int all_rows(const Seq *s, const Ui *u) { return is_drums(s, u->track) ? 
 
 static int gen_row_is_head(int row) {
     return row == GR_TRACK || row == GR_GEN || row == GR_EVOLVE || row == GR_ANCHOR || row == GR_CHORD || row == GR_XFORM ||
-           row == GR_SLOT || row == GR_SCALE;
+           row == GR_SLOT || row == GR_SCALE || row == GR_HARM;
 }
 
 static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *val) {
@@ -332,8 +333,23 @@ static void gen_row_text(const Seq *s, const Ui *u, int row, char *label, char *
     }
     else if (row == GR_SCALE) { snprintf(label, 24, "SCALE"); snprintf(val, 24, "%s", scale_name(s->scale)); }
     else if (row == GR_ROOT) { static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-           snprintf(label, 24, "ROOT"); snprintf(val, 24, "%s", R[s->root % 12]); }
-    else if (row == GR_SNAP) { snprintf(label, 24, "  SNAP NOTES"); snprintf(val, 24, "%s", u->snap ? "ON" : "OFF"); }
+           snprintf(label, 24, "ROOT");
+           if (s->key_next >= 0) snprintf(val, 24, "%s TO %s AT BAR", R[s->root % 12], R[s->key_next % 12]);
+           else snprintf(val, 24, "%s", R[s->root % 12]); }
+    else if (row == GR_SNAP) {
+        static const char *K[3] = {"KEEP NOTES", "SNAP INTO KEY", "MOVE ALL (BAR)"};
+        snprintf(label, 24, "  KEY CHANGE"); snprintf(val, 24, "%s", K[u->snap % 3]);
+    }
+    else if (row == GR_HARM) {
+        snprintf(label, 24, "HARMONY");
+        if (s->harm) snprintf(val, 24, "%s  NOW %s", gen_harm_name(s->harm), gen_harm_roman(gen_harm_degree(s, s->tick)));
+        else snprintf(val, 24, "OFF");
+    }
+    else if (row == GR_HARM_BARS) { snprintf(label, 24, "  BARS EACH"); snprintf(val, 24, "%d", s->harm_bars); }
+    else if (row == GR_FOLLOW) {
+        snprintf(label, 24, "  T%d FOLLOWS", t + 1);
+        snprintf(val, 24, "%s", tr->type == TRACK_DRUMS || style_part_is_drums(tr->style, tr->part) ? "- (DRUMS)" : gen_harm_mode_name(tr->harm_mode));
+    }
 }
 
 static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
@@ -408,9 +424,27 @@ static void gen_row_adjust(Seq *s, Ui *u, int row, int d, int big) {
         tr->chain_bars = (uint8_t)CHAIN_BARS[clampi(i + d, 0, 4)];
     }
     else if (row == GR_MORPH) tr->chain_morph = (uint8_t)clampi(tr->chain_morph + 5 * d * (big ? 2 : 1), 0, 100);
-    else if (row == GR_SCALE) seq_set_scale(s, wrap(s->scale + d, scale_count()), s->root, u->snap);
+    else if (row == GR_SCALE) seq_set_scale(s, wrap(s->scale + d, scale_count()), s->root, u->snap != 0);
+    else if (row == GR_ROOT && u->snap == 2) {   /* every note moves with the root, at the next bar line while playing */
+        gen_key_move_at_bar(s, wrap((s->key_next >= 0 ? s->key_next : s->root) + d, 12));
+        if (s->key_next == s->root) s->key_next = -1;   /* back where it is: nothing to do */
+    }
     else if (row == GR_ROOT) seq_set_scale(s, s->scale, wrap(s->root + d, 12), u->snap);
-    else if (row == GR_SNAP) u->snap ^= 1;
+    else if (row == GR_SNAP) u->snap = wrap(u->snap + d, 3);
+    else if (row == GR_HARM) {
+        s->harm = wrap(s->harm + d, HP_COUNT);
+        if (s->harm == HP_DRIFT) s->harm_drift = 0;
+    }
+    else if (row == GR_HARM_BARS) {
+        static const int HB[4] = {1, 2, 4, 8};
+        int i = 0;
+        while (i < 3 && HB[i] < s->harm_bars) i++;
+        s->harm_bars = HB[clampi(i + d, 0, 3)];
+    }
+    else if (row == GR_FOLLOW) {
+        if (tr->type == TRACK_DRUMS || style_part_is_drums(tr->style, tr->part)) say(u, "DRUM PARTS DON'T FOLLOW HARMONY");
+        else { seq_track_release(s, u->track); tr->harm_mode = (uint8_t)wrap(tr->harm_mode + d, HARM_COUNT); }
+    }
 }
 
 static void say(Ui *u, const char *m) { u->msg = m; u->msg_until = SDL_GetTicks() + 2500; }
@@ -2211,7 +2245,8 @@ static void draw_header(SDL_Renderer *r, const Seq *s, const Ui *u, const char *
     snprintf(buf, sizeof buf, "T%d", u->track + 1);
     text(r, 200, 46, 1, TRACK_COL[u->track], buf);
     static const char *R[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    snprintf(buf, sizeof buf, "%s %s", R[s->root % 12], scale_name(s->scale));
+    if (s->harm) snprintf(buf, sizeof buf, "%s %s  %s", R[s->root % 12], scale_name(s->scale), gen_harm_roman(gen_harm_degree(s, s->tick)));
+    else snprintf(buf, sizeof buf, "%s %s", R[s->root % 12], scale_name(s->scale));
     text(r, 260, 46, 1, DIM, buf);
     if (u->msg && SDL_GetTicks() < u->msg_until) text(r, 400, 46, 1, YELLOW, u->msg);
     if (u->show_input) {   /* e.g. "JOY 10 = START": raw code, then the seq4h button it is mapped to */

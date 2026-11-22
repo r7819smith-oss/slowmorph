@@ -186,6 +186,9 @@ typedef struct {
     uint8_t lrat_r[SEQ_LANES], lrat_k[SEQ_LANES], lrat_vel[SEQ_LANES];
     uint32_t lrat_t0[SEQ_LANES];
     uint8_t pre;                /* result of the track's last A:B / FIRST condition, for PRE (not saved) */
+    /* FOLLOW HARMONY (HARM_*, gen.h): how this track's notes follow the
+     * HARMONY progression as they are sent. The pattern is unchanged. */
+    uint8_t harm_mode;
 } SeqTrack;
 
 /* Live playing and recording (M > LIVE; live.h has the functions). The
@@ -261,6 +264,11 @@ typedef struct {
     uint8_t lane_note[SEQ_LANES];                 /* DRUM MAP: MIDI note of each lane, shared by every drum track */
     char lane_name[SEQ_LANES][SEQ_LANE_NAME + 1];
     int aud_note, aud_ch, aud_left;               /* a note auditioned from the UI: ticks until its note-off (0 = none) */
+    /* HARMONY: a chord progression every note track can follow (see gen.h). */
+    int harm;           /* HARMONY preset (HP_*); 0 = off */
+    int harm_bars;      /* bars per chord: 1, 2, 4 or 8 */
+    int harm_drift;     /* the DRIFT preset's current chord, a scale degree 0..6 (not saved) */
+    int key_next;       /* KEY MOVE waiting for the next bar line: the new root 0..11, or -1 (not saved) */
     int realign;        /* REALIGN: every this many bars, tracks that are not on their step 1 jump back to it (0 = never) */
     Mod mod;                                      /* M > MODULATION: LFOs sending CCs (mod.h) */
     Arrange arr;                                  /* M > LIVE: ARRANGE (live.h); saved with the song */

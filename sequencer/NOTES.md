@@ -783,6 +783,34 @@ probability and chance. Effects, CCs and sound design are left to the FM1.
     them; older files load with no ratchets or conditions.
   - Generators keep a step's ratchet and condition where they are, as they
     do its OFFSET: they belong to the step position.
+- **Harmony and key changes (2026-11-22, Roy's list item 6).**
+  - **HARMONY** (GENERATE, after RESTS; one setting for all tracks): OFF,
+    I-IV, I-V, I-VI-IV-V, I-V-VI-IV, VI-IV-I-V, II-V-I-I, I-VII-VI-VII,
+    I-III-IV-I, DRIFT. Chords are scale degrees of the current scale (so in
+    a pentatonic scale they are built from its 5 notes). **BARS EACH**: 1,
+    2 (default), 4 or 8 bars per chord, counted from Start. DRIFT picks a
+    nearby chord at random at each change (I most, then IV, V, VI; never
+    the same twice running). The current chord shows in the header.
+  - **FOLLOWS** (per track, the row under BARS EACH): OFF, MOVE (the line
+    moves up the scale by the chord's degree), CHORD TONES (each note to
+    the nearest note of the chord's triad), ROOT (BASS) (each note becomes
+    the chord's root, at or below where it was written). Applied as notes
+    are sent, like CHORD and SWELL: the grid, slots and generators are
+    unchanged, so turning HARMONY off gives the pattern back. A step's
+    chord notes and the CHORD row follow the moved note. Drum tracks and
+    note tracks that play a style's drum part never follow.
+  - Defaults: every track MOVE (only heard once HARMONY is on); NEW FROM
+    STYLE sets parts named BASS or SUB to ROOT and drum parts to OFF.
+  - **KEY CHANGE** (was SNAP NOTES): KEEP NOTES, SNAP INTO KEY (as before),
+    or **MOVE ALL (BAR)**: changing ROOT moves every note track's notes
+    (live, anchor, slots, LOWEST NOTE) by the interval, the shorter way
+    round; while playing it waits for the next bar line (the ROOT row reads
+    `C TO D AT BAR`), stopped it is at once. A SCALE change in MOVE mode
+    snaps, as SNAP does.
+  - Saved as `harm PRESET BARS` and `hf T MODE` (only when not MOVE).
+  - Not built: chord-aware *generation* (the generators still write in the
+    scale; the progression is applied on playback), and a progression
+    editor (presets only).
 - **Shrub was dropped** as the target firmware (it is single-channel and has no
   Bluetooth MIDI). Felucca is the target.
 
@@ -1472,6 +1500,16 @@ Full sheet: `tests/hardware-sheet-rhythm.md` part 2 (tests 7-12).
 5. [ ] TRANSFORM RATCHET and VARY; BY 0 clears; EVO RATCHET+COND drifts them.
 6. [ ] Saved with slots, anchor and restart.
 
+**D13. Harmony and key changes (2026-11-22)**
+
+Full sheet: `tests/hardware-sheet-rhythm.md` part 3 (tests 13-17).
+
+1. [ ] GENERATE > HARMONY I-VI-IV-V: the set moves through the chords every 2 bars; header shows the chord.
+2. [ ] FOLLOWS: OFF / MOVE / CHORD TONES / ROOT (BASS) each do what they say; drums never move.
+3. [ ] DRIFT wanders between nearby chords.
+4. [ ] KEY CHANGE > MOVE ALL: ROOT C to D moves every note track at the next bar.
+5. [ ] Saved after a restart.
+
 **E. Long run and power**
 
 1. [ ] Note the battery % on both devices. Play 30 minutes at 120 BPM with
@@ -1547,6 +1585,7 @@ and send `genvolve.log` (`seq4h.log` on builds before the rename) (and `usb-midi
 | Polymeter and Euclidean rhythms (D10, `tests/hardware-sheet-rhythm.md` part 1) | not tested yet |
 | Tracks 5-8 (D11, `tests/hardware-sheet-8tracks.md`) | not tested yet |
 | Ratchets and trig conditions (D12, `tests/hardware-sheet-rhythm.md` part 2) | not tested yet |
+| Harmony and key changes (D13, `tests/hardware-sheet-rhythm.md` part 3) | not tested yet |
 | Hub | not tested yet |
 | Polyphonic tracks (PR 31) | not tested yet; checklist D6 |
 

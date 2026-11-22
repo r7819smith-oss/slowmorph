@@ -148,6 +148,39 @@ const char *gen_chord_name(int chord);
  * `note` itself, all <= 127). Returns how many (0..SEQ_CHORD_MAX). */
 int gen_chord_notes(const Seq *s, int note, int chord, uint8_t out[SEQ_CHORD_MAX]);
 
+/* HARMONY: chord progressions in scale degrees (0 = the chord on the
+ * scale's root, I; 3 = IV ...). Each chord lasts Seq.harm_bars bars, counted
+ * from Start. DRIFT wanders: each change picks a nearby chord at random. */
+enum { HP_OFF, HP_I_IV, HP_I_V, HP_I_VI_IV_V, HP_I_V_VI_IV, HP_VI_IV_I_V, HP_II_V_I, HP_I_VII_VI_VII, HP_I_III_IV_I,
+       HP_DRIFT, HP_COUNT };
+const char *gen_harm_name(int preset);              /* "I-VI-IV-V", "DRIFT", "OFF" */
+/* Scale degree of the chord playing at `tick` (0 when HARMONY is off). */
+int  gen_harm_degree(const Seq *s, uint32_t tick);
+/* Roman numeral of a chord degree ("IV"). */
+const char *gen_harm_roman(int degree);
+/* At a bar line (bar counts from 1): DRIFT picks its next chord. */
+void gen_harm_bar(Seq *s, uint32_t bar);
+/* FOLLOW HARMONY modes of a track:
+ * OFF   - the notes play as written;
+ * MOVE  - the whole line moves up the scale by the chord's degree (a riff
+ *         written on I is played on IV, V ...);
+ * CHORD - each note goes to the nearest note of the chord (triad), so a
+ *         melody keeps its shape but always fits;
+ * ROOT  - each note becomes the chord's root, at or just below where it
+ *         was: a bass that follows the chords. */
+enum { HARM_OFF, HARM_MOVE, HARM_CHORD, HARM_ROOT, HARM_COUNT };
+const char *gen_harm_mode_name(int mode);
+/* The note a track in `mode` sends for `note` while chord `degree` plays. */
+int  gen_harm_note(const Seq *s, int note, int degree, int mode);
+/* KEY MOVE: change the root to new_root and move every note track's notes
+ * (live pattern, anchor, slots, LOWEST NOTE) by the same interval, the
+ * shorter way round (up to 6 semitones up or 5 down). Drum tracks and note
+ * tracks that play a drum part stay. */
+void gen_key_move(Seq *s, int new_root);
+/* The same, waiting for the next bar line while playing (a stopped
+ * sequencer moves at once). Pressing again before the bar changes the target. */
+void gen_key_move_at_bar(Seq *s, int new_root);
+
 const char *gen_xform_name(int op);
 void gen_transform(Seq *s, int t, int op, int amount);
 
